@@ -1,5 +1,5 @@
 import { router, usePathname } from "expo-router";
-import { FolderPlus, Home, MessagesSquare, Settings, X } from "lucide-react-native";
+import { CalendarClock, FolderPlus, Home, MessagesSquare, Settings, X } from "lucide-react-native";
 import {
   type Dispatch,
   memo,
@@ -59,6 +59,7 @@ import { formatConnectionStatus } from "@/utils/daemons";
 import { useWindowControlsPadding } from "@/utils/desktop-window";
 import {
   buildHostOpenProjectRoute,
+  buildHostSchedulesRoute,
   buildHostSessionsRoute,
   buildSettingsRoute,
   mapPathnameToServer,
@@ -111,12 +112,14 @@ interface MobileSidebarProps extends SidebarSharedProps {
   isOpen: boolean;
   closeToAgent: () => void;
   handleViewMoreNavigate: () => void;
+  handleViewSchedulesNavigate: () => void;
 }
 
 interface DesktopSidebarProps extends SidebarSharedProps {
   insetsTop: number;
   isOpen: boolean;
   handleViewMore: () => void;
+  handleViewSchedules: () => void;
 }
 
 export const LeftSidebar = memo(function LeftSidebar({
@@ -243,6 +246,13 @@ export const LeftSidebar = memo(function LeftSidebar({
     router.push(buildHostSessionsRoute(activeServerId));
   }, [activeServerId]);
 
+  const handleViewSchedulesNavigate = useCallback(() => {
+    if (!activeServerId) {
+      return;
+    }
+    router.push(buildHostSchedulesRoute(activeServerId));
+  }, [activeServerId]);
+
   const handleHostSelect = useCallback(
     (nextServerId: string) => {
       if (!nextServerId) {
@@ -288,6 +298,7 @@ export const LeftSidebar = memo(function LeftSidebar({
         handleHome={handleHomeMobile}
         handleSettings={handleSettingsMobile}
         handleViewMoreNavigate={handleViewMoreNavigate}
+        handleViewSchedulesNavigate={handleViewSchedulesNavigate}
       />
     );
   }
@@ -301,6 +312,7 @@ export const LeftSidebar = memo(function LeftSidebar({
       handleHome={handleHomeDesktop}
       handleSettings={handleSettingsDesktop}
       handleViewMore={handleViewMoreNavigate}
+      handleViewSchedules={handleViewSchedulesNavigate}
     />
   );
 });
@@ -532,9 +544,11 @@ function MobileSidebar({
   isOpen,
   closeToAgent,
   handleViewMoreNavigate,
+  handleViewSchedulesNavigate,
 }: MobileSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
+  const isSchedulesActive = pathname.includes("/schedules");
   const {
     translateX,
     backdropOpacity,
@@ -566,6 +580,23 @@ function MobileSidebar({
     backdropOpacity,
     closeToAgent,
     handleViewMoreNavigate,
+    translateX,
+    windowWidth,
+  ]);
+
+  const handleViewSchedules = useCallback(() => {
+    if (!activeServerId) {
+      return;
+    }
+    translateX.value = -windowWidth;
+    backdropOpacity.value = 0;
+    closeToAgent();
+    handleViewSchedulesNavigate();
+  }, [
+    activeServerId,
+    backdropOpacity,
+    closeToAgent,
+    handleViewSchedulesNavigate,
     translateX,
     windowWidth,
   ]);
@@ -705,6 +736,13 @@ function MobileSidebar({
               isActive={isSessionsActive}
               testID="sidebar-sessions"
             />
+            <SidebarHeaderRow
+              icon={CalendarClock}
+              label="Schedules"
+              onPress={handleViewSchedules}
+              isActive={isSchedulesActive}
+              testID="sidebar-schedules"
+            />
             <Pressable
               style={styles.mobileCloseButton}
               onPress={closeToAgent}
@@ -789,9 +827,11 @@ function DesktopSidebar({
   insetsTop,
   isOpen,
   handleViewMore,
+  handleViewSchedules,
 }: DesktopSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
+  const isSchedulesActive = pathname.includes("/schedules");
   const padding = useWindowControlsPadding("sidebar");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
@@ -866,6 +906,13 @@ function DesktopSidebar({
             onPress={handleViewMore}
             isActive={isSessionsActive}
             testID="sidebar-sessions"
+          />
+          <SidebarHeaderRow
+            icon={CalendarClock}
+            label="Schedules"
+            onPress={handleViewSchedules}
+            isActive={isSchedulesActive}
+            testID="sidebar-schedules"
           />
         </View>
 
