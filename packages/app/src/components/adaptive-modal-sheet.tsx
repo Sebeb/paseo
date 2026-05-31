@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useMemo } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useRef } from "react";
 import type { ReactNode, Ref } from "react";
 import { createPortal } from "react-dom";
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -20,6 +20,7 @@ import {
   useIsolatedBottomSheetVisibility,
 } from "@/components/ui/isolated-bottom-sheet-modal";
 import { isNative, isWeb } from "@/constants/platform";
+import { useWebScrollViewScrollbar } from "@/components/use-web-scrollbar";
 
 // Horizontal indent token shared by the sheet header (title, back arrow,
 // leading icon, search input icon) and any row primitive rendered inside the
@@ -175,6 +176,11 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[2],
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
+  },
+  desktopScrollContainer: {
+    flexShrink: 1,
+    minHeight: 0,
+    position: "relative",
   },
   desktopScroll: {
     flexShrink: 1,
@@ -442,6 +448,11 @@ export interface AdaptiveModalSheetProps {
   /** When provided, wraps the card content in a FileDropZone. */
   onFilesDropped?: (files: ImageAttachment[]) => void;
   scrollable?: boolean;
+  /**
+   * Render the themed desktop-web scrollbar over the scroll area instead of the
+   * native browser scrollbar. No-op on native and on the mobile bottom sheet.
+   */
+  webScrollbar?: boolean;
 }
 
 export function AdaptiveModalSheet({
@@ -455,9 +466,14 @@ export function AdaptiveModalSheet({
   desktopMaxWidth,
   onFilesDropped,
   scrollable = true,
+  webScrollbar = false,
 }: AdaptiveModalSheetProps) {
   const { theme } = useUnistyles();
   const isMobile = useIsCompactFormFactor();
+  const desktopScrollRef = useRef<ScrollView>(null);
+  const desktopScrollbar = useWebScrollViewScrollbar(desktopScrollRef, {
+    enabled: webScrollbar && !isMobile,
+  });
   const resolvedSnapPoints = useMemo(() => snapPoints ?? ["65%", "90%"], [snapPoints]);
   const handleIndicatorStyle = useMemo(
     () => ({ backgroundColor: theme.colors.surface2 }),
@@ -524,13 +540,22 @@ export function AdaptiveModalSheet({
     <>
       <SheetHeaderView header={header} onClose={onClose} />
       {scrollable ? (
-        <ScrollView
-          style={styles.desktopScroll}
-          contentContainerStyle={styles.desktopContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {children}
-        </ScrollView>
+        <View style={styles.desktopScrollContainer}>
+          <ScrollView
+            ref={desktopScrollRef}
+            style={styles.desktopScroll}
+            contentContainerStyle={styles.desktopContent}
+            keyboardShouldPersistTaps="handled"
+            onLayout={desktopScrollbar.onLayout}
+            onScroll={desktopScrollbar.onScroll}
+            onContentSizeChange={desktopScrollbar.onContentSizeChange}
+            scrollEventThrottle={16}
+            showsVerticalScrollIndicator={!webScrollbar}
+          >
+            {children}
+          </ScrollView>
+          {desktopScrollbar.overlay}
+        </View>
       ) : (
         <View style={styles.desktopStaticContent}>{children}</View>
       )}
