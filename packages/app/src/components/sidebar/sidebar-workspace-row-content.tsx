@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -22,6 +22,10 @@ import { GitHubIcon } from "@/components/icons/github-icon";
 import { WorkspaceHoverCard } from "@/components/workspace-hover-card";
 import { SyncedLoader } from "@/components/synced-loader";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
+import {
+  HostLabelMapContext,
+  MultiHostProjectKeysContext,
+} from "@/components/sidebar-workspace-list";
 import type { Theme } from "@/styles/theme";
 import type { PrHint } from "@/git/use-pr-status-query";
 import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
@@ -111,6 +115,16 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   showShortcutBadge?: boolean;
   children?: ReactNode;
 }) {
+  const hostLabelMap = useContext(HostLabelMapContext);
+  const multiHostProjectKeys = useContext(MultiHostProjectKeysContext);
+
+  const effectiveSubtitle = useMemo(() => {
+    if (!multiHostProjectKeys.has(workspace.projectKey)) return subtitle;
+    const hostLabel = hostLabelMap.get(workspace.serverId);
+    if (!hostLabel) return subtitle;
+    return subtitle ? `${subtitle} · ${hostLabel}` : hostLabel;
+  }, [subtitle, multiHostProjectKeys, hostLabelMap, workspace.projectKey, workspace.serverId]);
+
   const workspaceBranchTextStyle = useMemo(
     () => [
       styles.workspaceBranchText,
@@ -142,9 +156,9 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
           <SidebarWorkspaceShortcutBadge number={shortcutNumber} />
         </View>
       ) : null}
-      {subtitle ? (
+      {effectiveSubtitle ? (
         <Text style={styles.workspaceSubtitle} numberOfLines={1}>
-          {subtitle}
+          {effectiveSubtitle}
         </Text>
       ) : null}
       {workspace.prHint ? (

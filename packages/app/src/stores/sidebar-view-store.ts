@@ -5,37 +5,38 @@ import { createJSONStorage, persist } from "zustand/middleware";
 export type SidebarGroupMode = "project" | "status";
 
 interface SidebarViewStoreState {
-  groupModeByServerId: Record<string, SidebarGroupMode>;
-  getGroupMode: (serverId: string) => SidebarGroupMode;
-  setGroupMode: (serverId: string, mode: SidebarGroupMode) => void;
+  groupMode: SidebarGroupMode;
+  hostFilter: string | null;
+  setGroupMode: (mode: SidebarGroupMode) => void;
+  setHostFilter: (serverId: string | null) => void;
 }
 
 export const useSidebarViewStore = create<SidebarViewStoreState>()(
   persist(
-    (set, get) => ({
-      groupModeByServerId: {},
-      getGroupMode: (serverId) => {
-        const key = serverId.trim();
-        if (!key) return "project";
-        return get().groupModeByServerId[key] ?? "project";
-      },
-      setGroupMode: (serverId, mode) => {
-        const key = serverId.trim();
-        if (!key) return;
-        set((state) => ({
-          groupModeByServerId: {
-            ...state.groupModeByServerId,
-            [key]: mode,
-          },
-        }));
-      },
+    (set) => ({
+      groupMode: "project",
+      hostFilter: null,
+      setGroupMode: (mode) => set({ groupMode: mode }),
+      setHostFilter: (serverId) => set({ hostFilter: serverId }),
     }),
     {
-      name: "sidebar-group-mode",
+      name: "sidebar-view",
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
-        groupModeByServerId: state.groupModeByServerId,
+        groupMode: state.groupMode,
+        hostFilter: state.hostFilter,
       }),
+      migrate: (persistedState: unknown) => {
+        const state = persistedState as
+          | { groupModeByServerId?: Record<string, SidebarGroupMode> }
+          | undefined;
+        if (state?.groupModeByServerId) {
+          const values = Object.values(state.groupModeByServerId);
+          const mode = values.length > 0 ? values[0] : "project";
+          return { groupMode: mode, hostFilter: null };
+        }
+        return persistedState as SidebarViewStoreState;
+      },
     },
   ),
 );

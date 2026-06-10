@@ -38,7 +38,9 @@ function project(overrides: Partial<SidebarProjectEntry> = {}): SidebarProjectEn
     projectName: "paseo",
     projectKind,
     iconWorkingDir: "/repo",
-    canCreateWorktree: overrides.canCreateWorktree ?? projectKind === "git",
+    hosts: overrides.hosts ?? [
+      { serverId: "srv", iconWorkingDir: "/repo", canCreateWorktree: projectKind === "git" },
+    ],
     workspaces: [workspace()],
     ...overrides,
   };

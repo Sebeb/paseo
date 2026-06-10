@@ -58,11 +58,11 @@ describe("WorkspaceShortcutTargetsSubscriber", () => {
       collapsedProjectKeys: new Set(),
     });
     useSidebarOrderStore.setState({
-      projectOrderByServerId: {},
-      workspaceOrderByServerAndProject: {},
+      projectOrder: [],
+      workspaceOrderByProject: {},
     });
     useSidebarViewStore.setState({
-      groupModeByServerId: {},
+      groupMode: "project",
     });
 
     act(() => {
@@ -105,7 +105,7 @@ describe("WorkspaceShortcutTargetsSubscriber", () => {
 
   it("publishes status-mode shortcut targets in visual status order", async () => {
     act(() => {
-      useSidebarViewStore.getState().setGroupMode("srv", "status");
+      useSidebarViewStore.getState().setGroupMode("status");
       useSessionStore.getState().setWorkspaces(
         "srv",
         new Map([

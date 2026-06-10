@@ -46,7 +46,13 @@ function project(projectKey: string, workspaces: SidebarWorkspaceEntry[]): Sideb
     projectName: projectKey,
     projectKind: "git",
     iconWorkingDir: workspaces[0]?.workspaceDirectory ?? "",
-    canCreateWorktree: true,
+    hosts: [
+      {
+        serverId: workspaces[0]?.serverId ?? "s1",
+        iconWorkingDir: workspaces[0]?.workspaceDirectory ?? "",
+        canCreateWorktree: true,
+      },
+    ],
     workspaces,
   };
 }

@@ -1,19 +1,24 @@
 import type { WorkspaceDescriptor } from "@/stores/session-store";
 import { projectDisplayNameFromProjectId } from "@/utils/project-display-name";
 
+export interface WorkspaceStructureHostPlacement {
+  serverId: string;
+  iconWorkingDir: string;
+  canCreateWorktree: boolean;
+}
+
 export interface WorkspaceStructureProject {
   projectKey: string;
   projectName: string;
   projectKind: WorkspaceDescriptor["projectKind"];
   iconWorkingDir: string;
+  hosts: WorkspaceStructureHostPlacement[];
   workspaceKeys: string[];
 }
 
 export interface WorkspaceStructure {
   projects: WorkspaceStructureProject[];
 }
-
-const EMPTY_WORKSPACE_STRUCTURE: WorkspaceStructure = { projects: [] };
 
 function compareWorkspaceStructureItems(
   left: { workspaceId: string; workspaceName: string },
@@ -42,54 +47,85 @@ function compareWorkspaceStructureProjects(
   });
 }
 
-export function buildWorkspaceStructureProjects(input: {
-  serverId: string;
-  workspaces: Iterable<WorkspaceDescriptor>;
-}): WorkspaceStructureProject[] {
-  const workspaceList = Array.from(input.workspaces);
-  if (workspaceList.length === 0) {
-    return EMPTY_WORKSPACE_STRUCTURE.projects;
-  }
+function canCreateWorktreeForProjectKind(projectKind: WorkspaceDescriptor["projectKind"]): boolean {
+  return projectKind === "git";
+}
 
+export function buildWorkspaceStructureProjects(input: {
+  sessions: Array<{ serverId: string; workspaces: Iterable<WorkspaceDescriptor> }>;
+}): WorkspaceStructureProject[] {
   const byProject = new Map<
     string,
-    WorkspaceStructureProject & {
+    {
+      projectKey: string;
+      projectName: string;
+      projectKind: WorkspaceDescriptor["projectKind"];
+      iconWorkingDir: string;
+      hosts: Map<string, WorkspaceStructureHostPlacement>;
       workspaces: Array<{ workspaceId: string; workspaceName: string; workspaceKey: string }>;
     }
   >();
 
-  for (const workspace of workspaceList) {
-    const project =
-      byProject.get(workspace.projectId) ??
-      ({
-        projectKey: workspace.projectId,
-        projectName:
-          workspace.projectDisplayName || projectDisplayNameFromProjectId(workspace.projectId),
-        projectKind: workspace.projectKind,
-        iconWorkingDir: workspace.projectRootPath,
-        workspaceKeys: [],
-        workspaces: [],
-      } satisfies WorkspaceStructureProject & {
-        workspaces: Array<{ workspaceId: string; workspaceName: string; workspaceKey: string }>;
-      });
+  for (const session of input.sessions) {
+    for (const workspace of session.workspaces) {
+      const projectKey = workspace.project?.projectKey ?? workspace.projectId;
+      const existing = byProject.get(projectKey);
 
-    project.workspaces.push({
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      workspaceKey: `${input.serverId}:${workspace.id}`,
-    });
-    byProject.set(workspace.projectId, project);
+      if (!existing) {
+        byProject.set(projectKey, {
+          projectKey,
+          projectName:
+            workspace.projectCustomName ??
+            workspace.projectDisplayName ??
+            projectDisplayNameFromProjectId(projectKey),
+          projectKind: workspace.projectKind,
+          iconWorkingDir: workspace.projectRootPath,
+          hosts: new Map([
+            [
+              session.serverId,
+              {
+                serverId: session.serverId,
+                iconWorkingDir: workspace.projectRootPath,
+                canCreateWorktree: canCreateWorktreeForProjectKind(workspace.projectKind),
+              },
+            ],
+          ]),
+          workspaces: [
+            {
+              workspaceId: workspace.id,
+              workspaceName: workspace.name,
+              workspaceKey: `${session.serverId}:${workspace.id}`,
+            },
+          ],
+        });
+        continue;
+      }
+
+      existing.hosts.set(session.serverId, {
+        serverId: session.serverId,
+        iconWorkingDir: workspace.projectRootPath,
+        canCreateWorktree: canCreateWorktreeForProjectKind(workspace.projectKind),
+      });
+      existing.workspaces.push({
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        workspaceKey: `${session.serverId}:${workspace.id}`,
+      });
+    }
   }
 
-  const projects = Array.from(byProject.values()).map(
-    ({ workspaces: projectWorkspaces, ...project }) => {
-      const sortedWorkspaces = [...projectWorkspaces].sort(compareWorkspaceStructureItems);
-
-      return Object.assign({}, project, {
-        workspaceKeys: sortedWorkspaces.map((workspace) => workspace.workspaceId),
-      });
-    },
-  );
+  const projects: WorkspaceStructureProject[] = [];
+  for (const raw of byProject.values()) {
+    const sortedWorkspaces = [...raw.workspaces].sort(compareWorkspaceStructureItems);
+    projects.push({
+      projectKey: raw.projectKey,
+      projectName: raw.projectName,
+      projectKind: raw.projectKind,
+      iconWorkingDir: raw.iconWorkingDir,
+      hosts: Array.from(raw.hosts.values()),
+      workspaceKeys: sortedWorkspaces.map((w) => w.workspaceKey),
+    });
+  }
 
   projects.sort(compareWorkspaceStructureProjects);
   return projects;

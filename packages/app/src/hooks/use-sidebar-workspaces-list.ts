@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import equal from "fast-deep-equal";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useCreateFlowStore, type PendingCreateAttempt } from "@/stores/create-flow-store";
@@ -9,7 +9,7 @@ import { normalizeWorkspacePath } from "@/utils/workspace-identity";
 import { selectPrHintFromStatus } from "@/git/use-pr-status-query";
 import { useHostProjects } from "@/projects/host-projects";
 import { fetchAllWorkspaceDescriptors } from "@/projects/workspace-fetching";
-import { getHostRuntimeStore } from "@/runtime/host-runtime";
+import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { shouldSuppressWorkspaceForLocalArchive } from "@/contexts/session-workspace-upserts";
 import {
@@ -120,7 +120,7 @@ function getPendingInitialAgentCreateStartedAt(input: {
 
 function getRootAgentWorkspaceActivity(input: {
   workspace: WorkspaceDescriptor;
-  agents: Map<string, Agent> | undefined;
+  agents?: Map<string, Agent>;
 }): WorkspaceAgentActivity | null {
   const workspaceDirectory = normalizeWorkspacePath(input.workspace.workspaceDirectory);
   if (!workspaceDirectory) {
@@ -188,116 +188,95 @@ export interface SidebarWorkspacesListResult {
 }
 
 export function useSidebarWorkspacesList(options?: {
-  serverId?: string | null;
+  hostFilter?: string | null;
   enabled?: boolean;
 }): SidebarWorkspacesListResult {
   const runtime = getHostRuntimeStore();
+  const allHosts = useHosts();
+  const allServerIds = useMemo(() => allHosts.map((h) => h.serverId), [allHosts]);
 
-  const serverId = useMemo(() => {
-    const value = options?.serverId;
-    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-  }, [options?.serverId]);
-  const isActive = Boolean(serverId) && options?.enabled !== false;
-  const persistedProjectOrder = useSidebarOrderStore((state) =>
-    isActive && serverId ? (state.projectOrderByServerId[serverId] ?? EMPTY_ORDER) : EMPTY_ORDER,
-  );
-  const hasHydratedWorkspaces = useSessionStore((state) =>
-    isActive && serverId ? (state.sessions[serverId]?.hasHydratedWorkspaces ?? false) : false,
-  );
-  const hostProjects = useHostProjects(isActive ? serverId : null);
+  const hostFilter = options?.hostFilter ?? null;
+  const isActive = options?.enabled !== false;
 
-  const connectionStatus = useSyncExternalStore(
-    (onStoreChange) =>
-      isActive && serverId ? runtime.subscribe(serverId, onStoreChange) : () => {},
-    () => {
-      if (!isActive || !serverId) {
-        return "idle";
-      }
-      const snapshot = runtime.getSnapshot(serverId);
-      return snapshot?.connectionStatus ?? "idle";
-    },
-    () => {
-      if (!isActive || !serverId) {
-        return "idle";
-      }
-      const snapshot = runtime.getSnapshot(serverId);
-      return snapshot?.connectionStatus ?? "idle";
-    },
+  const serverIds = useMemo(() => {
+    if (hostFilter) {
+      return allServerIds.filter((id) => id === hostFilter);
+    }
+    return allServerIds;
+  }, [allServerIds, hostFilter]);
+
+  const persistedProjectOrder = useSidebarOrderStore((state) => state.projectOrder ?? EMPTY_ORDER);
+
+  const hydratedServerIds = useSessionStore((state) =>
+    serverIds.filter((id) => state.sessions[id]?.hasHydratedWorkspaces ?? false),
   );
+
+  const hostProjects = useHostProjects(serverIds);
 
   const projects = useMemo(() => {
-    if (!serverId || hostProjects.length === 0) {
+    if (hostProjects.length === 0) {
       return EMPTY_PROJECTS;
     }
     return buildSidebarProjectsFromHostProjects({
       projects: hostProjects,
     });
-  }, [hostProjects, serverId]);
+  }, [hostProjects]);
 
   useEffect(() => {
-    if (!serverId) {
-      return;
-    }
-  }, [connectionStatus, hasHydratedWorkspaces, projects, serverId]);
-
-  useEffect(() => {
-    if (!serverId) {
-      return;
-    }
-
     const orderStore = useSidebarOrderStore.getState();
     const updates = computeSidebarOrderUpdates({
       projects,
       persistedProjectOrder,
-      getWorkspaceOrder: (projectKey) => orderStore.getWorkspaceOrder(serverId, projectKey),
+      getWorkspaceOrder: (projectKey) =>
+        orderStore.workspaceOrderByProject[projectKey] ?? EMPTY_ORDER,
     });
 
     if (updates.projectOrder) {
-      orderStore.setProjectOrder(serverId, updates.projectOrder);
+      orderStore.setProjectOrder(updates.projectOrder);
     }
     for (const { projectKey, order } of updates.workspaceOrders) {
-      orderStore.setWorkspaceOrder(serverId, projectKey, order);
+      orderStore.setWorkspaceOrder(projectKey, order);
     }
-  }, [persistedProjectOrder, projects, serverId]);
+  }, [persistedProjectOrder, projects]);
 
   const refreshAll = useCallback(() => {
-    if (!isActive || !serverId || connectionStatus !== "online") {
-      return;
-    }
-    const client = runtime.getClient(serverId);
-    if (!client) {
-      return;
-    }
-    void (async () => {
-      const next = new Map<string, WorkspaceDescriptor>();
-      try {
-        const workspaces = await fetchAllWorkspaceDescriptors({
-          client,
-          sort: [{ key: "activity_at", direction: "desc" }],
-        });
-        for (const workspace of workspaces) {
-          if (shouldSuppressWorkspaceForLocalArchive({ serverId, workspace })) {
-            continue;
+    if (!isActive) return;
+    for (const serverId of serverIds) {
+      const snapshot = runtime.getSnapshot(serverId);
+      if (snapshot?.connectionStatus !== "online") continue;
+      const client = runtime.getClient(serverId);
+      if (!client) continue;
+      void (async () => {
+        const next = new Map<string, WorkspaceDescriptor>();
+        try {
+          const workspaces = await fetchAllWorkspaceDescriptors({
+            client,
+            sort: [{ key: "activity_at", direction: "desc" }],
+          });
+          for (const workspace of workspaces) {
+            if (shouldSuppressWorkspaceForLocalArchive({ serverId, workspace })) {
+              continue;
+            }
+            next.set(workspace.id, workspace);
           }
-          next.set(workspace.id, workspace);
+          const store = useSessionStore.getState();
+          store.setWorkspaces(serverId, next);
+          store.setHasHydratedWorkspaces(serverId, true);
+        } catch (error) {
+          console.error("[WorkspaceFetch][sidebar-refresh] failed", {
+            serverId,
+            error,
+          });
+          // ignore explicit refresh failures; hook keeps existing data
         }
-        const store = useSessionStore.getState();
-        store.setWorkspaces(serverId, next);
-        store.setHasHydratedWorkspaces(serverId, true);
-      } catch (error) {
-        console.error("[WorkspaceFetch][sidebar-refresh] failed", {
-          serverId,
-          error,
-        });
-        // ignore explicit refresh failures; hook keeps existing data
-      }
-    })();
-  }, [connectionStatus, isActive, runtime, serverId]);
+      })();
+    }
+  }, [isActive, runtime, serverIds]);
 
   const loadingState = deriveSidebarLoadingState({
     isActive,
-    serverId,
-    hasHydratedWorkspaces,
+    serverIds,
+    hydratedServerIds,
     hasProjects: projects.length > 0,
   });
 

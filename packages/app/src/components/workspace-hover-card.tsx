@@ -27,6 +27,8 @@ import { useHoverSafeZone } from "@/hooks/use-hover-safe-zone";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { FloatingSurface } from "@/components/ui/floating";
 import { isWeb } from "@/constants/platform";
+import { useHosts, useHostRuntimeSnapshot } from "@/runtime/host-runtime";
+import { formatConnectionStatus } from "@/utils/daemons";
 
 interface Rect {
   x: number;
@@ -113,7 +115,7 @@ function WorkspaceHoverCardDesktop({
   const graceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerHoveredRef = useRef(false);
 
-  const hasContent = prHint !== null || !!workspace.diffStat;
+  const hasContent = true;
 
   const clearGraceTimer = useCallback(() => {
     if (graceTimerRef.current) {
@@ -286,6 +288,7 @@ function WorkspaceHoverCardContent({
               {workspace.name}
             </Text>
           </View>
+          <HostRow serverId={workspace.serverId} />
           {prHint || workspace.diffStat ? (
             <View style={styles.cardMetaRow}>
               {workspace.diffStat ? (
@@ -306,6 +309,21 @@ function WorkspaceHoverCardContent({
         </FloatingSurface>
       </View>
     </Portal>
+  );
+}
+
+function HostRow({ serverId }: { serverId: string }): ReactElement | null {
+  const hosts = useHosts();
+  const host = hosts.find((h) => h.serverId === serverId);
+  const snapshot = useHostRuntimeSnapshot(serverId);
+  const label = host?.label?.trim() || serverId;
+  const status = formatConnectionStatus(snapshot?.connectionStatus ?? "idle");
+
+  return (
+    <View style={styles.hostRow}>
+      <Text style={styles.hostRowLabel}>{label}</Text>
+      <Text style={styles.hostRowStatus}>{status}</Text>
+    </View>
   );
 }
 
@@ -463,6 +481,22 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.normal,
     flex: 1,
     minWidth: 0,
+  },
+  hostRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    paddingBottom: theme.spacing[2],
+  },
+  hostRowLabel: {
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.foregroundMuted,
+  },
+  hostRowStatus: {
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.foregroundMuted,
   },
   cardMetaRow: {
     flexDirection: "row",

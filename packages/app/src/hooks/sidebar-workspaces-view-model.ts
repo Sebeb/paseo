@@ -1,10 +1,10 @@
 import type { PrHint } from "@/git/use-pr-status-query";
-import {
-  canCreateWorktreeForProjectKind,
-  type HostProjectListItem,
-} from "@/projects/host-project-model";
+import { type HostProjectListItem } from "@/projects/host-project-model";
 import type { WorkspaceDescriptor } from "@/stores/session-store";
-import type { WorkspaceStructureProject } from "@/projects/workspace-structure";
+import type {
+  WorkspaceStructureHostPlacement,
+  WorkspaceStructureProject,
+} from "@/projects/workspace-structure";
 
 const EMPTY_PROJECTS: SidebarProjectEntry[] = [];
 
@@ -42,19 +42,24 @@ export interface SidebarProjectEntry {
   projectName: string;
   projectKind: WorkspaceDescriptor["projectKind"];
   iconWorkingDir: string;
-  canCreateWorktree: boolean;
+  hosts: WorkspaceStructureHostPlacement[];
   workspaces: SidebarWorkspaceEntry[];
 }
 
 function createStructuralWorkspaceEntry(input: {
-  serverId: string;
   project: HostProjectListItem;
-  workspaceId: string;
+  workspaceKey: string;
 }): SidebarWorkspaceEntry {
+  const separatorIndex = input.workspaceKey.indexOf(":");
+  const serverId =
+    separatorIndex > 0 ? input.workspaceKey.slice(0, separatorIndex) : input.workspaceKey;
+  const workspaceId =
+    separatorIndex > 0 ? input.workspaceKey.slice(separatorIndex + 1) : input.workspaceKey;
+
   return {
-    workspaceKey: `${input.serverId}:${input.workspaceId}`,
-    serverId: input.serverId,
-    workspaceId: input.workspaceId,
+    workspaceKey: input.workspaceKey,
+    serverId,
+    workspaceId,
     projectKey: input.project.projectKey,
     projectRootPath: input.project.iconWorkingDir,
     workspaceDirectory: undefined,
@@ -74,18 +79,16 @@ function createStructuralWorkspaceEntry(input: {
 }
 
 export function buildSidebarProjectsFromStructure(input: {
-  serverId: string;
   projects: WorkspaceStructureProject[];
 }): SidebarProjectEntry[] {
   return buildSidebarProjectsFromHostProjects({
     projects: input.projects.map((project) => ({
-      serverId: input.serverId,
       projectKey: project.projectKey,
       projectName: project.projectName,
       projectKind: project.projectKind,
       iconWorkingDir: project.iconWorkingDir,
+      hosts: project.hosts,
       workspaceKeys: project.workspaceKeys,
-      canCreateWorktree: canCreateWorktreeForProjectKind(project.projectKind),
     })),
   });
 }
@@ -102,12 +105,11 @@ export function buildSidebarProjectsFromHostProjects(input: {
     projectName: project.projectName,
     projectKind: project.projectKind,
     iconWorkingDir: project.iconWorkingDir,
-    canCreateWorktree: project.canCreateWorktree,
-    workspaces: project.workspaceKeys.map((workspaceId) =>
+    hosts: project.hosts,
+    workspaces: project.workspaceKeys.map((workspaceKey) =>
       createStructuralWorkspaceEntry({
-        serverId: project.serverId,
         project,
-        workspaceId,
+        workspaceKey,
       }),
     ),
   }));
@@ -220,11 +222,14 @@ export interface SidebarLoadingState {
 
 export function deriveSidebarLoadingState(input: {
   isActive: boolean;
-  serverId: string | null;
-  hasHydratedWorkspaces: boolean;
+  serverIds: string[];
+  hydratedServerIds: string[];
   hasProjects: boolean;
 }): SidebarLoadingState {
-  const isLoading = input.isActive && Boolean(input.serverId) && !input.hasHydratedWorkspaces;
+  const hasRegisteredHosts = input.serverIds.length > 0;
+  const allHydrated =
+    input.serverIds.length > 0 && input.serverIds.length === input.hydratedServerIds.length;
+  const isLoading = input.isActive && hasRegisteredHosts && !allHydrated;
   const isInitialLoad = isLoading && !input.hasProjects;
   return { isLoading, isInitialLoad, isRevalidating: false };
 }

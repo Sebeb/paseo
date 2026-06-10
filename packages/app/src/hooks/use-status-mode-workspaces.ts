@@ -10,29 +10,27 @@ import {
 const EMPTY_WORKSPACES: SidebarWorkspaceEntry[] = [];
 
 export function useStatusModeWorkspaceEntries(input: {
-  serverId: string | null;
+  serverIds: string[] | null;
   projects: SidebarProjectEntry[];
 }): SidebarWorkspaceEntry[] {
-  const workspaces = useSessionStore((state) =>
-    input.serverId ? state.sessions[input.serverId]?.workspaces : undefined,
-  );
-  const agents = useSessionStore((state) =>
-    input.serverId ? state.sessions[input.serverId]?.agents : undefined,
-  );
+  const sessions = useSessionStore((state) => state.sessions);
   const pendingCreateAttempts = useCreateFlowStore((state) => state.pendingByDraftId);
 
   return useMemo(() => {
-    if (!input.serverId || input.projects.length === 0 || !workspaces) {
+    const serverIds = input.serverIds;
+    if (!serverIds || serverIds.length === 0 || input.projects.length === 0) {
       return EMPTY_WORKSPACES;
     }
 
     const entries: SidebarWorkspaceEntry[] = [];
     for (const placedWorkspace of input.projects.flatMap((project) => project.workspaces)) {
-      const workspace = workspaces.get(placedWorkspace.workspaceId);
+      const session = sessions[placedWorkspace.serverId];
+      const workspace = session?.workspaces.get(placedWorkspace.workspaceId);
+      const agents = session?.agents;
       entries.push(
         workspace
           ? createSidebarWorkspaceEntry({
-              serverId: input.serverId,
+              serverId: placedWorkspace.serverId,
               workspace,
               pendingCreateAttempts,
               agents,
@@ -41,23 +39,25 @@ export function useStatusModeWorkspaceEntries(input: {
       );
     }
     return entries;
-  }, [agents, input.projects, input.serverId, pendingCreateAttempts, workspaces]);
+  }, [input.projects, input.serverIds, pendingCreateAttempts, sessions]);
 }
 
-export function useProjectNamesMap(serverId: string | null): Map<string, string> {
-  const workspaces = useSessionStore((state) =>
-    serverId ? state.sessions[serverId]?.workspaces : undefined,
-  );
+export function useProjectNamesMap(serverIds: string[] | null): Map<string, string> {
+  const sessions = useSessionStore((state) => state.sessions);
 
   return useMemo(() => {
     const map = new Map<string, string>();
-    if (!serverId || !workspaces) return map;
-    for (const workspace of workspaces.values()) {
-      const key = workspace.project?.projectKey ?? workspace.projectId;
-      if (!map.has(key)) {
-        map.set(key, workspace.projectCustomName ?? workspace.projectDisplayName);
+    if (!serverIds || serverIds.length === 0) return map;
+    for (const serverId of serverIds) {
+      const workspaces = sessions[serverId]?.workspaces;
+      if (!workspaces) continue;
+      for (const workspace of workspaces.values()) {
+        const key = workspace.project?.projectKey ?? workspace.projectId;
+        if (!map.has(key)) {
+          map.set(key, workspace.projectCustomName ?? workspace.projectDisplayName);
+        }
       }
     }
     return map;
-  }, [serverId, workspaces]);
+  }, [serverIds, sessions]);
 }

@@ -23,12 +23,20 @@ function project(input: {
   projectKind?: WorkspaceStructureProject["projectKind"];
   iconWorkingDir?: string;
   workspaceKeys: string[];
+  hosts?: WorkspaceStructureProject["hosts"];
 }): WorkspaceStructureProject {
   return {
     projectKey: input.projectKey,
     projectName: input.projectName ?? input.projectKey,
     projectKind: input.projectKind ?? "git",
     iconWorkingDir: input.iconWorkingDir ?? input.projectKey,
+    hosts: input.hosts ?? [
+      {
+        serverId: "srv",
+        iconWorkingDir: input.iconWorkingDir ?? input.projectKey,
+        canCreateWorktree: true,
+      },
+    ],
     workspaceKeys: input.workspaceKeys,
   };
 }
@@ -36,10 +44,8 @@ function project(input: {
 function sidebarProject(input: {
   projectKey: string;
   workspaceKeys: string[];
-  serverId?: string;
 }): SidebarProjectEntry {
   const projects = buildSidebarProjectsFromStructure({
-    serverId: input.serverId ?? "srv",
     projects: [project({ projectKey: input.projectKey, workspaceKeys: input.workspaceKeys })],
   });
   const result = projects[0];
@@ -107,7 +113,6 @@ describe("appendMissingOrderKeys", () => {
 describe("buildSidebarProjectsFromStructure", () => {
   it("creates structural workspace rows from ordered workspace keys", () => {
     const projects = buildSidebarProjectsFromStructure({
-      serverId: "srv",
       projects: [
         project({
           projectKey: "project-1",
@@ -131,7 +136,6 @@ describe("buildSidebarProjectsFromStructure", () => {
 
   it("preserves the structure hook project order", () => {
     const projects = buildSidebarProjectsFromStructure({
-      serverId: "srv",
       projects: [
         project({ projectKey: "project-b", workspaceKeys: ["ws-b"] }),
         project({ projectKey: "project-a", workspaceKeys: ["ws-a"] }),
@@ -143,7 +147,6 @@ describe("buildSidebarProjectsFromStructure", () => {
 
   it("preserves the structure hook workspace order", () => {
     const projects = buildSidebarProjectsFromStructure({
-      serverId: "srv",
       projects: [project({ projectKey: "project-1", workspaceKeys: ["feature", "main"] })],
     });
 
@@ -206,8 +209,8 @@ describe("deriveSidebarLoadingState", () => {
     expect(
       deriveSidebarLoadingState({
         isActive: true,
-        serverId: "srv",
-        hasHydratedWorkspaces: false,
+        serverIds: ["srv"],
+        hydratedServerIds: [],
         hasProjects: false,
       }),
     ).toEqual({ isLoading: true, isInitialLoad: true, isRevalidating: false });
@@ -217,8 +220,8 @@ describe("deriveSidebarLoadingState", () => {
     expect(
       deriveSidebarLoadingState({
         isActive: true,
-        serverId: "srv",
-        hasHydratedWorkspaces: false,
+        serverIds: ["srv"],
+        hydratedServerIds: [],
         hasProjects: true,
       }),
     ).toEqual({ isLoading: true, isInitialLoad: false, isRevalidating: false });
@@ -228,8 +231,8 @@ describe("deriveSidebarLoadingState", () => {
     expect(
       deriveSidebarLoadingState({
         isActive: true,
-        serverId: "srv",
-        hasHydratedWorkspaces: true,
+        serverIds: ["srv"],
+        hydratedServerIds: ["srv"],
         hasProjects: true,
       }),
     ).toEqual({ isLoading: false, isInitialLoad: false, isRevalidating: false });
@@ -239,8 +242,8 @@ describe("deriveSidebarLoadingState", () => {
     expect(
       deriveSidebarLoadingState({
         isActive: false,
-        serverId: "srv",
-        hasHydratedWorkspaces: false,
+        serverIds: ["srv"],
+        hydratedServerIds: [],
         hasProjects: false,
       }),
     ).toEqual({ isLoading: false, isInitialLoad: false, isRevalidating: false });

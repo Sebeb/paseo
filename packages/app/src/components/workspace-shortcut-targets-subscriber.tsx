@@ -19,21 +19,24 @@ export function WorkspaceShortcutTargetsSubscriber({
   enabled: boolean;
   serverId: string | null;
 }) {
-  const { projects } = useSidebarWorkspacesList({ serverId, enabled });
+  const { projects } = useSidebarWorkspacesList({ hostFilter: null, enabled });
   // groupMode must be resolved before gating the status-mode subscriptions below.
-  const groupMode = useSidebarViewStore((state) =>
-    enabled && serverId ? state.getGroupMode(serverId) : "project",
-  );
-  // Only subscribe to agents/workspaces when the status-group view is actually active.
-  // In project mode (the default), these subscriptions would fire on every agent update
-  // (agents Map identity is replaced on every status transition) with no effect on
-  // the shortcut targets, causing ~15-46 wasted re-renders per agent switch.
+  const groupMode = useSidebarViewStore((state) => state.groupMode);
+  // Only build status-mode targets when the status-group view is actually active.
+  // In project mode (the default), keeping serverIds empty skips the status hydration.
   const isStatusMode = enabled && groupMode === "status";
-  const statusWorkspaces = useStatusModeWorkspaceEntries({
-    serverId: isStatusMode ? serverId : null,
-    projects,
-  });
-  const projectNamesByKey = useProjectNamesMap(isStatusMode ? serverId : null);
+  const serverIds = useMemo(() => {
+    if (!isStatusMode) return [];
+    const ids = new Set<string>();
+    for (const project of projects) {
+      for (const workspace of project.workspaces) {
+        ids.add(workspace.serverId);
+      }
+    }
+    return Array.from(ids);
+  }, [isStatusMode, projects]);
+  const statusWorkspaces = useStatusModeWorkspaceEntries({ serverIds, projects });
+  const projectNamesByKey = useProjectNamesMap(serverIds);
   const collapsedProjectKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedProjectKeys,
   );

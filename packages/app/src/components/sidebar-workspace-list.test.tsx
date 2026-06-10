@@ -161,20 +161,10 @@ function initializeSidebarState(workspaces: WorkspaceDescriptor[]): void {
       .setWorkspaces(SERVER_ID, new Map(workspaces.map((entry) => [entry.id, entry])));
     useSessionStore.getState().setHasHydratedWorkspaces(SERVER_ID, true);
     useSidebarOrderStore.setState({
-      projectOrderByServerId: {
-        [SERVER_ID]: ["project-a", "project-b"],
-      },
-      workspaceOrderByServerAndProject: {
-        [`${SERVER_ID}::project-a`]: [
-          `${SERVER_ID}:a-main`,
-          `${SERVER_ID}:a-one`,
-          `${SERVER_ID}:a-two`,
-        ],
-        [`${SERVER_ID}::project-b`]: [
-          `${SERVER_ID}:b-main`,
-          `${SERVER_ID}:b-one`,
-          `${SERVER_ID}:b-two`,
-        ],
+      projectOrder: ["project-a", "project-b"],
+      workspaceOrderByProject: {
+        ["project-a"]: [`${SERVER_ID}:a-main`, `${SERVER_ID}:a-one`, `${SERVER_ID}:a-two`],
+        ["project-b"]: [`${SERVER_ID}:b-main`, `${SERVER_ID}:b-one`, `${SERVER_ID}:b-two`],
       },
     });
   });
@@ -258,7 +248,7 @@ function WorkspaceSelectionProbe({
 
 function SidebarFrameProbe({ counts }: { counts: RenderCounts }): ReactElement {
   counts.frame += 1;
-  const { projects } = useSidebarWorkspacesList({ serverId: SERVER_ID });
+  const { projects } = useSidebarWorkspacesList({ hostFilter: SERVER_ID });
 
   return (
     <>
@@ -348,8 +338,8 @@ describe("sidebar workspace render isolation", () => {
       getHostRuntimeStore().syncHosts([]);
       useSessionStore.getState().clearSession(SERVER_ID);
       useSidebarOrderStore.setState({
-        projectOrderByServerId: {},
-        workspaceOrderByServerAndProject: {},
+        projectOrder: [],
+        workspaceOrderByProject: {},
       });
     });
   });

@@ -17,19 +17,31 @@ function structureProject(input: Partial<WorkspaceStructureProject>): WorkspaceS
     projectName: input.projectName ?? "Project A",
     projectKind: input.projectKind ?? "git",
     iconWorkingDir: input.iconWorkingDir ?? "/repo/a",
+    hosts: input.hosts ?? [
+      {
+        serverId: "host-a",
+        iconWorkingDir: input.iconWorkingDir ?? "/repo/a",
+        canCreateWorktree: input.projectKind !== "directory",
+      },
+    ],
     workspaceKeys: input.workspaceKeys ?? ["workspace-a"],
   };
 }
 
 function hostProject(input: Partial<HostProjectListItem>): HostProjectListItem {
   return {
-    serverId: input.serverId ?? "host-a",
     projectKey: input.projectKey ?? "project-a",
     projectName: input.projectName ?? "Project A",
     projectKind: input.projectKind ?? "git",
     iconWorkingDir: input.iconWorkingDir ?? "/repo/a",
+    hosts: input.hosts ?? [
+      {
+        serverId: "host-a",
+        iconWorkingDir: input.iconWorkingDir ?? "/repo/a",
+        canCreateWorktree: true,
+      },
+    ],
     workspaceKeys: input.workspaceKeys ?? ["workspace-a"],
-    canCreateWorktree: input.canCreateWorktree ?? true,
   };
 }
 
@@ -71,7 +83,6 @@ describe("host project list", () => {
   it("preserves workspace-structure order and project metadata", () => {
     expect(
       buildHostProjectList({
-        serverId: "host-a",
         projects: [
           structureProject({
             projectKey: "project-b",
@@ -79,6 +90,7 @@ describe("host project list", () => {
             projectKind: "directory",
             iconWorkingDir: "/repo/b",
             workspaceKeys: ["workspace-b"],
+            hosts: [{ serverId: "host-a", iconWorkingDir: "/repo/b", canCreateWorktree: false }],
           }),
           structureProject({
             projectKey: "project-a",
@@ -86,27 +98,26 @@ describe("host project list", () => {
             projectKind: "git",
             iconWorkingDir: "/repo/a",
             workspaceKeys: ["workspace-a"],
+            hosts: [{ serverId: "host-a", iconWorkingDir: "/repo/a", canCreateWorktree: true }],
           }),
         ],
       }),
     ).toEqual([
       {
-        serverId: "host-a",
         projectKey: "project-b",
         projectName: "Project B",
         projectKind: "directory",
         iconWorkingDir: "/repo/b",
+        hosts: [{ serverId: "host-a", iconWorkingDir: "/repo/b", canCreateWorktree: false }],
         workspaceKeys: ["workspace-b"],
-        canCreateWorktree: false,
       },
       {
-        serverId: "host-a",
         projectKey: "project-a",
         projectName: "Project A",
         projectKind: "git",
         iconWorkingDir: "/repo/a",
+        hosts: [{ serverId: "host-a", iconWorkingDir: "/repo/a", canCreateWorktree: true }],
         workspaceKeys: ["workspace-a"],
-        canCreateWorktree: true,
       },
     ]);
   });
@@ -129,14 +140,24 @@ describe("host project list", () => {
   it("skips non-worktree route and last-active projects", () => {
     expect(
       resolveInitialWorktreeProject({
-        routeProject: { ...routeProject, projectKind: "directory", canCreateWorktree: false },
+        routeProject: {
+          ...routeProject,
+          projectKind: "directory",
+          hosts: [{ serverId: "host-a", iconWorkingDir: "/repo/route", canCreateWorktree: false }],
+        },
         lastActiveProject: {
           ...lastActiveProject,
           projectKind: "directory",
-          canCreateWorktree: false,
+          hosts: [{ serverId: "host-a", iconWorkingDir: "/repo/last", canCreateWorktree: false }],
         },
         projects: [
-          { ...firstProject, projectKind: "directory", canCreateWorktree: false },
+          {
+            ...firstProject,
+            projectKind: "directory",
+            hosts: [
+              { serverId: "host-a", iconWorkingDir: "/repo/first", canCreateWorktree: false },
+            ],
+          },
           hostProject({ projectKey: "git-project", projectName: "Git Project" }),
         ],
       }),
@@ -148,7 +169,15 @@ describe("host project list", () => {
       resolveInitialWorktreeProject({
         routeProject: null,
         lastActiveProject: null,
-        projects: [{ ...firstProject, projectKind: "directory", canCreateWorktree: false }],
+        projects: [
+          {
+            ...firstProject,
+            projectKind: "directory",
+            hosts: [
+              { serverId: "host-a", iconWorkingDir: "/repo/first", canCreateWorktree: false },
+            ],
+          },
+        ],
       }),
     ).toBeNull();
   });
@@ -173,26 +202,24 @@ describe("host project list", () => {
         sourceDirectory: "/repo/a",
       }),
     ).toEqual({
-      serverId: "host-a",
       projectKey: "project-a",
       projectName: "Project A",
       projectKind: "git",
       iconWorkingDir: "/repo/a",
+      hosts: [{ serverId: "host-a", iconWorkingDir: "/repo/a", canCreateWorktree: true }],
       workspaceKeys: [],
-      canCreateWorktree: true,
     });
     expect(hostProjectFromRoute({ serverId: "host-a", projectId: "project-a" })).toBeNull();
   });
 
   it("converts last active workspaces with matching worktree capability", () => {
     expect(hostProjectFromWorkspace({ serverId: "host-a", workspace: workspace({}) })).toEqual({
-      serverId: "host-a",
       projectKey: "project-a",
       projectName: "Project A",
       projectKind: "git",
       iconWorkingDir: "/repo/a",
+      hosts: [{ serverId: "host-a", iconWorkingDir: "/repo/a", canCreateWorktree: true }],
       workspaceKeys: ["workspace-a"],
-      canCreateWorktree: true,
     });
 
     expect(
@@ -200,6 +227,9 @@ describe("host project list", () => {
         serverId: "host-a",
         workspace: workspace({ projectKind: "directory" }),
       }),
-    ).toMatchObject({ projectKind: "directory", canCreateWorktree: false });
+    ).toMatchObject({
+      projectKind: "directory",
+      hosts: [{ serverId: "host-a", iconWorkingDir: "/repo/a", canCreateWorktree: false }],
+    });
   });
 });
