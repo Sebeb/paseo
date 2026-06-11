@@ -1931,12 +1931,6 @@ export const PaseoAgentRemoveProviderRequestSchema = z.object({
   name: z.string().trim().min(1),
 });
 
-export const PaseoAgentSetDefaultModelRequestSchema = z.object({
-  type: z.literal("config.paseo_agent.set_default_model.request"),
-  requestId: z.string(),
-  model: z.string().trim().min(1).nullable(),
-});
-
 export const PaseoAgentStoreChatGptCredentialRequestSchema = z.object({
   type: z.literal("config.paseo_agent.store_chatgpt_credential.request"),
   requestId: z.string(),
@@ -2095,7 +2089,6 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   PaseoAgentGetProvidersRequestSchema,
   PaseoAgentSetProviderRequestSchema,
   PaseoAgentRemoveProviderRequestSchema,
-  PaseoAgentSetDefaultModelRequestSchema,
   PaseoAgentStoreChatGptCredentialRequestSchema,
   ListAvailableProvidersRequestMessageSchema,
   GetProvidersSnapshotRequestMessageSchema,
@@ -3868,16 +3861,6 @@ export const PaseoAgentRemoveProviderResponseSchema = z.object({
   }),
 });
 
-export const PaseoAgentSetDefaultModelResponseSchema = z.object({
-  type: z.literal("config.paseo_agent.set_default_model.response"),
-  payload: z.object({
-    requestId: z.string(),
-    success: z.boolean(),
-    defaultModel: z.string().nullable(),
-    error: z.string().nullable(),
-  }),
-});
-
 export const PaseoAgentStoreChatGptCredentialResponseSchema = z.object({
   type: z.literal("config.paseo_agent.store_chatgpt_credential.response"),
   payload: z.object({
@@ -4203,7 +4186,6 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   PaseoAgentGetProvidersResponseSchema,
   PaseoAgentSetProviderResponseSchema,
   PaseoAgentRemoveProviderResponseSchema,
-  PaseoAgentSetDefaultModelResponseSchema,
   PaseoAgentStoreChatGptCredentialResponseSchema,
   ListAvailableProvidersResponseSchema,
   GetProvidersSnapshotResponseMessageSchema,
@@ -4339,9 +4321,6 @@ export type PaseoAgentSetProviderResponse = z.infer<typeof PaseoAgentSetProvider
 export type PaseoAgentRemoveProviderResponse = z.infer<
   typeof PaseoAgentRemoveProviderResponseSchema
 >;
-export type PaseoAgentSetDefaultModelResponse = z.infer<
-  typeof PaseoAgentSetDefaultModelResponseSchema
->;
 export type PaseoAgentStoreChatGptCredentialResponse = z.infer<
   typeof PaseoAgentStoreChatGptCredentialResponseSchema
 >;
@@ -4413,9 +4392,6 @@ export type ListProviderFeaturesRequestMessage = z.infer<
 export type PaseoAgentGetProvidersRequest = z.infer<typeof PaseoAgentGetProvidersRequestSchema>;
 export type PaseoAgentSetProviderRequest = z.infer<typeof PaseoAgentSetProviderRequestSchema>;
 export type PaseoAgentRemoveProviderRequest = z.infer<typeof PaseoAgentRemoveProviderRequestSchema>;
-export type PaseoAgentSetDefaultModelRequest = z.infer<
-  typeof PaseoAgentSetDefaultModelRequestSchema
->;
 export type PaseoAgentStoreChatGptCredentialRequest = z.infer<
   typeof PaseoAgentStoreChatGptCredentialRequestSchema
 >;
