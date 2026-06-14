@@ -4,6 +4,7 @@ import {
 } from "@/contexts/session-workspace-upserts";
 import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
 import { resolveWorkspaceMapKeyByIdentity } from "@/utils/workspace-identity";
+import { i18n } from "@/i18n/i18next";
 
 export interface WorkspaceArchiveTarget {
   serverId: string;
@@ -113,7 +114,7 @@ export async function archiveWorkspacesOptimistically(input: {
         throw {
           serverId: workspace.serverId,
           workspaceId: workspace.workspaceId,
-          error: new Error("Host is not connected"),
+          error: new Error(i18n.t("sidebar.workspace.toasts.hostDisconnected")),
         } satisfies WorkspaceArchiveFailure;
       }
 

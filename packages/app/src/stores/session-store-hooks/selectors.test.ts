@@ -223,7 +223,10 @@ describe("workspace structure composition", () => {
     useSessionStore.getState().mergeWorkspaces(SERVER_ID, [workspaceB]);
     const afterAdd = tracked.current;
     expect(afterAdd).not.toBe(before);
-    expect(afterAdd[0]?.workspaceKeys).toEqual(["workspace-a", "workspace-b"]);
+    expect(afterAdd[0]?.workspaceKeys).toEqual([
+      "test-server:workspace-a",
+      "test-server:workspace-b",
+    ]);
 
     useSessionStore.getState().mergeWorkspaces(SERVER_ID, [{ ...workspaceA, status: "running" }]);
     expect(tracked.current).toBe(afterAdd);
