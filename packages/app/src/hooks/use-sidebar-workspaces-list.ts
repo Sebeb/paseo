@@ -1,23 +1,23 @@
 import { useCallback, useEffect, useMemo } from "react";
 import equal from "fast-deep-equal";
+import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
-import { useCreateFlowStore, type PendingCreateAttempt } from "@/stores/create-flow-store";
-import { useSessionStore, type Agent, type WorkspaceDescriptor } from "@/stores/session-store";
+import { useCreateFlowStore } from "@/stores/create-flow-store";
+import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
 import { selectWorkspace, workspaceEqualityFns } from "@/stores/session-store-hooks/selectors";
-import { deriveSidebarStateBucket } from "@/utils/sidebar-agent-state";
-import { normalizeWorkspacePath } from "@/utils/workspace-identity";
-import { selectPrHintFromStatus } from "@/git/use-pr-status-query";
 import { useHostProjects } from "@/projects/host-projects";
 import { fetchAllWorkspaceDescriptors } from "@/projects/workspace-fetching";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { shouldSuppressWorkspaceForLocalArchive } from "@/contexts/session-workspace-upserts";
 import {
-  buildSidebarProjectsFromHostProjects,
+  buildSidebarWorkspacePlacementModel,
   computeSidebarOrderUpdates,
+  createSidebarWorkspaceEntry,
   deriveSidebarLoadingState,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
+  type SidebarWorkspacePlacement,
 } from "./sidebar-workspaces-view-model";
 
 export {
@@ -25,125 +25,20 @@ export {
   applyStoredOrdering,
   buildSidebarProjectsFromHostProjects,
   buildSidebarProjectsFromStructure,
+  buildSidebarStatusWorkspacePlacements,
+  buildSidebarWorkspacePlacementModel,
   computeSidebarOrderUpdates,
+  createSidebarWorkspaceEntry,
   deriveSidebarLoadingState,
   type SidebarLoadingState,
   type SidebarOrderUpdates,
+  type SidebarStatusWorkspacePlacement,
+  type SidebarWorkspacePlacement,
+  type SidebarWorkspacePlacementModel,
   type SidebarProjectEntry,
   type SidebarStateBucket,
   type SidebarWorkspaceEntry,
 } from "./sidebar-workspaces-view-model";
-
-export function createSidebarWorkspaceEntry(input: {
-  serverId: string;
-  workspace: WorkspaceDescriptor;
-  pendingCreateAttempts?: Record<string, PendingCreateAttempt>;
-  agents?: Map<string, Agent>;
-}): SidebarWorkspaceEntry {
-  const effectiveStatus = deriveEffectiveWorkspaceStatus(input);
-  return {
-    workspaceKey: `${input.serverId}:${input.workspace.id}`,
-    serverId: input.serverId,
-    workspaceId: input.workspace.id,
-    projectKey: input.workspace.project?.projectKey ?? input.workspace.projectId,
-    projectRootPath: input.workspace.projectRootPath,
-    workspaceDirectory: input.workspace.workspaceDirectory,
-    projectKind: input.workspace.projectKind,
-    workspaceKind: input.workspace.workspaceKind,
-    name: input.workspace.name,
-    statusBucket: effectiveStatus.status,
-    statusEnteredAt: effectiveStatus.enteredAt,
-    archivingAt: input.workspace.archivingAt,
-    diffStat: input.workspace.diffStat,
-    prHint: selectPrHintFromStatus(input.workspace.githubRuntime?.pullRequest),
-    archiveHasUncommittedChanges: input.workspace.gitRuntime?.isDirty ?? null,
-    archiveUnpushedCommitCount: input.workspace.gitRuntime?.aheadOfOrigin ?? null,
-    scripts: input.workspace.scripts,
-    hasRunningScripts: input.workspace.scripts.some((script) => script.lifecycle === "running"),
-  };
-}
-
-interface EffectiveWorkspaceStatus {
-  status: WorkspaceDescriptor["status"];
-  enteredAt: Date | null;
-}
-
-interface WorkspaceAgentActivity extends EffectiveWorkspaceStatus {}
-
-function deriveEffectiveWorkspaceStatus(input: {
-  serverId: string;
-  workspace: WorkspaceDescriptor;
-  pendingCreateAttempts?: Record<string, PendingCreateAttempt>;
-  agents?: Map<string, Agent>;
-}): EffectiveWorkspaceStatus {
-  if (input.workspace.status !== "done") {
-    return { status: input.workspace.status, enteredAt: input.workspace.statusEnteredAt };
-  }
-
-  const pendingStartedAt = getPendingInitialAgentCreateStartedAt({
-    serverId: input.serverId,
-    workspaceId: input.workspace.id,
-    pendingCreateAttempts: input.pendingCreateAttempts,
-  });
-  if (pendingStartedAt) {
-    return { status: "running", enteredAt: pendingStartedAt };
-  }
-
-  const rootAgentActivity = getRootAgentWorkspaceActivity({
-    workspace: input.workspace,
-    agents: input.agents,
-  });
-  if (rootAgentActivity && rootAgentActivity.status !== "done") {
-    return rootAgentActivity;
-  }
-
-  return { status: input.workspace.status, enteredAt: input.workspace.statusEnteredAt };
-}
-
-function getPendingInitialAgentCreateStartedAt(input: {
-  serverId: string;
-  workspaceId: string;
-  pendingCreateAttempts: Record<string, PendingCreateAttempt> | undefined;
-}): Date | null {
-  let latestStartedAt: Date | null = null;
-  for (const pending of Object.values(input.pendingCreateAttempts ?? {})) {
-    if (pending.serverId !== input.serverId) continue;
-    if (pending.workspaceId !== input.workspaceId) continue;
-    if (pending.lifecycle === "abandoned") continue;
-    const startedAt = new Date(pending.timestamp);
-    if (!latestStartedAt || startedAt > latestStartedAt) {
-      latestStartedAt = startedAt;
-    }
-  }
-  return latestStartedAt;
-}
-
-function getRootAgentWorkspaceActivity(input: {
-  workspace: WorkspaceDescriptor;
-  agents?: Map<string, Agent>;
-}): WorkspaceAgentActivity | null {
-  const workspaceDirectory = normalizeWorkspacePath(input.workspace.workspaceDirectory);
-  if (!workspaceDirectory) {
-    return null;
-  }
-
-  let latest: WorkspaceAgentActivity | null = null;
-  for (const agent of input.agents?.values() ?? []) {
-    if (agent.archivedAt || agent.parentAgentId) continue;
-    if (normalizeWorkspacePath(agent.cwd) !== workspaceDirectory) continue;
-    const status = deriveSidebarStateBucket({
-      status: agent.status,
-      pendingPermissionCount: agent.pendingPermissions.length,
-      requiresAttention: agent.requiresAttention,
-      attentionReason: agent.attentionReason,
-    });
-    const enteredAt = agent.attentionTimestamp ?? agent.updatedAt;
-    if (!latest || enteredAt > (latest.enteredAt ?? new Date(0))) {
-      latest = { status, enteredAt };
-    }
-  }
-  return latest;
-}
 
 export function useSidebarWorkspaceEntry(
   serverId: string | null,
@@ -178,9 +73,13 @@ export function useSidebarWorkspaceEntry(
 
 const EMPTY_ORDER: string[] = [];
 const EMPTY_PROJECTS: SidebarProjectEntry[] = [];
+const EMPTY_WORKSPACES: SidebarWorkspacePlacement[] = [];
+const EMPTY_PROJECT_NAMES = new Map<string, string>();
 
 export interface SidebarWorkspacesListResult {
+  workspacePlacements: SidebarWorkspacePlacement[];
   projects: SidebarProjectEntry[];
+  projectNamesByKey: Map<string, string>;
   isLoading: boolean;
   isInitialLoad: boolean;
   isRevalidating: boolean;
@@ -207,20 +106,27 @@ export function useSidebarWorkspacesList(options?: {
 
   const persistedProjectOrder = useSidebarOrderStore((state) => state.projectOrder ?? EMPTY_ORDER);
 
-  const hydratedServerIds = useSessionStore((state) =>
-    serverIds.filter((id) => state.sessions[id]?.hasHydratedWorkspaces ?? false),
+  const hydratedServerIds = useStoreWithEqualityFn(
+    useSessionStore,
+    (state) => serverIds.filter((id) => state.sessions[id]?.hasHydratedWorkspaces ?? false),
+    shallow,
   );
 
   const hostProjects = useHostProjects(serverIds);
 
-  const projects = useMemo(() => {
-    if (hostProjects.length === 0) {
-      return EMPTY_PROJECTS;
-    }
-    return buildSidebarProjectsFromHostProjects({
-      projects: hostProjects,
-    });
-  }, [hostProjects]);
+  const sidebarModel = useMemo(
+    () =>
+      buildSidebarWorkspacePlacementModel({
+        projects: hostProjects,
+      }),
+    [hostProjects],
+  );
+
+  const projects = sidebarModel.projects.length > 0 ? sidebarModel.projects : EMPTY_PROJECTS;
+  const workspacePlacements =
+    sidebarModel.workspaces.length > 0 ? sidebarModel.workspaces : EMPTY_WORKSPACES;
+  const projectNamesByKey =
+    sidebarModel.projectNamesByKey.size > 0 ? sidebarModel.projectNamesByKey : EMPTY_PROJECT_NAMES;
 
   useEffect(() => {
     const orderStore = useSidebarOrderStore.getState();
@@ -281,7 +187,9 @@ export function useSidebarWorkspacesList(options?: {
   });
 
   return {
+    workspacePlacements,
     projects,
+    projectNamesByKey,
     ...loadingState,
     refreshAll,
   };

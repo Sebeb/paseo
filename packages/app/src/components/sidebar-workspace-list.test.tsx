@@ -152,9 +152,17 @@ function makeHost(): HostProfile {
   };
 }
 
+function setHostProfiles(hosts: HostProfile[]): void {
+  (
+    getHostRuntimeStore() as unknown as {
+      setHostsAndSync: (hosts: HostProfile[]) => void;
+    }
+  ).setHostsAndSync(hosts);
+}
+
 function initializeSidebarState(workspaces: WorkspaceDescriptor[]): void {
   act(() => {
-    getHostRuntimeStore().syncHosts([makeHost()]);
+    setHostProfiles([makeHost()]);
     useSessionStore.getState().initializeSession(SERVER_ID, null as unknown as DaemonClient);
     useSessionStore
       .getState()
@@ -335,7 +343,7 @@ describe("sidebar workspace render isolation", () => {
     container = null;
     act(() => {
       pathnameState.value = "/";
-      getHostRuntimeStore().syncHosts([]);
+      setHostProfiles([]);
       useSessionStore.getState().clearSession(SERVER_ID);
       useSidebarOrderStore.setState({
         projectOrder: [],

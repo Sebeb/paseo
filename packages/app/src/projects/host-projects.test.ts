@@ -219,7 +219,7 @@ describe("host project list", () => {
       projectKind: "git",
       iconWorkingDir: "/repo/a",
       hosts: [{ serverId: "host-a", iconWorkingDir: "/repo/a", canCreateWorktree: true }],
-      workspaceKeys: ["workspace-a"],
+      workspaceKeys: ["host-a:workspace-a"],
     });
 
     expect(

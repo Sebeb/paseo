@@ -222,7 +222,6 @@ function ProjectSettingsBody({
     [project.projectKey, selectedHost.repoRoot, selectedHost.serverId],
   );
   const projectIconDataByKey = useProjectIconDataByProjectKey({
-    serverId: null,
     projects: projectIconTargets,
   });
   const projectIconDataUri = projectIconDataByKey.get(project.projectKey) ?? null;

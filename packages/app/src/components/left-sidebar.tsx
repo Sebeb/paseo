@@ -1,13 +1,23 @@
 import { router, usePathname } from "expo-router";
-import { FolderPlus, Home, MessagesSquare, Plus, Search, Settings, X } from "lucide-react-native";
+import {
+  FolderPlus,
+  Home,
+  MessagesSquare,
+  Plus,
+  Search,
+  Server,
+  Settings,
+  X,
+} from "lucide-react-native";
 import { useTranslation } from "react-i18next";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   Pressable,
   StyleSheet as RNStyleSheet,
   Text,
   useWindowDimensions,
   View,
+  type GestureResponderEvent,
   type PressableStateCallbackType,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -21,36 +31,48 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
+import {
+  ADD_HOST_OPTION_ID,
+  AddHostPickerOption,
+  HostPickerOption,
+} from "@/components/hosts/host-picker-options";
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
 import { SidebarGroupingSelector } from "@/components/sidebar/sidebar-grouping-selector";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
+import { useLocalDaemonServerId } from "@/hooks/use-is-local-daemon";
 import { useSidebarAnimation } from "@/contexts/sidebar-animation-context";
 import { useOpenProjectPicker } from "@/hooks/use-open-project-picker";
+import { useHostChooser } from "@/hosts/host-chooser";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useSidebarShortcutModel } from "@/hooks/use-sidebar-shortcut-model";
 import {
   type SidebarProjectEntry,
+  type SidebarStatusWorkspacePlacement,
   useSidebarWorkspacesList,
 } from "@/hooks/use-sidebar-workspaces-list";
+import { useStatusModeWorkspacePlacements } from "@/hooks/use-status-mode-workspaces";
 import { useSidebarViewStore, type SidebarGroupMode } from "@/stores/sidebar-view-store";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
-import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
+import { useHosts } from "@/runtime/host-runtime";
+import { orderHostsLocalFirst } from "@/types/host-connection";
 import {
   MAX_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
   selectIsAgentListOpen,
   usePanelStore,
 } from "@/stores/panel-store";
-import { resolveActiveHost } from "@/utils/active-host";
 import { useWindowControlsPadding } from "@/utils/desktop-window";
 import { canCloseLeftSidebarGesture } from "@/utils/sidebar-animation-state";
 import {
-  buildHostOpenProjectRoute,
+  buildOpenProjectRoute,
   buildHostNewWorkspaceRoute,
-  buildHostSessionsRoute,
+  buildSessionsRoute,
+  buildSettingsAddHostRoute,
+  buildSettingsHostSectionRoute,
   buildSettingsRoute,
 } from "@/utils/host-routes";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
@@ -68,9 +90,10 @@ interface LeftSidebarProps {
 
 interface SidebarSharedProps {
   theme: SidebarTheme;
-  activeServerId: string | null;
   hostFilter: string | null;
+  statusWorkspacePlacements: SidebarStatusWorkspacePlacement[];
   projects: SidebarProjectEntry[];
+  projectNamesByKey: Map<string, string>;
   isInitialLoad: boolean;
   isRevalidating: boolean;
   isManualRefresh: boolean;
@@ -84,6 +107,8 @@ interface SidebarSharedProps {
   handleHome: () => void;
   handleSettings: () => void;
   labels: SidebarLabels;
+  handleAddHost: () => void;
+  handleOpenHostSettings: (serverId: string) => void;
 }
 
 interface SidebarLabels {
@@ -123,18 +148,21 @@ export const LeftSidebar = memo(function LeftSidebar({
     selectIsAgentListOpen(state, { isCompact: isCompactLayout }),
   );
   const showMobileAgent = usePanelStore((state) => state.showMobileAgent);
-  const pathname = usePathname();
-  const daemons = useHosts();
-  const activeDaemon = useMemo(
-    () => resolveActiveHost({ hosts: daemons, pathname }),
-    [daemons, pathname],
-  );
-  const activeServerId = activeDaemon?.serverId ?? null;
   const hostFilter = useSidebarViewStore((state) => state.hostFilter);
 
-  const { projects, isInitialLoad, isRevalidating, refreshAll } = useSidebarWorkspacesList({
+  const {
+    workspacePlacements,
+    projects,
+    projectNamesByKey,
+    isInitialLoad,
+    isRevalidating,
+    refreshAll,
+  } = useSidebarWorkspacesList({
     hostFilter,
     enabled: isCompactLayout || isOpen,
+  });
+  const statusWorkspacePlacements = useStatusModeWorkspacePlacements({
+    placements: workspacePlacements,
   });
   const { collapsedProjectKeys, shortcutIndexByWorkspaceKey, toggleProjectCollapsed } =
     useSidebarShortcutModel({ projects, isInitialLoad });
@@ -154,7 +182,11 @@ export const LeftSidebar = memo(function LeftSidebar({
     }
   }, [isRevalidating, isManualRefresh]);
 
-  const openProjectPicker = useOpenProjectPicker(activeServerId);
+  const openProjectPicker = useOpenProjectPicker();
+  const chooseHost = useHostChooser();
+  const handleNoHosts = useCallback(() => {
+    router.push(buildSettingsAddHostRoute(Date.now()));
+  }, []);
 
   const handleOpenProjectMobile = useCallback(() => {
     showMobileAgent();
@@ -166,9 +198,14 @@ export const LeftSidebar = memo(function LeftSidebar({
   }, [openProjectPicker]);
 
   const handleNewWorkspaceNavigate = useCallback(() => {
-    if (!activeServerId) return;
-    router.push(buildHostNewWorkspaceRoute(activeServerId));
-  }, [activeServerId]);
+    chooseHost({
+      title: "Choose host",
+      onNoHosts: handleNoHosts,
+      onChooseHost: (serverId) => {
+        router.push(buildHostNewWorkspaceRoute(serverId));
+      },
+    });
+  }, [chooseHost, handleNoHosts]);
 
   const handleSettingsMobile = useCallback(() => {
     showMobileAgent();
@@ -179,23 +216,39 @@ export const LeftSidebar = memo(function LeftSidebar({
     router.push(buildSettingsRoute());
   }, []);
 
-  const handleHomeMobile = useCallback(() => {
-    if (!activeServerId) return;
+  const handleAddHostMobile = useCallback(() => {
     showMobileAgent();
-    router.push(buildHostOpenProjectRoute(activeServerId));
-  }, [activeServerId, showMobileAgent]);
+    router.push(buildSettingsAddHostRoute(Date.now()));
+  }, [showMobileAgent]);
+
+  const handleAddHostDesktop = useCallback(() => {
+    router.push(buildSettingsAddHostRoute(Date.now()));
+  }, []);
+
+  const handleOpenHostSettingsMobile = useCallback(
+    (serverId: string) => {
+      showMobileAgent();
+      router.push(buildSettingsHostSectionRoute(serverId, "connections"));
+    },
+    [showMobileAgent],
+  );
+
+  const handleOpenHostSettingsDesktop = useCallback((serverId: string) => {
+    router.push(buildSettingsHostSectionRoute(serverId, "connections"));
+  }, []);
+
+  const handleHomeMobile = useCallback(() => {
+    showMobileAgent();
+    router.push(buildOpenProjectRoute());
+  }, [showMobileAgent]);
 
   const handleHomeDesktop = useCallback(() => {
-    if (!activeServerId) return;
-    router.push(buildHostOpenProjectRoute(activeServerId));
-  }, [activeServerId]);
+    router.push(buildOpenProjectRoute());
+  }, []);
 
   const handleViewMoreNavigate = useCallback(() => {
-    if (!activeServerId) {
-      return;
-    }
-    router.push(buildHostSessionsRoute(activeServerId));
-  }, [activeServerId]);
+    router.push(buildSessionsRoute());
+  }, []);
 
   const labels = useMemo(
     (): SidebarLabels => ({
@@ -212,9 +265,10 @@ export const LeftSidebar = memo(function LeftSidebar({
 
   const sharedProps = {
     theme,
-    activeServerId,
     hostFilter,
+    statusWorkspacePlacements,
     projects,
+    projectNamesByKey,
     isInitialLoad,
     isRevalidating,
     isManualRefresh,
@@ -238,6 +292,8 @@ export const LeftSidebar = memo(function LeftSidebar({
         handleOpenProject={handleOpenProjectMobile}
         handleHome={handleHomeMobile}
         handleSettings={handleSettingsMobile}
+        handleAddHost={handleAddHostMobile}
+        handleOpenHostSettings={handleOpenHostSettingsMobile}
         handleViewMoreNavigate={handleViewMoreNavigate}
       />
     );
@@ -252,6 +308,8 @@ export const LeftSidebar = memo(function LeftSidebar({
       handleOpenProject={handleOpenProjectDesktop}
       handleHome={handleHomeDesktop}
       handleSettings={handleSettingsDesktop}
+      handleAddHost={handleAddHostDesktop}
+      handleOpenHostSettings={handleOpenHostSettingsDesktop}
       handleViewMore={handleViewMoreNavigate}
     />
   );
@@ -262,16 +320,21 @@ function FooterIconButton({
   testID,
   accessibilityLabel,
   icon: Icon,
+  iconSize,
   theme,
+  buttonRef,
 }: {
   onPress: () => void;
   testID: string;
   accessibilityLabel: string;
   icon: typeof FolderPlus;
+  iconSize?: number;
   theme: SidebarTheme;
+  buttonRef?: RefObject<View | null>;
 }) {
   return (
     <Pressable
+      ref={buttonRef}
       style={styles.footerIconButton}
       testID={testID}
       nativeID={testID}
@@ -283,11 +346,189 @@ function FooterIconButton({
     >
       {({ hovered }) => (
         <Icon
-          size={theme.iconSize.md}
+          size={iconSize ?? theme.iconSize.md}
           color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
         />
       )}
     </Pressable>
+  );
+}
+
+function HostSettingsAction({
+  serverId,
+  label,
+  onPress,
+}: {
+  serverId: string;
+  label: string;
+  onPress: (serverId: string) => void;
+}) {
+  const { theme } = useUnistyles();
+  const handlePress = useCallback(
+    (event: GestureResponderEvent) => {
+      event.stopPropagation();
+      onPress(serverId);
+    },
+    [onPress, serverId],
+  );
+
+  return (
+    <Pressable
+      onPress={handlePress}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${label} settings`}
+      testID={`sidebar-host-settings-${serverId}`}
+    >
+      <Settings size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />
+    </Pressable>
+  );
+}
+
+function SidebarHostPickerOption({
+  option,
+  selected,
+  active,
+  localServerId,
+  onPress,
+  onOpenHostSettings,
+}: {
+  option: ComboboxOption;
+  selected: boolean;
+  active: boolean;
+  localServerId: string | null;
+  onPress: () => void;
+  onOpenHostSettings: (serverId: string) => void;
+}) {
+  const trailingAction = useMemo(
+    () => (
+      <HostSettingsAction serverId={option.id} label={option.label} onPress={onOpenHostSettings} />
+    ),
+    [onOpenHostSettings, option.id, option.label],
+  );
+
+  return (
+    <HostPickerOption
+      serverId={option.id}
+      label={option.label}
+      isLocal={localServerId !== null && option.id === localServerId}
+      selected={selected}
+      active={active}
+      interactiveFeedback={false}
+      onPress={onPress}
+      trailingAction={trailingAction}
+      localMarkerTestID={`sidebar-host-local-marker-${option.id}`}
+      testID={`sidebar-host-row-${option.id}`}
+    />
+  );
+}
+
+function SidebarHostPicker({
+  theme,
+  onAddHost,
+  onOpenHostSettings,
+}: {
+  theme: SidebarTheme;
+  onAddHost: () => void;
+  onOpenHostSettings: (serverId: string) => void;
+}) {
+  const hosts = useHosts();
+  const localServerId = useLocalDaemonServerId();
+  const sortedHosts = useMemo(
+    () => orderHostsLocalFirst(hosts, localServerId),
+    [hosts, localServerId],
+  );
+  const triggerRef = useRef<View | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+
+  const options = useMemo<ComboboxOption[]>(() => {
+    const hostOptions = sortedHosts.map((host) => ({ id: host.serverId, label: host.label }));
+    return [...hostOptions, { id: ADD_HOST_OPTION_ID, label: "Add host" }];
+  }, [sortedHosts]);
+
+  const handleOpen = useCallback(() => setIsOpen(true), []);
+  const handleSelect = useCallback(
+    (id: string) => {
+      setIsOpen(false);
+      if (id === ADD_HOST_OPTION_ID) {
+        onAddHost();
+        return;
+      }
+      onOpenHostSettings(id);
+    },
+    [onAddHost, onOpenHostSettings],
+  );
+
+  const handleOpenHostSettings = useCallback(
+    (serverId: string) => {
+      setIsOpen(false);
+      onOpenHostSettings(serverId);
+    },
+    [onOpenHostSettings],
+  );
+
+  const renderOption = useCallback(
+    ({
+      option,
+      selected,
+      active,
+      onPress,
+    }: {
+      option: ComboboxOption;
+      selected: boolean;
+      active: boolean;
+      onPress: () => void;
+    }) => {
+      if (option.id === ADD_HOST_OPTION_ID) {
+        return (
+          <AddHostPickerOption
+            active={active}
+            interactiveFeedback={false}
+            onPress={onPress}
+            testID="sidebar-host-add"
+          />
+        );
+      }
+      return (
+        <SidebarHostPickerOption
+          option={option}
+          selected={selected}
+          active={active}
+          localServerId={localServerId}
+          onPress={onPress}
+          onOpenHostSettings={handleOpenHostSettings}
+        />
+      );
+    },
+    [handleOpenHostSettings, localServerId],
+  );
+
+  return (
+    <>
+      <FooterIconButton
+        buttonRef={triggerRef}
+        onPress={handleOpen}
+        testID="sidebar-hosts-trigger"
+        accessibilityLabel="Hosts"
+        icon={Server}
+        iconSize={theme.iconSize.sm}
+        theme={theme}
+      />
+      <Combobox
+        options={options}
+        value=""
+        onSelect={handleSelect}
+        renderOption={renderOption}
+        searchable={sortedHosts.length > 10}
+        searchPlaceholder="Search hosts"
+        title="Host"
+        desktopPlacement="top-start"
+        desktopMinWidth={240}
+        open={isOpen}
+        onOpenChange={setIsOpen}
+        anchorRef={triggerRef}
+      />
+    </>
   );
 }
 
@@ -327,6 +568,8 @@ function SidebarFooter({
   handleHome,
   handleSettings,
   labels,
+  handleAddHost,
+  handleOpenHostSettings,
 }: {
   theme: SidebarTheme;
   handleOpenProject: () => void;
@@ -339,39 +582,19 @@ function SidebarFooter({
     switchHost: string;
     searchHosts: string;
   };
+  handleAddHost: () => void;
+  handleOpenHostSettings: (serverId: string) => void;
 }) {
   const newAgentKeys = useShortcutKeys("new-agent");
-  const hosts = useHosts();
-  const onlineCount = hosts.filter((h) => {
-    const snap = getHostRuntimeStore().getSnapshot(h.serverId);
-    return snap?.connectionStatus === "online";
-  }).length;
-  const hasOffline = onlineCount < hosts.length;
-  const statusDotStyle = useMemo(
-    () => [
-      styles.footerStatusDot,
-      {
-        backgroundColor: hasOffline
-          ? theme.colors.palette.amber[500]
-          : theme.colors.palette.green[400],
-      },
-    ],
-    [hasOffline, theme.colors.palette.amber, theme.colors.palette.green],
-  );
 
   return (
     <View style={styles.sidebarFooter}>
-      <View style={styles.footerHostSlot}>
-        {hosts.length > 1 && (
-          <View style={styles.footerStatusPill}>
-            <View style={statusDotStyle} />
-            <Text style={styles.footerStatusText}>
-              {onlineCount} / {hosts.length}
-            </Text>
-          </View>
-        )}
-      </View>
       <View style={styles.footerIconRow}>
+        <SidebarHostPicker
+          theme={theme}
+          onAddHost={handleAddHost}
+          onOpenHostSettings={handleOpenHostSettings}
+        />
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
             <FooterIconButton
@@ -407,8 +630,9 @@ function SidebarFooter({
 
 function MobileSidebar({
   theme,
-  activeServerId,
+  statusWorkspacePlacements,
   projects,
+  projectNamesByKey,
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
@@ -422,6 +646,8 @@ function MobileSidebar({
   handleHome,
   handleSettings,
   labels,
+  handleAddHost,
+  handleOpenHostSettings,
   insetsTop,
   insetsBottom,
   isOpen,
@@ -451,21 +677,11 @@ function MobileSidebar({
   }, [closeSidebar, gestureAnimatingRef]);
 
   const handleViewMore = useCallback(() => {
-    if (!activeServerId) {
-      return;
-    }
     translateX.value = -windowWidth;
     backdropOpacity.value = 0;
     closeSidebar();
     handleViewMoreNavigate();
-  }, [
-    activeServerId,
-    backdropOpacity,
-    closeSidebar,
-    handleViewMoreNavigate,
-    translateX,
-    windowWidth,
-  ]);
+  }, [backdropOpacity, closeSidebar, handleViewMoreNavigate, translateX, windowWidth]);
 
   const handleWorkspacePress = useCallback(() => {
     closeSidebar();
@@ -650,12 +866,13 @@ function MobileSidebar({
               <SidebarAgentListSkeleton />
             ) : (
               <SidebarWorkspaceList
-                serverId={activeServerId}
                 collapsedProjectKeys={collapsedProjectKeys}
                 onToggleProjectCollapsed={toggleProjectCollapsed}
                 shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
                 groupMode={groupMode}
+                statusWorkspacePlacements={statusWorkspacePlacements}
                 projects={projects}
+                projectNamesByKey={projectNamesByKey}
                 isRefreshing={isManualRefresh && isRevalidating}
                 onRefresh={handleRefresh}
                 onWorkspacePress={handleWorkspacePress}
@@ -670,6 +887,8 @@ function MobileSidebar({
               handleHome={handleHome}
               handleSettings={handleSettings}
               labels={labels}
+              handleAddHost={handleAddHost}
+              handleOpenHostSettings={handleOpenHostSettings}
             />
           </View>
         </Animated.View>
@@ -680,8 +899,9 @@ function MobileSidebar({
 
 function DesktopSidebar({
   theme,
-  activeServerId,
+  statusWorkspacePlacements,
   projects,
+  projectNamesByKey,
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
@@ -695,6 +915,8 @@ function DesktopSidebar({
   handleHome,
   handleSettings,
   labels,
+  handleAddHost,
+  handleOpenHostSettings,
   insetsTop,
   isOpen,
   handleViewMore,
@@ -781,12 +1003,13 @@ function DesktopSidebar({
           <SidebarAgentListSkeleton />
         ) : (
           <SidebarWorkspaceList
-            serverId={activeServerId}
             collapsedProjectKeys={collapsedProjectKeys}
             onToggleProjectCollapsed={toggleProjectCollapsed}
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
             groupMode={groupMode}
+            statusWorkspacePlacements={statusWorkspacePlacements}
             projects={projects}
+            projectNamesByKey={projectNamesByKey}
             isRefreshing={isManualRefresh && isRevalidating}
             onRefresh={handleRefresh}
             onAddProject={handleOpenProject}
@@ -801,6 +1024,8 @@ function DesktopSidebar({
           handleHome={handleHome}
           handleSettings={handleSettings}
           labels={labels}
+          handleAddHost={handleAddHost}
+          handleOpenHostSettings={handleOpenHostSettings}
         />
 
         {/* Resize handle - absolutely positioned over right border */}
@@ -979,35 +1204,11 @@ const styles = StyleSheet.create((theme) => ({
   sidebarFooter: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[3],
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
-  },
-  footerHostSlot: {
-    flexGrow: 0,
-    flexShrink: 1,
-    minWidth: 0,
-    marginRight: theme.spacing[2],
-  },
-  footerStatusPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingVertical: theme.spacing[1],
-    paddingHorizontal: theme.spacing[2],
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.surfaceSidebarHover,
-  },
-  footerStatusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: theme.borderRadius.full,
-  },
-  footerStatusText: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foregroundMuted,
   },
   footerIconRow: {
     flexDirection: "row",

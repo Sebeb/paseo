@@ -3,7 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Agent } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
-import { agentHistoryQueryKey } from "./agent-history-query-key";
+import { agentHistoryQueryKey, allAgentHistoryQueryKey } from "./agent-history-query-key";
 import {
   applyArchivedAgentCloseResults,
   isAgentArchiving,
@@ -144,6 +144,10 @@ describe("useArchiveAgent", () => {
       ],
       pageParams: [null],
     });
+    queryClient.setQueryData(allAgentHistoryQueryKey(["server-a", "server-b"]), {
+      pages: [{ agents: [{ id: "agent-1", archivedAt: null }] }],
+      pageParams: [null],
+    });
 
     applyArchivedAgentCloseResults({
       queryClient,
@@ -174,6 +178,9 @@ describe("useArchiveAgent", () => {
       ],
       pageParams: [null],
     });
+    expect(
+      queryClient.getQueryState(allAgentHistoryQueryKey(["server-a", "server-b"]))?.isInvalidated,
+    ).toBe(true);
   });
 
   it("can apply archived agent close results without invalidating cached lists", () => {
@@ -194,6 +201,10 @@ describe("useArchiveAgent", () => {
       ],
       pageParams: [null],
     });
+    queryClient.setQueryData(allAgentHistoryQueryKey(["server-a"]), {
+      pages: [{ agents: [{ id: "agent-1", archivedAt: null }] }],
+      pageParams: [null],
+    });
 
     applyArchivedAgentCloseResults({
       queryClient,
@@ -205,6 +216,9 @@ describe("useArchiveAgent", () => {
     expect(queryClient.getQueryState(["sidebarAgentsList", "server-a"])?.isInvalidated).toBe(false);
     expect(queryClient.getQueryState(["allAgents", "server-a"])?.isInvalidated).toBe(false);
     expect(queryClient.getQueryState(agentHistoryQueryKey("server-a"))?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(allAgentHistoryQueryKey(["server-a"]))?.isInvalidated).toBe(
+      false,
+    );
     expect(queryClient.getQueryData(agentHistoryQueryKey("server-a"))).toEqual({
       pages: [
         {

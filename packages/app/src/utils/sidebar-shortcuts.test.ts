@@ -24,6 +24,7 @@ function workspace(input: {
     serverId: input.serverId,
     workspaceId: input.workspaceId,
     projectKey: input.projectKey ?? "project-default",
+    projectName: input.projectKey ?? "Project",
     workspaceDirectory: input.workspaceDirectory,
     projectKind: "git",
     workspaceKind: "checkout",

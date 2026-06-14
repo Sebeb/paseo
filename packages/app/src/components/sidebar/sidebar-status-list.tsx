@@ -4,7 +4,11 @@ import { View, Text, Pressable, ScrollView, type PressableStateCallbackType } fr
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
-import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
+import {
+  useSidebarWorkspaceEntry,
+  type SidebarStatusWorkspacePlacement,
+  type SidebarWorkspaceEntry,
+} from "@/hooks/use-sidebar-workspaces-list";
 import {
   buildStatusGroups,
   buildStatusShortcutIndex,
@@ -27,7 +31,6 @@ import {
   Pencil,
 } from "lucide-react-native";
 import { DiffStat } from "@/components/diff-stat";
-import { useSidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -90,9 +93,8 @@ const archiveLeadingIcon = <ThemedArchive size={14} uniProps={foregroundMutedCol
 const renameLeadingIcon = <ThemedPencil size={14} uniProps={foregroundMutedColorMapping} />;
 
 interface StatusWorkspaceListProps {
-  workspaces: SidebarWorkspaceEntry[];
+  workspaces: SidebarStatusWorkspacePlacement[];
   projectNamesByKey: Map<string, string>;
-  serverId: string | null;
   shortcutIndexByWorkspaceKey: Map<string, number>;
   showShortcutBadges: boolean;
   onWorkspacePress?: () => void;
@@ -101,7 +103,6 @@ interface StatusWorkspaceListProps {
 export function SidebarStatusWorkspaceList({
   workspaces,
   projectNamesByKey,
-  serverId,
   shortcutIndexByWorkspaceKey: _projectShortcutIndex,
   showShortcutBadges,
   onWorkspacePress,
@@ -137,7 +138,6 @@ export function SidebarStatusWorkspaceList({
             groups={groups}
             collapsedStatusGroupKeys={collapsedStatusGroupKeys}
             projectNamesByKey={projectNamesByKey}
-            serverId={serverId}
             shortcutIndex={statusShortcutIndex}
             showShortcutBadges={showShortcutBadges}
             onWorkspacePress={onWorkspacePress}
@@ -154,7 +154,6 @@ export function SidebarStatusWorkspaceList({
             groups={groups}
             collapsedStatusGroupKeys={collapsedStatusGroupKeys}
             projectNamesByKey={projectNamesByKey}
-            serverId={serverId}
             shortcutIndex={statusShortcutIndex}
             showShortcutBadges={showShortcutBadges}
             onWorkspacePress={onWorkspacePress}
@@ -169,7 +168,6 @@ function StatusGroupList({
   groups,
   collapsedStatusGroupKeys,
   projectNamesByKey,
-  serverId,
   shortcutIndex,
   showShortcutBadges,
   onWorkspacePress,
@@ -177,7 +175,6 @@ function StatusGroupList({
   groups: StatusGroup[];
   collapsedStatusGroupKeys: ReadonlySet<string>;
   projectNamesByKey: Map<string, string>;
-  serverId: string | null;
   shortcutIndex: Map<string, number>;
   showShortcutBadges: boolean;
   onWorkspacePress?: () => void;
@@ -194,7 +191,6 @@ function StatusGroupList({
                   key={workspace.workspaceKey}
                   workspace={workspace}
                   projectName={projectNamesByKey.get(workspace.projectKey) ?? ""}
-                  serverId={serverId}
                   shortcutNumber={shortcutIndex.get(workspace.workspaceKey) ?? null}
                   showShortcutBadge={showShortcutBadges}
                   onWorkspacePress={onWorkspacePress}
@@ -293,35 +289,33 @@ function StatusGroupIcon({ bucket }: { bucket: StatusGroup["bucket"] }) {
 const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
   workspace,
   projectName,
-  serverId,
   shortcutNumber,
   showShortcutBadge,
   onWorkspacePress,
 }: {
-  workspace: SidebarWorkspaceEntry;
+  workspace: SidebarStatusWorkspacePlacement;
   projectName: string;
-  serverId: string | null;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
   onWorkspacePress?: () => void;
 }) {
-  const hydratedWorkspace = useSidebarWorkspaceEntry(serverId, workspace.workspaceId);
+  const workspaceEntry = useSidebarWorkspaceEntry(workspace.serverId, workspace.workspaceId);
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const selected =
     activeWorkspaceSelection?.serverId === workspace.serverId &&
     activeWorkspaceSelection?.workspaceId === workspace.workspaceId;
 
   const handlePress = useCallback(() => {
-    if (!serverId) return;
+    if (!workspace.serverId) return;
     onWorkspacePress?.();
-    navigateToWorkspace(serverId, workspace.workspaceId);
-  }, [serverId, onWorkspacePress, workspace.workspaceId]);
+    navigateToWorkspace(workspace.serverId, workspace.workspaceId);
+  }, [onWorkspacePress, workspace.serverId, workspace.workspaceId]);
 
-  if (!hydratedWorkspace) return null;
+  if (!workspaceEntry) return null;
 
   return (
     <StatusWorkspaceRowWithMenu
-      workspace={hydratedWorkspace}
+      workspace={workspaceEntry}
       projectName={projectName}
       selected={selected}
       shortcutNumber={shortcutNumber}

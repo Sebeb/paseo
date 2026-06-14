@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { Text, View, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { Check, Settings2 } from "lucide-react-native";
+import { Settings2 } from "lucide-react-native";
 import type { Theme } from "@/styles/theme";
 import {
   DropdownMenu,
@@ -146,14 +146,8 @@ function HostFilterItem({
     : undefined;
 
   return (
-    <DropdownMenuItem selected={isSelected} onSelect={handleSelect}>
-      <View style={styles.filterItem}>
-        <View style={styles.filterItemText}>
-          <Text style={styles.filterItemLabel}>{label}</Text>
-          {subtitle && <Text style={styles.filterItemSubtitle}>{subtitle}</Text>}
-        </View>
-        {isSelected && <Check size={14} color={"#3b82f6"} />}
-      </View>
+    <DropdownMenuItem selected={isSelected} description={subtitle} onSelect={handleSelect}>
+      {label}
     </DropdownMenuItem>
   );
 }
@@ -183,22 +177,5 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.border,
     marginVertical: theme.spacing[1],
     marginHorizontal: theme.spacing[2],
-  },
-  filterItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flex: 1,
-  },
-  filterItemText: {
-    flex: 1,
-  },
-  filterItemLabel: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foreground,
-  },
-  filterItemSubtitle: {
-    fontSize: theme.fontSize.xs,
-    color: theme.colors.foregroundMuted,
   },
 }));

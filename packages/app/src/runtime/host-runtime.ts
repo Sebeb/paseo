@@ -1240,6 +1240,7 @@ export class HostRuntimeStore {
   private hostListListeners = new Set<() => void>();
   private version = 0;
   private hostListVersion = 0;
+  private hostRegistryLoaded = false;
   private hosts: HostProfile[] = [];
   private hostRegistryStatus: HostRegistryStatus = "loading";
   private deps: HostRuntimeControllerDeps;
@@ -1273,6 +1274,10 @@ export class HostRuntimeStore {
     return this.hostListVersion;
   }
 
+  isHostRegistryLoaded(): boolean {
+    return this.hostRegistryLoaded;
+  }
+
   boot(): void {
     if (this.bootStarted) {
       return;
@@ -1284,6 +1289,7 @@ export class HostRuntimeStore {
   private async runBoot(): Promise<void> {
     const override = readConfiguredLocalDaemonOverride();
     await this.loadFromStorage();
+    this.markHostRegistryLoaded();
 
     let isE2E: string | null = null;
     try {
@@ -1335,6 +1341,14 @@ export class HostRuntimeStore {
         void this.persistHosts();
       }
     }
+  }
+
+  private markHostRegistryLoaded(): void {
+    if (this.hostRegistryLoaded) {
+      return;
+    }
+    this.hostRegistryLoaded = true;
+    this.emitHostList();
   }
 
   private async bootstrapDefaultLocalhost(): Promise<void> {
@@ -2093,6 +2107,15 @@ export function useHostRegistryStatus(): HostRegistryStatus {
     (onStoreChange) => store.subscribeHostList(onStoreChange),
     () => store.getHostRegistryStatus(),
     () => store.getHostRegistryStatus(),
+  );
+}
+
+export function useHostRegistryLoaded(): boolean {
+  const store = getHostRuntimeStore();
+  return useSyncExternalStore(
+    (onStoreChange) => store.subscribeHostList(onStoreChange),
+    () => store.isHostRegistryLoaded(),
+    () => store.isHostRegistryLoaded(),
   );
 }
 

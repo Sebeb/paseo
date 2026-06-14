@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useSessionStore } from "@/stores/session-store";
-import { agentHistoryQueryKey } from "./agent-history-query-key";
+import { agentHistoryQueryKey, allAgentHistoryQueryRootKey } from "./agent-history-query-key";
 
 export const ARCHIVE_AGENT_PENDING_QUERY_KEY = ["archive-agent-pending"] as const;
 const EMPTY_PENDING_ARCHIVE_AGENT_IDS = new Set<string>();
@@ -360,6 +360,9 @@ export function applyArchivedAgentCloseResults(input: ApplyArchivedAgentCloseRes
     void input.queryClient.invalidateQueries({
       queryKey: agentHistoryQueryKey(input.serverId),
     });
+    void input.queryClient.invalidateQueries({
+      queryKey: allAgentHistoryQueryRootKey(),
+    });
   }
 }
 
@@ -448,6 +451,9 @@ export function useArchiveAgent() {
       });
       void queryClient.invalidateQueries({
         queryKey: agentHistoryQueryKey(input.serverId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: allAgentHistoryQueryRootKey(),
       });
     },
   });

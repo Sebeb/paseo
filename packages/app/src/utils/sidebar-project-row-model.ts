@@ -1,19 +1,28 @@
 import type {
   SidebarProjectEntry,
-  SidebarWorkspaceEntry,
+  SidebarWorkspacePlacement,
 } from "@/hooks/use-sidebar-workspaces-list";
+
+export interface SidebarProjectHostTarget {
+  serverId: string;
+  iconWorkingDir: string;
+}
+
+export type SidebarProjectTrailingAction =
+  | { kind: "new_worktree"; target: SidebarProjectHostTarget }
+  | { kind: "none" };
 
 export interface SidebarProjectWorkspaceLinkRowModel {
   kind: "workspace_link";
-  workspace: SidebarWorkspaceEntry;
+  workspace: SidebarWorkspacePlacement;
   chevron: null;
-  trailingAction: "new_worktree" | "none";
+  trailingAction: SidebarProjectTrailingAction;
 }
 
 export interface SidebarProjectSectionRowModel {
   kind: "project_section";
   chevron: "expand" | "collapse" | null;
-  trailingAction: "new_worktree" | "none";
+  trailingAction: SidebarProjectTrailingAction;
 }
 
 export type SidebarProjectRowModel =
@@ -22,6 +31,47 @@ export type SidebarProjectRowModel =
 
 export function isSidebarProjectFlattened(project: SidebarProjectEntry): boolean {
   return project.workspaces.length === 1 && project.projectKind !== "git";
+}
+
+function hostTarget(input: {
+  serverId: string;
+  iconWorkingDir: string;
+}): SidebarProjectHostTarget | null {
+  const iconWorkingDir = input.iconWorkingDir.trim();
+  if (!input.serverId || !iconWorkingDir) {
+    return null;
+  }
+  return { serverId: input.serverId, iconWorkingDir };
+}
+
+export function resolveSidebarProjectIconTarget(
+  project: SidebarProjectEntry,
+): SidebarProjectHostTarget | null {
+  for (const host of project.hosts) {
+    const target = hostTarget(host);
+    if (target) {
+      return target;
+    }
+  }
+  return null;
+}
+
+function resolveNewWorktreeTarget(project: SidebarProjectEntry): SidebarProjectHostTarget | null {
+  for (const host of project.hosts) {
+    if (!host.canCreateWorktree) {
+      continue;
+    }
+    const target = hostTarget(host);
+    if (target) {
+      return target;
+    }
+  }
+  return null;
+}
+
+function projectTrailingAction(project: SidebarProjectEntry): SidebarProjectTrailingAction {
+  const target = resolveNewWorktreeTarget(project);
+  return target ? { kind: "new_worktree", target } : { kind: "none" };
 }
 
 export function buildSidebarProjectRowModel(input: {
@@ -37,9 +87,7 @@ export function buildSidebarProjectRowModel(input: {
       kind: "workspace_link",
       workspace: flattenedWorkspace,
       chevron: null,
-      trailingAction: input.project.hosts.some((h) => h.canCreateWorktree)
-        ? "new_worktree"
-        : "none",
+      trailingAction: projectTrailingAction(input.project),
     };
   }
 
@@ -53,6 +101,6 @@ export function buildSidebarProjectRowModel(input: {
   return {
     kind: "project_section",
     chevron,
-    trailingAction: input.project.hosts.some((h) => h.canCreateWorktree) ? "new_worktree" : "none",
+    trailingAction: projectTrailingAction(input.project),
   };
 }

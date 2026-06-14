@@ -4,7 +4,12 @@ import type {
   FetchAgentHistoryEntry,
   FetchAgentHistoryOptions,
 } from "@getpaseo/client/internal/daemon-client";
-import { type AgentHistoryClient, fetchAgentHistoryPage } from "./use-agent-history";
+import {
+  type AgentHistoryClient,
+  type AgentHistoryHost,
+  fetchAgentHistoryBatch,
+  fetchAgentHistoryPage,
+} from "./use-agent-history";
 
 type FetchAgentHistory = DaemonClient["fetchAgentHistory"];
 type FetchAgentHistoryResult = Awaited<ReturnType<FetchAgentHistory>>;
@@ -205,5 +210,87 @@ describe("fetchAgentHistoryPage", () => {
     const page = await fetchAgentHistoryPage({ client, serverId: "server-1", cursor: null });
 
     expect(page.agents[0]?.archivedAt).toEqual(new Date("2026-04-01T10:05:00.000Z"));
+  });
+
+  it("fetches and sorts history across hosts with host labels", async () => {
+    const serverAClient = createClient([
+      historyPayload({
+        entries: [
+          historyEntry({
+            id: "older-a",
+            cwd: "/repo/a",
+            updatedAt: "2026-04-01T10:00:00.000Z",
+            title: "Older A",
+          }),
+        ],
+      }),
+    ]);
+    const serverBClient = createClient([
+      historyPayload({
+        entries: [
+          historyEntry({
+            id: "newer-b",
+            cwd: "/repo/b",
+            updatedAt: "2026-04-02T10:00:00.000Z",
+            title: "Newer B",
+          }),
+        ],
+      }),
+    ]);
+
+    const page = await fetchAgentHistoryBatch({
+      hosts: [
+        { serverId: "server-a", serverLabel: "MacBook", client: serverAClient },
+        { serverId: "server-b", serverLabel: "Linux box", client: serverBClient },
+      ] satisfies AgentHistoryHost[],
+      cursorByServerId: null,
+    });
+
+    expect(page.agents.map((agent) => `${agent.serverLabel}:${agent.id}`)).toEqual([
+      "Linux box:newer-b",
+      "MacBook:older-a",
+    ]);
+  });
+
+  it("fetches only hosts with a cursor when loading the next all-host page", async () => {
+    const serverAClient = createClient([
+      historyPayload({
+        entries: [
+          historyEntry({
+            id: "next-a",
+            cwd: "/repo/a",
+            updatedAt: "2026-04-01T10:00:00.000Z",
+          }),
+        ],
+      }),
+    ]);
+    const serverBClient = createClient([
+      historyPayload({
+        entries: [
+          historyEntry({
+            id: "next-b",
+            cwd: "/repo/b",
+            updatedAt: "2026-04-02T10:00:00.000Z",
+          }),
+        ],
+      }),
+    ]);
+
+    const page = await fetchAgentHistoryBatch({
+      hosts: [
+        { serverId: "server-a", serverLabel: "MacBook", client: serverAClient },
+        { serverId: "server-b", serverLabel: "Linux box", client: serverBClient },
+      ] satisfies AgentHistoryHost[],
+      cursorByServerId: { "server-b": "cursor-b" },
+    });
+
+    expect(page.agents.map((agent) => agent.id)).toEqual(["next-b"]);
+    expect(serverAClient.calls).toEqual([]);
+    expect(serverBClient.calls).toEqual([
+      {
+        sort: [{ key: "updated_at", direction: "desc" }],
+        page: { limit: 200, cursor: "cursor-b" },
+      } satisfies FetchAgentHistoryOptions,
+    ]);
   });
 });

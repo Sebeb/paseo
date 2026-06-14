@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { WorkspaceDescriptor } from "@/stores/session-store";
 import type { WorkspaceStructureProject } from "@/projects/workspace-structure";
 import {
   appendMissingOrderKeys,
   applyStoredOrdering,
+  buildSidebarStatusWorkspacePlacements,
+  buildSidebarWorkspacePlacementModel,
   buildSidebarProjectsFromStructure,
   computeSidebarOrderUpdates,
   deriveSidebarLoadingState,
@@ -53,6 +56,31 @@ function sidebarProject(input: {
     throw new Error("expected a project entry");
   }
   return result;
+}
+
+function workspace(input: {
+  id: string;
+  name: string;
+  projectId: string;
+  projectDisplayName: string;
+  status?: WorkspaceDescriptor["status"];
+  statusEnteredAt?: Date | null;
+}): WorkspaceDescriptor {
+  return {
+    id: input.id,
+    projectId: input.projectId,
+    projectDisplayName: input.projectDisplayName,
+    projectRootPath: `/repo/${input.projectId}`,
+    workspaceDirectory: `/repo/${input.projectId}/${input.id}`,
+    projectKind: "git",
+    workspaceKind: input.name === "main" ? "local_checkout" : "worktree",
+    name: input.name,
+    status: input.status ?? "done",
+    statusEnteredAt: input.statusEnteredAt ?? null,
+    archivingAt: null,
+    diffStat: null,
+    scripts: [],
+  };
 }
 
 describe("applyStoredOrdering", () => {
@@ -150,10 +178,98 @@ describe("buildSidebarProjectsFromStructure", () => {
       projects: [project({ projectKey: "project-1", workspaceKeys: ["feature", "main"] })],
     });
 
-    expect(projects[0]?.workspaces.map((workspace) => workspace.workspaceId)).toEqual([
+    expect(projects[0]?.workspaces.map((placement) => placement.workspaceId)).toEqual([
       "feature",
       "main",
     ]);
+  });
+});
+
+describe("shared sidebar workspace model", () => {
+  it("feeds project placement and status grouping from the same cross-host workspace identities", () => {
+    const model = buildSidebarWorkspacePlacementModel({
+      projects: [
+        project({
+          projectKey: "getpaseo/paseo",
+          projectName: "getpaseo/paseo",
+          iconWorkingDir: "/repo/getpaseo/paseo",
+          hosts: [
+            { serverId: "host-a", iconWorkingDir: "/repo/getpaseo/paseo", canCreateWorktree: true },
+            { serverId: "host-b", iconWorkingDir: "/repo/getpaseo/paseo", canCreateWorktree: true },
+          ],
+          workspaceKeys: ["host-a:main", "host-b:feature"],
+        }),
+      ],
+    });
+    const statusRows = buildSidebarStatusWorkspacePlacements({
+      placements: model.workspaces,
+      sessions: [
+        {
+          serverId: "host-a",
+          workspaces: new Map([
+            [
+              "main",
+              workspace({
+                id: "main",
+                name: "main",
+                projectId: "getpaseo/paseo",
+                projectDisplayName: "getpaseo/paseo",
+                status: "done",
+              }),
+            ],
+          ]),
+        },
+        {
+          serverId: "host-b",
+          workspaces: new Map([
+            [
+              "feature",
+              workspace({
+                id: "feature",
+                name: "feature/status-flow",
+                projectId: "getpaseo/paseo",
+                projectDisplayName: "getpaseo/paseo",
+                status: "running",
+                statusEnteredAt: new Date("2026-06-10T00:00:00.000Z"),
+              }),
+            ],
+          ]),
+        },
+      ],
+    });
+
+    expect(model.workspaces.map((entry) => entry.workspaceKey)).toEqual([
+      "host-a:main",
+      "host-b:feature",
+    ]);
+    expect(model.projects).toEqual([
+      expect.objectContaining({
+        projectKey: "getpaseo/paseo",
+        hosts: [
+          { serverId: "host-a", iconWorkingDir: "/repo/getpaseo/paseo", canCreateWorktree: true },
+          { serverId: "host-b", iconWorkingDir: "/repo/getpaseo/paseo", canCreateWorktree: true },
+        ],
+        workspaces: [
+          expect.objectContaining({
+            workspaceKey: "host-a:main",
+            serverId: "host-a",
+            name: "main",
+          }),
+          expect.objectContaining({
+            workspaceKey: "host-b:feature",
+            serverId: "host-b",
+            name: "feature",
+          }),
+        ],
+      }),
+    ]);
+    expect(statusRows.map((entry) => [entry.workspaceKey, entry.statusBucket, entry.name])).toEqual(
+      [
+        ["host-a:main", "done", "main"],
+        ["host-b:feature", "running", "feature/status-flow"],
+      ],
+    );
+    expect(model.projectNamesByKey).toEqual(new Map([["getpaseo/paseo", "getpaseo/paseo"]]));
   });
 });
 

@@ -8,57 +8,25 @@ import {
   View,
   type PressableStateCallbackType,
 } from "react-native";
-import { Folder, FolderPlus } from "lucide-react-native";
+import { Folder } from "lucide-react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
-import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
+import { useQuery } from "@tanstack/react-query";
 import { shortenPath } from "@/utils/shorten-path";
 import { useRecommendedProjectPaths } from "@/stores/session-store-hooks";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useOpenProject } from "@/hooks/use-open-project";
-import type { OpenProjectFailure, OpenProjectResult } from "@/hooks/open-project";
+import { buildWorkingDirectorySuggestions } from "@/utils/working-directory-suggestions";
 import { isNative } from "@/constants/platform";
-import { useActiveServerId } from "@/hooks/use-active-server-id";
-import {
-  buildProjectPickerOptions,
-  isOpenableProjectPath,
-  type ProjectPickerOption,
-} from "./project-picker-options";
+import { useProjectPickerStore } from "@/stores/project-picker-store";
 
 interface PathRowProps {
-  option: ProjectPickerOption;
+  path: string;
   active: boolean;
-  openPathLabel: string;
   onSelect: (path: string) => void;
 }
 
-type ProjectPickerErrorCode = NonNullable<OpenProjectFailure["errorCode"]>;
-
-function getProjectPickerErrorMessage(
-  result: OpenProjectResult | undefined,
-  thrownError: Error | null,
-  translateErrorCode: (errorCode: ProjectPickerErrorCode) => string,
-  translateOpenFailed: () => string,
-): string | null {
-  if (result?.ok === false) {
-    if (result.errorCode) {
-      return translateErrorCode(result.errorCode);
-    }
-    return result.error;
-  }
-  if (thrownError) {
-    return thrownError.message || translateOpenFailed();
-  }
-  return null;
-}
-
-function PathRow({ option, active, openPathLabel, onSelect }: PathRowProps) {
+function PathRow({ path, active, onSelect }: PathRowProps) {
   const { theme } = useUnistyles();
-  const Icon = option.kind === "path" ? FolderPlus : Folder;
-  const path = option.path;
-  const displayPath = shortenPath(path);
-  const label = option.kind === "path" ? `${openPathLabel}: ${displayPath}` : displayPath;
   const handlePress = useCallback(() => {
     onSelect(path);
   }, [onSelect, path]);
@@ -79,10 +47,10 @@ function PathRow({ option, active, openPathLabel, onSelect }: PathRowProps) {
     <Pressable style={pressableStyle} onPress={handlePress}>
       <View style={styles.rowContent}>
         <View style={styles.iconSlot}>
-          <Icon size={16} strokeWidth={2.2} color={theme.colors.foregroundMuted} />
+          <Folder size={16} strokeWidth={2.2} color={theme.colors.foregroundMuted} />
         </View>
         <Text style={rowTextStyle} numberOfLines={1}>
-          {label}
+          {shortenPath(path)}
         </Text>
       </View>
     </Pressable>
@@ -91,11 +59,10 @@ function PathRow({ option, active, openPathLabel, onSelect }: PathRowProps) {
 
 export function ProjectPickerModal() {
   const { theme } = useUnistyles();
-  const { t } = useTranslation();
-  const serverId = useActiveServerId();
-
-  const open = useKeyboardShortcutsStore((s) => s.projectPickerOpen);
-  const setOpen = useKeyboardShortcutsStore((s) => s.setProjectPickerOpen);
+  const request = useProjectPickerStore((state) => state.request);
+  const close = useProjectPickerStore((state) => state.close);
+  const serverId = request?.serverId ?? null;
+  const open = request !== null;
 
   const client = useHostRuntimeClient(serverId ?? "");
   const isConnected = useHostRuntimeIsConnected(serverId ?? "");
@@ -104,24 +71,8 @@ export function ProjectPickerModal() {
   const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const openProject = useOpenProject(serverId);
-
-  const openProjectMutation = useMutation({
-    mutationFn: (path: string) => openProject(path),
-    onSuccess: (result) => {
-      if (result.ok) {
-        setOpen(false);
-      }
-    },
-  });
-  const { mutate: submitPath, reset: resetSubmit, isPending: isSubmitting } = openProjectMutation;
-  const submitResult = openProjectMutation.data;
-  const errorMessage = getProjectPickerErrorMessage(
-    submitResult,
-    openProjectMutation.error,
-    (errorCode) => t(`projectPicker.errors.${errorCode}`),
-    () => t("projectPicker.errors.open_failed"),
-  );
 
   const directorySuggestionsQuery = useQuery({
     queryKey: ["project-picker-directory-suggestions", serverId, query],
@@ -143,53 +94,60 @@ export function ProjectPickerModal() {
   });
 
   const options = useMemo(() => {
-    return buildProjectPickerOptions({
+    const suggestedPaths = buildWorkingDirectorySuggestions({
       recommendedPaths,
       serverPaths: directorySuggestionsQuery.data ?? [],
       query,
     });
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery || suggestedPaths.includes(trimmedQuery)) {
+      return suggestedPaths;
+    }
+    return [trimmedQuery, ...suggestedPaths];
   }, [query, directorySuggestionsQuery.data, recommendedPaths]);
 
   const handleClose = useCallback(() => {
-    setOpen(false);
-  }, [setOpen]);
+    close();
+  }, [close]);
 
   const handleSelectPath = useCallback(
-    (path: string) => {
+    async (path: string) => {
       const trimmed = path.trim();
       if (!trimmed || !client || !serverId) return;
-      submitPath(trimmed);
+
+      setIsSubmitting(true);
+      try {
+        const didOpenProject = await openProject(trimmed);
+        if (didOpenProject) {
+          close();
+        }
+      } finally {
+        setIsSubmitting(false);
+      }
     },
-    [client, serverId, submitPath],
+    [client, close, openProject, serverId],
   );
 
   const handleSubmitCustom = useCallback(() => {
     const trimmed = query.trim();
-    if (!isOpenableProjectPath(trimmed)) return;
-    handleSelectPath(trimmed);
+    if (!trimmed) return;
+    void handleSelectPath(trimmed);
   }, [handleSelectPath, query]);
 
-  const handleChangeQuery = useCallback(
-    (text: string) => {
-      setQuery(text);
-      setActiveIndex(0);
-      resetSubmit();
-    },
-    [resetSubmit],
-  );
+  const handleChangeQuery = useCallback((text: string) => {
+    setQuery(text);
+    setActiveIndex(0);
+  }, []);
 
   // Reset state when opening/closing
   useEffect(() => {
-    resetSubmit();
-    if (!open) {
-      return;
+    if (open) {
+      setQuery("");
+      setActiveIndex(0);
+      const id = setTimeout(() => inputRef.current?.focus(), 0);
+      return () => clearTimeout(id);
     }
-
-    setQuery("");
-    setActiveIndex(0);
-    const id = setTimeout(() => inputRef.current?.focus(), 0);
-    return () => clearTimeout(id);
-  }, [open, resetSubmit]);
+  }, [open]);
 
   // Clamp active index
   useEffect(() => {
@@ -209,14 +167,14 @@ export function ProjectPickerModal() {
 
       if (key === "Escape") {
         event.preventDefault();
-        handleClose();
+        close();
         return;
       }
 
       if (key === "Enter") {
         event.preventDefault();
         if (options.length > 0 && activeIndex < options.length) {
-          handleSelectPath(options[activeIndex].path);
+          void handleSelectPath(options[activeIndex]);
         } else if (query.trim()) {
           handleSubmitCustom();
         }
@@ -238,7 +196,7 @@ export function ProjectPickerModal() {
 
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [activeIndex, handleClose, handleSelectPath, handleSubmitCustom, open, options, query]);
+  }, [activeIndex, close, handleSelectPath, handleSubmitCustom, open, options, query]);
 
   const panelStyle = useMemo(
     () => [
@@ -258,10 +216,6 @@ export function ProjectPickerModal() {
     () => [styles.input, { color: theme.colors.foreground }],
     [theme.colors.foreground],
   );
-  const errorTextStyle = useMemo(
-    () => [styles.errorText, { color: theme.colors.destructive }],
-    [theme.colors.destructive],
-  );
   const emptyTextStyle = useMemo(
     () => [styles.emptyText, { color: theme.colors.foregroundMuted }],
     [theme.colors.foregroundMuted],
@@ -280,7 +234,7 @@ export function ProjectPickerModal() {
               ref={inputRef}
               value={query}
               onChangeText={handleChangeQuery}
-              placeholder={t("projectPicker.placeholder")}
+              placeholder="Type a directory path..."
               placeholderTextColor={theme.colors.foregroundMuted}
               style={inputStyle}
               autoCapitalize="none"
@@ -290,7 +244,6 @@ export function ProjectPickerModal() {
               returnKeyType="go"
               onSubmitEditing={handleSubmitCustom}
             />
-            {errorMessage ? <Text style={errorTextStyle}>{errorMessage}</Text> : null}
           </View>
 
           <ScrollView
@@ -299,18 +252,17 @@ export function ProjectPickerModal() {
             keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
           >
-            {isSubmitting ? <Text style={emptyTextStyle}>{t("projectPicker.opening")}</Text> : null}
-            {!isSubmitting && options.length === 0 ? (
-              <Text style={emptyTextStyle}>{t("projectPicker.empty")}</Text>
+            {isSubmitting ? <Text style={emptyTextStyle}>Opening project...</Text> : null}
+            {!isSubmitting && options.length === 0 && !query.trim() ? (
+              <Text style={emptyTextStyle}>Start typing a path</Text>
             ) : null}
-            {!isSubmitting && options.length > 0 ? (
+            {!isSubmitting && !(options.length === 0 && !query.trim()) ? (
               <>
-                {options.map((option, index) => (
+                {options.map((path, index) => (
                   <PathRow
-                    key={`${option.kind}:${option.path}`}
-                    option={option}
+                    key={path}
+                    path={path}
                     active={index === activeIndex}
-                    openPathLabel={t("projectPicker.openPath")}
                     onSelect={handleSelectPath}
                   />
                 ))}
@@ -353,11 +305,6 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[1],
     outlineStyle: "none",
   } as object,
-  errorText: {
-    marginTop: theme.spacing[2],
-    fontSize: theme.fontSize.sm,
-    lineHeight: 18,
-  },
   results: {
     flexGrow: 0,
   },

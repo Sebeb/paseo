@@ -33,6 +33,7 @@ interface AgentListProps {
   onAgentSelect?: () => void;
   listFooterComponent?: ReactElement | null;
   showAttentionIndicator?: boolean;
+  showHostColumn?: boolean;
 }
 
 type DateSectionKey = "today" | "yesterday" | "thisWeek" | "thisMonth" | "older";
@@ -204,6 +205,7 @@ function SessionRow({
   isMobile,
   selectedAgentId,
   showAttentionIndicator,
+  showHostColumn,
   onPress,
   onLongPress,
 }: {
@@ -211,6 +213,7 @@ function SessionRow({
   isMobile: boolean;
   selectedAgentId?: string;
   showAttentionIndicator: boolean;
+  showHostColumn: boolean;
   onPress: (agent: AggregatedAgent) => void;
   onLongPress: (agent: AggregatedAgent) => void;
 }) {
@@ -284,7 +287,7 @@ function SessionRow({
             <Text style={styles.sessionMetaText}>{statusLabel}</Text>
             <Text style={styles.sessionMetaSeparator}>·</Text>
             <Text style={styles.sessionMetaText}>{timeAgo}</Text>
-            {agent.serverLabel ? (
+            {showHostColumn && agent.serverLabel ? (
               <>
                 <Text style={styles.sessionMetaSeparator}>·</Text>
                 <Text style={styles.sessionMetaText} numberOfLines={1}>
@@ -300,6 +303,11 @@ function SessionRow({
           <Text style={styles.columnMeta} numberOfLines={1}>
             {projectPath}
           </Text>
+          {showHostColumn ? (
+            <Text style={styles.columnMetaHost} numberOfLines={1}>
+              {agent.serverLabel}
+            </Text>
+          ) : null}
           <Text style={styles.columnMetaFixed}>{statusLabel}</Text>
           <Text style={styles.columnMetaFixed}>{timeAgo}</Text>
         </>
@@ -321,6 +329,7 @@ export function AgentList({
   onAgentSelect,
   listFooterComponent,
   showAttentionIndicator = true,
+  showHostColumn = false,
 }: AgentListProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
@@ -426,12 +435,21 @@ export function AgentList({
           isMobile={isMobile}
           selectedAgentId={selectedAgentId}
           showAttentionIndicator={showAttentionIndicator}
+          showHostColumn={showHostColumn}
           onPress={handleAgentPress}
           onLongPress={handleAgentLongPress}
         />
       );
     },
-    [handleAgentLongPress, handleAgentPress, isMobile, selectedAgentId, showAttentionIndicator, t],
+    [
+      handleAgentLongPress,
+      handleAgentPress,
+      isMobile,
+      selectedAgentId,
+      showAttentionIndicator,
+      showHostColumn,
+      t,
+    ],
   );
 
   const keyExtractor = useCallback((item: FlatListItem) => item.key, []);
@@ -623,6 +641,14 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     flexShrink: 0,
     width: 72,
+    textAlign: "right" as const,
+  },
+  columnMetaHost: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
+    flexShrink: 0,
+    width: 120,
+    marginLeft: theme.spacing[4],
     textAlign: "right" as const,
   },
   badge: {
