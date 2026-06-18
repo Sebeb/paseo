@@ -481,6 +481,32 @@ describe("createWebStreamStrategy", () => {
     expect(previewTop + 120).toBeLessThanOrEqual(384);
   });
 
+  it("aligns prompt preview top with the visible dot top when unclamped", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    renderViewport({
+      root,
+      historyMounted: [userMessage(1)],
+    });
+
+    const scrollContainer = getRequiredElement(container, '[data-testid="agent-chat-scroll"]');
+    setScrollableMetrics({ scrollContainer, viewportHeight: 400, contentHeight: 1200 });
+    const anchor = getRequiredElement(container, "[data-stream-item-id='message-1']");
+    setElementOffsetTop(anchor, 600);
+    refreshScrollMetrics(scrollContainer);
+
+    const marker = getRequiredElement(container, "[data-testid='prompt-scroll-marker-message-1']");
+    const preview = getRequiredElement(
+      container,
+      "[data-testid='prompt-scroll-preview-message-1']",
+    );
+    const markerTop = Number.parseFloat(marker.style.top);
+    const previewTop = markerTop + Number.parseFloat(preview.style.top);
+
+    expect(previewTop - markerTop).toBe(11);
+  });
+
   it("positions prompt markers from the top of the user message in the content", () => {
     container = document.createElement("div");
     document.body.appendChild(container);

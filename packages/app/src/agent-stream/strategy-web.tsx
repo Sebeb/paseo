@@ -263,12 +263,12 @@ function getPromptMarkerTop(input: {
 }
 
 function getPromptPreviewTop(input: { markerTop: number; viewportSize: number }): number {
-  const centeredTop = input.markerTop + PROMPT_MARKER_HIT_SIZE / 2 - PROMPT_PREVIEW_MAX_HEIGHT / 2;
+  const dotTop = input.markerTop + (PROMPT_MARKER_HIT_SIZE - PROMPT_MARKER_SIZE) / 2;
   const maxTop = Math.max(
     PROMPT_PREVIEW_EDGE_PADDING,
     input.viewportSize - PROMPT_PREVIEW_EDGE_PADDING - PROMPT_PREVIEW_MAX_HEIGHT,
   );
-  return clamp(centeredTop, PROMPT_PREVIEW_EDGE_PADDING, maxTop);
+  return clamp(dotTop, PROMPT_PREVIEW_EDGE_PADDING, maxTop);
 }
 
 function getPromptPreviewText(text: string): string {
