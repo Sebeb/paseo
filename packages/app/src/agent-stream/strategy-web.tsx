@@ -63,6 +63,12 @@ const historyStartSlotStyle: CSSProperties = {
   paddingBottom: 8,
 };
 
+const streamItemAnchorStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  width: "100%",
+};
+
 const promptMarkerOverlayStyle: CSSProperties = {
   position: "absolute",
   top: 0,
@@ -888,14 +894,24 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   );
   const mountedHistoryRows = useMemo(() => {
     return segments.historyMounted.map((item, index) => (
-      <div key={item.id} data-stream-item-id={item.id} data-stream-item-kind={item.kind}>
+      <div
+        key={item.id}
+        data-stream-item-id={item.id}
+        data-stream-item-kind={item.kind}
+        style={streamItemAnchorStyle}
+      >
         {renderHistoryMountedRow(item, index, segments.historyMounted)}
       </div>
     ));
   }, [renderHistoryMountedRow, segments.historyMounted]);
   const liveHeadRows = useMemo(() => {
     return segments.liveHead.map((item, index) => (
-      <div key={item.id} data-stream-item-id={item.id} data-stream-item-kind={item.kind}>
+      <div
+        key={item.id}
+        data-stream-item-id={item.id}
+        data-stream-item-kind={item.kind}
+        style={streamItemAnchorStyle}
+      >
         {renderLiveHeadRow(item, index, segments.liveHead)}
       </div>
     ));

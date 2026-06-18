@@ -408,6 +408,27 @@ describe("createWebStreamStrategy", () => {
     expect(preview.textContent).toBe("Message 1");
   });
 
+  it("keeps mounted stream item anchors from breaking centered row layout", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    renderViewport({
+      root,
+      historyMounted: [userMessage(1)],
+      liveHead: [userMessage(2)],
+    });
+
+    const mountedAnchor = getRequiredElement(container, "[data-stream-item-id='message-1']");
+    const liveAnchor = getRequiredElement(container, "[data-stream-item-id='message-2']");
+
+    expect(mountedAnchor.style.display).toBe("flex");
+    expect(mountedAnchor.style.flexDirection).toBe("column");
+    expect(mountedAnchor.style.width).toBe("100%");
+    expect(liveAnchor.style.display).toBe("flex");
+    expect(liveAnchor.style.flexDirection).toBe("column");
+    expect(liveAnchor.style.width).toBe("100%");
+  });
+
   it("truncates long prompt previews with three periods", () => {
     const longPrompt = `${"Outline the generation process in a diagram. ".repeat(8)}Finish here`;
     container = document.createElement("div");
