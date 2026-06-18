@@ -169,6 +169,11 @@ export const en = {
   agentStream: {
     empty: "Start chatting with this agent...",
     scrollToBottom: "Scroll to bottom",
+    thinking: {
+      label: "Thinking",
+      itemCount_one: "{{count}} item",
+      itemCount_other: "{{count}} items",
+    },
     permission: {
       plan: "Plan",
       required: "Permission Required",
@@ -1423,6 +1428,10 @@ export const en = {
           inApp: "In Paseo",
           external: "External browser",
         },
+      },
+      collapseThinking: {
+        label: "Collapse thinking",
+        description: "Hide reasoning, tool calls, and intermediate output once the agent replies",
       },
       terminalScrollback: {
         label: "Terminal scrollback",

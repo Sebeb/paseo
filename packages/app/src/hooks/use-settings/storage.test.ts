@@ -61,6 +61,38 @@ describe("loadAppSettingsFromStorage", () => {
     expect(result.language).toBe("system");
   });
 
+  it("defaults collapse thinking to disabled when storage is empty", async () => {
+    const deps = makeDeps();
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.collapseThinking).toBe(false);
+  });
+
+  it("loads persisted collapse thinking", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: true }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.collapseThinking).toBe(true);
+  });
+
+  it("drops a non-boolean collapse thinking value back to the default", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: "true" }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.collapseThinking).toBe(false);
+  });
+
   it("loads configured terminal scrollback lines from app settings", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
@@ -229,6 +261,28 @@ describe("loadSettingsFromStorage", () => {
 });
 
 describe("saveAppSettings", () => {
+  it("persists collapse thinking without dropping existing settings", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ theme: "light", sendBehavior: "queue" }),
+      }),
+    });
+    const queryClient = new QueryClient();
+
+    await saveAppSettings({
+      queryClient,
+      updates: { collapseThinking: true },
+      deps,
+    });
+
+    const persisted = JSON.parse(deps.storage.entries.get(APP_SETTINGS_KEY) ?? "{}");
+    expect(persisted).toMatchObject({
+      theme: "light",
+      sendBehavior: "queue",
+      collapseThinking: true,
+    });
+  });
+
   it("saves terminal scrollback through app settings persistence", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({

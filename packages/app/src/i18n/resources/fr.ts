@@ -172,6 +172,11 @@ export const fr: TranslationResources = {
   agentStream: {
     empty: "Commencez à discuter avec cet agent...",
     scrollToBottom: "Faire défiler vers le bas",
+    thinking: {
+      label: "Réflexion",
+      itemCount_one: "{{count}} élément",
+      itemCount_other: "{{count}} éléments",
+    },
     permission: {
       plan: "Plan",
       required: "Autorisation requise",
@@ -1457,6 +1462,11 @@ export const fr: TranslationResources = {
           inApp: "DansPaseo",
           external: "Navigateur externe",
         },
+      },
+      collapseThinking: {
+        label: "Réduire la réflexion",
+        description:
+          "Masque le raisonnement, les appels d'outils et les sorties intermédiaires quand l'agent répond",
       },
       terminalScrollback: {
         label: "DéfilementTerminal",

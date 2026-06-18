@@ -29,6 +29,7 @@ export interface AppSettings {
   theme: ThemeName | "auto";
   language: AppLanguage;
   sendBehavior: SendBehavior;
+  collapseThinking: boolean;
   serviceUrlBehavior: ServiceUrlBehavior;
   terminalScrollbackLines: number;
   uiFontFamily: string; // "" = platform default UI stack
@@ -47,6 +48,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   theme: "auto",
   language: "system",
   sendBehavior: "interrupt",
+  collapseThinking: false,
   serviceUrlBehavior: "ask",
   terminalScrollbackLines: DEFAULT_TERMINAL_SCROLLBACK_LINES,
   uiFontFamily: "",
@@ -158,6 +160,9 @@ function pickAppSettings(stored: Partial<AppSettings>): Partial<AppSettings> {
   }
   if (stored.sendBehavior === "interrupt" || stored.sendBehavior === "queue") {
     result.sendBehavior = stored.sendBehavior;
+  }
+  if (typeof stored.collapseThinking === "boolean") {
+    result.collapseThinking = stored.collapseThinking;
   }
   if (
     typeof stored.serviceUrlBehavior === "string" &&

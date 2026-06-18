@@ -151,6 +151,9 @@ export function useSettings(): UseSettingsReturn {
       if (updates.sendBehavior !== undefined) {
         appUpdates.sendBehavior = updates.sendBehavior;
       }
+      if (updates.collapseThinking !== undefined) {
+        appUpdates.collapseThinking = updates.collapseThinking;
+      }
       if (updates.serviceUrlBehavior !== undefined) {
         appUpdates.serviceUrlBehavior = updates.serviceUrlBehavior;
       }

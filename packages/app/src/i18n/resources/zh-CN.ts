@@ -171,6 +171,11 @@ export const zhCN: TranslationResources = {
   agentStream: {
     empty: "开始和这个 Agent 对话...",
     scrollToBottom: "滚动到底部",
+    thinking: {
+      label: "思考",
+      itemCount_one: "{{count}} 项",
+      itemCount_other: "{{count}} 项",
+    },
     permission: {
       plan: "Plan",
       required: "需要权限",
@@ -1399,6 +1404,10 @@ export const zhCN: TranslationResources = {
           inApp: "在 Paseo 中",
           external: "外部浏览器",
         },
+      },
+      collapseThinking: {
+        label: "折叠思考",
+        description: "Agent 回复后隐藏推理、工具调用和中间输出",
       },
       terminalScrollback: {
         label: "终端回滚",

@@ -171,6 +171,11 @@ export const ar: TranslationResources = {
   agentStream: {
     empty: "ابدأ الدردشة مع هذا الوكيل...",
     scrollToBottom: "قم بالتمرير إلى الأسفل",
+    thinking: {
+      label: "التفكير",
+      itemCount_one: "{{count}} عنصر",
+      itemCount_other: "{{count}} عناصر",
+    },
     permission: {
       plan: "يخطط",
       required: "الإذن مطلوب",
@@ -1417,6 +1422,10 @@ export const ar: TranslationResources = {
           inApp: "في Paseo",
           external: "متصفح خارجي",
         },
+      },
+      collapseThinking: {
+        label: "طي التفكير",
+        description: "إخفاء الاستدلال واستدعاءات الأدوات والمخرجات الوسيطة بعد رد الوكيل",
       },
       terminalScrollback: {
         label: "التمرير Terminal",

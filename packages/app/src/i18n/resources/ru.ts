@@ -171,6 +171,11 @@ export const ru: TranslationResources = {
   agentStream: {
     empty: "Начните общаться с этим агентом...",
     scrollToBottom: "Прокрутить вниз",
+    thinking: {
+      label: "Размышления",
+      itemCount_one: "{{count}} элемент",
+      itemCount_other: "{{count}} элементов",
+    },
     permission: {
       plan: "План",
       required: "Требуется разрешение",
@@ -1444,6 +1449,11 @@ export const ru: TranslationResources = {
           inApp: "В Paseo",
           external: "Внешний браузер",
         },
+      },
+      collapseThinking: {
+        label: "Сворачивать размышления",
+        description:
+          "Скрывать рассуждения, вызовы инструментов и промежуточный вывод после ответа агента",
       },
       terminalScrollback: {
         label: "Terminal прокрутка назад",
