@@ -550,7 +550,7 @@ describe("createWebStreamStrategy", () => {
     });
 
     expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledWith({
-      top: 302,
+      top: 305,
       behavior: "auto",
     });
   });
@@ -575,7 +575,7 @@ describe("createWebStreamStrategy", () => {
     });
 
     expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledWith({
-      top: 270,
+      top: 273,
       behavior: "auto",
     });
   });

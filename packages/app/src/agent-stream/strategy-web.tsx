@@ -34,7 +34,7 @@ const PROMPT_PREVIEW_WIDTH = 280;
 const PROMPT_PREVIEW_MAX_HEIGHT = 120;
 const PROMPT_PREVIEW_EDGE_PADDING = 16;
 const PROMPT_PREVIEW_TEXT_MAX_LENGTH = 140;
-const PROMPT_SCROLL_TARGET_TOP_PADDING = 18;
+const PROMPT_SCROLL_TARGET_TOP_PADDING = 15;
 
 type PromptMarkerSegment = "virtualizedHistory" | "mountedHistory" | "liveHead";
 
