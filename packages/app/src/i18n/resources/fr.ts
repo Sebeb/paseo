@@ -172,6 +172,7 @@ export const fr: TranslationResources = {
   agentStream: {
     empty: "Commencez à discuter avec cet agent...",
     scrollToBottom: "Faire défiler vers le bas",
+    scrollToPinnedUserInput: "Aller à la saisie utilisateur épinglée",
     permission: {
       plan: "Plan",
       required: "Autorisation requise",
@@ -1462,6 +1463,11 @@ export const fr: TranslationResources = {
         label: "DéfilementTerminal",
         description: "Lignes conservées dans le tampon du terminal intégré",
         accessibilityLabel: "Lignes de défilementTerminal",
+      },
+      pinUserInputs: {
+        label: "Épingler les saisies utilisateur",
+        description:
+          "Garde visible le prompt utilisateur pertinent pendant le défilement des réponses",
       },
       language: {
         label: "Langue",

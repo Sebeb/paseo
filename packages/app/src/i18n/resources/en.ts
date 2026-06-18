@@ -169,6 +169,7 @@ export const en = {
   agentStream: {
     empty: "Start chatting with this agent...",
     scrollToBottom: "Scroll to bottom",
+    scrollToPinnedUserInput: "Scroll to pinned user input",
     permission: {
       plan: "Plan",
       required: "Permission Required",
@@ -1428,6 +1429,10 @@ export const en = {
         label: "Terminal scrollback",
         description: "Lines kept in the built-in terminal buffer",
         accessibilityLabel: "Terminal scrollback lines",
+      },
+      pinUserInputs: {
+        label: "Pin user inputs",
+        description: "Keep the relevant user prompt visible while scrolling through responses",
       },
       language: {
         label: "Language",

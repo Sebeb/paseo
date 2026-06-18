@@ -171,6 +171,7 @@ export const ar: TranslationResources = {
   agentStream: {
     empty: "ابدأ الدردشة مع هذا الوكيل...",
     scrollToBottom: "قم بالتمرير إلى الأسفل",
+    scrollToPinnedUserInput: "انتقل إلى إدخال المستخدم المثبت",
     permission: {
       plan: "يخطط",
       required: "الإذن مطلوب",
@@ -1422,6 +1423,10 @@ export const ar: TranslationResources = {
         label: "التمرير Terminal",
         description: "يتم الاحتفاظ بالخطوط في المخزن المؤقت الطرفي المدمج",
         accessibilityLabel: "خطوط التمرير Terminal",
+      },
+      pinUserInputs: {
+        label: "تثبيت إدخالات المستخدم",
+        description: "يبقي مطالبة المستخدم ذات الصلة مرئية أثناء التمرير عبر الردود",
       },
       language: {
         label: "لغة",

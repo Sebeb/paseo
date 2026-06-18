@@ -20,12 +20,14 @@ import {
 import type { StreamItem } from "@/types/stream";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { useBottomAnchorController } from "./bottom-anchor-controller";
+import { estimateStreamItemHeight } from "./web-virtualization";
 import type { StreamRenderInput, StreamStrategy, StreamViewportHandle } from "./strategy";
 import {
   createStreamStrategy,
   isNearBottomForStreamRenderStrategy,
   resolveBottomAnchorTransportBehavior,
 } from "./strategy";
+import { selectPinnedUserInput, type PinnedUserInputCandidate } from "./pinned-user-input";
 
 const DEFAULT_MAINTAIN_VISIBLE_CONTENT_POSITION = Object.freeze({
   minIndexForVisible: 0,
@@ -49,6 +51,8 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
     isAuthoritativeHistoryReady,
     onNearBottomChange,
     onNearHistoryStart,
+    pinUserInputsEnabled,
+    onPinnedUserInputChange,
     isLoadingOlderHistory,
     hasOlderHistory,
     scrollEnabled,
@@ -79,6 +83,58 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
     }
     return [...segments.historyVirtualized, ...segments.historyMounted];
   }, [segments.historyMounted, segments.historyVirtualized]);
+
+  const collectPinnedUserInputCandidates = useCallback((): PinnedUserInputCandidate[] => {
+    const candidates: PinnedUserInputCandidate[] = [];
+    let top = 0;
+    for (const item of historyRows.toReversed()) {
+      const height = estimateStreamItemHeight(item);
+      if (item.kind === "user_message") {
+        candidates.push({
+          item,
+          top,
+          bottom: top + height,
+        });
+      }
+      top += height;
+    }
+    return candidates;
+  }, [historyRows]);
+
+  const findEstimatedNormalTop = useCallback(
+    (itemId: string): number | null => {
+      let top = 0;
+      for (const item of historyRows.toReversed()) {
+        if (item.id === itemId) {
+          return top;
+        }
+        top += estimateStreamItemHeight(item);
+      }
+      return null;
+    },
+    [historyRows],
+  );
+
+  const updatePinnedUserInput = useCallback(() => {
+    const metrics = streamViewportMetricsRef.current;
+    if (metrics.viewportHeight <= 0 || metrics.contentHeight <= 0) {
+      onPinnedUserInputChange(null);
+      return;
+    }
+    const viewportTop = Math.max(
+      0,
+      metrics.contentHeight - metrics.offsetY - metrics.viewportHeight,
+    );
+    const viewportBottom = Math.max(viewportTop, metrics.contentHeight - metrics.offsetY);
+    onPinnedUserInputChange(
+      selectPinnedUserInput({
+        enabled: pinUserInputsEnabled,
+        candidates: collectPinnedUserInputCandidates(),
+        viewportTop,
+        viewportBottom,
+      }),
+    );
+  }, [collectPinnedUserInputCandidates, onPinnedUserInputChange, pinUserInputsEnabled]);
 
   const clearNativeViewportSettling = useCallback(() => {
     if (nativeViewportSettlingFrameIdRef.current !== null) {
@@ -205,6 +261,19 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
           reason,
         });
       },
+      scrollToStreamItemTop: (itemId: string) => {
+        const metrics = streamViewportMetricsRef.current;
+        const itemTop = findEstimatedNormalTop(itemId);
+        if (itemTop === null || metrics.viewportHeight <= 0 || metrics.contentHeight <= 0) {
+          return;
+        }
+        const offset = Math.max(0, metrics.contentHeight - itemTop - metrics.viewportHeight);
+        programmaticScrollEventBudgetRef.current = 3;
+        flatListRef.current?.scrollToOffset({
+          offset,
+          animated: true,
+        });
+      },
       prepareForViewportChange: () => {
         bottomAnchorController.prepareForStickyViewportChange();
         markNativeViewportSettling();
@@ -216,7 +285,13 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
         viewportRef.current = null;
       }
     };
-  }, [agentId, bottomAnchorController, markNativeViewportSettling, viewportRef]);
+  }, [
+    agentId,
+    bottomAnchorController,
+    findEstimatedNormalTop,
+    markNativeViewportSettling,
+    viewportRef,
+  ]);
 
   const handleScroll = useStableEvent((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -240,6 +315,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
       viewportHeight: streamViewportMetricsRef.current.viewportHeight,
     });
     onNearBottomChange(nearBottom);
+    updatePinnedUserInput();
 
     const distanceFromOldestEdge =
       streamViewportMetricsRef.current.contentHeight -
@@ -288,6 +364,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
       previousViewportHeight,
       viewportHeight,
     });
+    updatePinnedUserInput();
   });
 
   const handleContentSizeChange = useStableEvent((_width: number, height: number) => {
@@ -303,7 +380,12 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
       previousContentHeight,
       contentHeight: nextContentHeight,
     });
+    updatePinnedUserInput();
   });
+
+  useEffect(() => {
+    updatePinnedUserInput();
+  }, [historyRows, pinUserInputsEnabled, updatePinnedUserInput]);
 
   const renderItem = useStableEvent(
     ({ item, index }: ListRenderItemInfo<StreamItem>): ReactElement | null => {

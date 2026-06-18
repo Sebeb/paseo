@@ -6,6 +6,7 @@ import type {
   BottomAnchorLocalRequest,
   BottomAnchorRouteRequest,
 } from "./bottom-anchor-controller";
+import type { PinnedUserInputState } from "./pinned-user-input";
 
 type EdgeSlot = "header" | "footer";
 type NeighborRelation = "above" | "below";
@@ -41,6 +42,7 @@ export interface StreamEdgeSlotProps {
 
 export interface StreamViewportHandle {
   scrollToBottom: (reason?: BottomAnchorLocalRequest["reason"]) => void;
+  scrollToStreamItemTop: (itemId: string) => void;
   prepareForViewportChange: () => void;
 }
 
@@ -62,6 +64,8 @@ export interface StreamRenderInput {
   isAuthoritativeHistoryReady: boolean;
   onNearBottomChange: (value: boolean) => void;
   onNearHistoryStart: () => void;
+  pinUserInputsEnabled: boolean;
+  onPinnedUserInputChange: (state: PinnedUserInputState | null) => void;
   isLoadingOlderHistory: boolean;
   hasOlderHistory: boolean;
   scrollEnabled: boolean;

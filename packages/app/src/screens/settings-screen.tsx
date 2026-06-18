@@ -77,6 +77,7 @@ import { AddHostModal } from "@/components/add-host-modal";
 import { PairLinkModal } from "@/components/pair-link-modal";
 import { KeyboardShortcutsSection } from "@/screens/settings/keyboard-shortcuts-section";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { CommunityLinks } from "@/components/community-links";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -250,6 +251,7 @@ interface GeneralSectionProps {
   handleSendBehaviorChange: (behavior: SendBehavior) => void;
   handleServiceUrlBehaviorChange: (behavior: ServiceUrlBehavior) => void;
   handleLanguageChange: (language: AppLanguage) => void;
+  handlePinUserInputsChange: (enabled: boolean) => void;
   handleTerminalScrollbackLinesChange: (lines: number) => void;
 }
 
@@ -306,6 +308,7 @@ function GeneralSection({
   handleSendBehaviorChange,
   handleServiceUrlBehaviorChange,
   handleLanguageChange,
+  handlePinUserInputsChange,
   handleTerminalScrollbackLinesChange,
 }: GeneralSectionProps) {
   const { t, i18n } = useTranslation();
@@ -419,6 +422,20 @@ function GeneralSection({
             </DropdownMenu>
           </View>
         ) : null}
+        <View style={ROW_WITH_BORDER_STYLE}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>{t("settings.general.pinUserInputs.label")}</Text>
+            <Text style={settingsStyles.rowHint}>
+              {t("settings.general.pinUserInputs.description")}
+            </Text>
+          </View>
+          <Switch
+            value={settings.pinUserInputs}
+            onValueChange={handlePinUserInputsChange}
+            accessibilityLabel={t("settings.general.pinUserInputs.label")}
+            testID="settings-pin-user-inputs-switch"
+          />
+        </View>
         <View style={ROW_WITH_BORDER_STYLE}>
           <View style={settingsStyles.rowContent}>
             <Text style={settingsStyles.rowTitle}>
@@ -1301,6 +1318,13 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
     [updateSettings],
   );
 
+  const handlePinUserInputsChange = useCallback(
+    (pinUserInputs: boolean) => {
+      void updateSettings({ pinUserInputs });
+    },
+    [updateSettings],
+  );
+
   const handleTerminalScrollbackLinesChange = useCallback(
     (terminalScrollbackLines: number) => {
       void updateSettings({ terminalScrollbackLines });
@@ -1508,6 +1532,7 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
               handleSendBehaviorChange={handleSendBehaviorChange}
               handleServiceUrlBehaviorChange={handleServiceUrlBehaviorChange}
               handleLanguageChange={handleLanguageChange}
+              handlePinUserInputsChange={handlePinUserInputsChange}
               handleTerminalScrollbackLinesChange={handleTerminalScrollbackLinesChange}
             />
           );

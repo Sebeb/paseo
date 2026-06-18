@@ -171,6 +171,7 @@ export const zhCN: TranslationResources = {
   agentStream: {
     empty: "开始和这个 Agent 对话...",
     scrollToBottom: "滚动到底部",
+    scrollToPinnedUserInput: "滚动到固定的用户输入",
     permission: {
       plan: "Plan",
       required: "需要权限",
@@ -1404,6 +1405,10 @@ export const zhCN: TranslationResources = {
         label: "终端回滚",
         description: "内置终端缓冲区保留的行数",
         accessibilityLabel: "终端回滚行数",
+      },
+      pinUserInputs: {
+        label: "固定用户输入",
+        description: "滚动查看回复时保持相关用户提示可见",
       },
       language: {
         label: "语言",
