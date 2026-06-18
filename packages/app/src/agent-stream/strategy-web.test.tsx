@@ -39,11 +39,11 @@ vi.mock("@/hooks/use-settings", () => ({
 
 vi.mock("@/components/use-web-scrollbar", () => ({ useWebElementScrollbar: () => null }));
 
-function userMessage(index: number): StreamItem {
+function userMessage(index: number, text = `Message ${index}`): StreamItem {
   return {
     kind: "user_message",
     id: `message-${index}`,
-    text: `Message ${index}`,
+    text,
     timestamp: new Date(`2026-04-20T00:00:${String(index % 60).padStart(2, "0")}.000Z`),
   };
 }
@@ -406,6 +406,79 @@ describe("createWebStreamStrategy", () => {
 
     expect(preview.style.opacity).toBe("1");
     expect(preview.textContent).toBe("Message 1");
+  });
+
+  it("truncates long prompt previews with three periods", () => {
+    const longPrompt = `${"Outline the generation process in a diagram. ".repeat(8)}Finish here`;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    renderViewport({
+      root,
+      historyMounted: [userMessage(1, longPrompt)],
+    });
+
+    const scrollContainer = getRequiredElement(container, '[data-testid="agent-chat-scroll"]');
+    setScrollableMetrics({ scrollContainer, viewportHeight: 400, contentHeight: 1200 });
+    const anchor = getRequiredElement(container, "[data-stream-item-id='message-1']");
+    setElementOffsetTop(anchor, 240);
+    refreshScrollMetrics(scrollContainer);
+
+    const preview = getRequiredElement(
+      container,
+      "[data-testid='prompt-scroll-preview-message-1']",
+    );
+
+    expect(preview.textContent?.endsWith("...")).toBe(true);
+    expect(preview.textContent).not.toContain("Finish here");
+  });
+
+  it("keeps prompt previews padded inside the viewport edges", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    renderViewport({
+      root,
+      historyMounted: [userMessage(1)],
+    });
+
+    const scrollContainer = getRequiredElement(container, '[data-testid="agent-chat-scroll"]');
+    setScrollableMetrics({ scrollContainer, viewportHeight: 400, contentHeight: 1200 });
+    const anchor = getRequiredElement(container, "[data-stream-item-id='message-1']");
+    setElementOffsetTop(anchor, 0);
+    refreshScrollMetrics(scrollContainer);
+
+    const marker = getRequiredElement(container, "[data-testid='prompt-scroll-marker-message-1']");
+    const preview = getRequiredElement(
+      container,
+      "[data-testid='prompt-scroll-preview-message-1']",
+    );
+    const markerTop = Number.parseFloat(marker.style.top);
+    const previewTop = markerTop + Number.parseFloat(preview.style.top);
+
+    expect(previewTop).toBeGreaterThanOrEqual(16);
+    expect(previewTop + 120).toBeLessThanOrEqual(384);
+  });
+
+  it("positions prompt markers from the top of the user message in the content", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    renderViewport({
+      root,
+      historyMounted: [userMessage(1)],
+    });
+
+    const scrollContainer = getRequiredElement(container, '[data-testid="agent-chat-scroll"]');
+    setScrollableMetrics({ scrollContainer, viewportHeight: 400, contentHeight: 432 });
+    const anchor = getRequiredElement(container, "[data-stream-item-id='message-1']");
+    setElementOffsetTop(anchor, 16);
+    refreshScrollMetrics(scrollContainer);
+
+    const marker = getRequiredElement(container, "[data-testid='prompt-scroll-marker-message-1']");
+    const markerTop = Number.parseFloat(marker.style.top);
+
+    expect(markerTop).toBeLessThan(20);
   });
 
   it("scrolls a mounted prompt to the top when its marker is clicked", () => {

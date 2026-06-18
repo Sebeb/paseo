@@ -31,7 +31,9 @@ const PROMPT_MARKER_SIZE = 6;
 const PROMPT_MARKER_HIT_SIZE = 28;
 const PROMPT_MARKER_RAIL_RIGHT = 10;
 const PROMPT_PREVIEW_WIDTH = 280;
-const PROMPT_PREVIEW_MAX_HEIGHT = 132;
+const PROMPT_PREVIEW_MAX_HEIGHT = 120;
+const PROMPT_PREVIEW_EDGE_PADDING = 16;
+const PROMPT_PREVIEW_TEXT_MAX_LENGTH = 140;
 
 type PromptMarkerSegment = "virtualizedHistory" | "mountedHistory" | "liveHead";
 
@@ -87,27 +89,25 @@ const promptMarkerDotBaseStyle: CSSProperties = {
   width: PROMPT_MARKER_SIZE,
   height: PROMPT_MARKER_SIZE,
   borderRadius: 999,
-  backgroundColor: "#ffffff",
-  border: "1px solid rgba(0, 0, 0, 0.22)",
-  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.32)",
+  backgroundColor: "var(--colors-surface3, #e4e4e7)",
+  border: "1px solid rgba(0, 0, 0, 0.16)",
+  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.28)",
 };
 
 const promptPreviewBaseStyle: CSSProperties = {
   position: "absolute",
   right: PROMPT_MARKER_HIT_SIZE,
-  top: "50%",
   width: PROMPT_PREVIEW_WIDTH,
   maxHeight: PROMPT_PREVIEW_MAX_HEIGHT,
-  transform: "translateY(-50%)",
   overflow: "hidden",
-  padding: "12px 14px",
-  borderRadius: 18,
-  borderTopRightRadius: 6,
+  padding: 16,
+  borderRadius: 16,
+  borderTopRightRadius: 2,
   backgroundColor: "var(--colors-surface3, #e4e4e7)",
   color: "var(--colors-foreground, #1a1a1e)",
   boxShadow: "0 12px 32px rgba(0, 0, 0, 0.24)",
-  fontSize: 14,
-  lineHeight: "20px",
+  fontSize: 16,
+  lineHeight: "22px",
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
   textAlign: "left",
@@ -117,13 +117,13 @@ const promptPreviewBaseStyle: CSSProperties = {
 const promptPreviewHiddenStyle: CSSProperties = {
   opacity: 0,
   pointerEvents: "none",
-  transform: "translateY(-50%) translateX(4px)",
+  transform: "translateX(4px)",
 };
 
 const promptPreviewVisibleStyle: CSSProperties = {
   opacity: 1,
   pointerEvents: "auto",
-  transform: "translateY(-50%) translateX(0)",
+  transform: "translateX(0)",
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -248,13 +248,29 @@ function getPromptMarkerTop(input: {
   viewportSize: number;
   contentSize: number;
 }): number {
-  const maxScrollOffset = Math.max(0, input.contentSize - input.viewportSize);
   const maxMarkerTop = Math.max(0, input.viewportSize - PROMPT_MARKER_HIT_SIZE);
-  if (maxScrollOffset <= 0) {
+  if (input.contentSize <= 0) {
     return 0;
   }
-  const clampedTarget = clamp(input.targetOffset, 0, maxScrollOffset);
-  return (clampedTarget / maxScrollOffset) * maxMarkerTop;
+  const clampedTarget = clamp(input.targetOffset, 0, input.contentSize);
+  return (clampedTarget / input.contentSize) * maxMarkerTop;
+}
+
+function getPromptPreviewTop(input: { markerTop: number; viewportSize: number }): number {
+  const centeredTop = input.markerTop + PROMPT_MARKER_HIT_SIZE / 2 - PROMPT_PREVIEW_MAX_HEIGHT / 2;
+  const maxTop = Math.max(
+    PROMPT_PREVIEW_EDGE_PADDING,
+    input.viewportSize - PROMPT_PREVIEW_EDGE_PADDING - PROMPT_PREVIEW_MAX_HEIGHT,
+  );
+  return clamp(centeredTop, PROMPT_PREVIEW_EDGE_PADDING, maxTop);
+}
+
+function getPromptPreviewText(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= PROMPT_PREVIEW_TEXT_MAX_LENGTH) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, PROMPT_PREVIEW_TEXT_MAX_LENGTH - 3).trimEnd()}...`;
 }
 
 interface PromptMarkerRailProps {
@@ -267,6 +283,7 @@ interface PromptMarkerRailProps {
 interface PromptMarkerRailItemProps {
   marker: PromptMarker;
   markerTop: number;
+  previewTop: number;
   isHovered: boolean;
   onMarkerPress: (marker: PromptMarker) => void;
   onHoveredPromptChange: (promptId: string | null) => void;
@@ -275,10 +292,12 @@ interface PromptMarkerRailItemProps {
 function PromptMarkerRailItem({
   marker,
   markerTop,
+  previewTop,
   isHovered,
   onMarkerPress,
   onHoveredPromptChange,
 }: PromptMarkerRailItemProps) {
+  const previewText = useMemo(() => getPromptPreviewText(marker.text), [marker.text]);
   const targetStyle = useMemo(
     (): CSSProperties => ({
       ...promptMarkerTargetBaseStyle,
@@ -292,9 +311,10 @@ function PromptMarkerRailItem({
   const previewStyle = useMemo(
     (): CSSProperties => ({
       ...promptPreviewBaseStyle,
+      top: previewTop - markerTop,
       ...(isHovered ? promptPreviewVisibleStyle : promptPreviewHiddenStyle),
     }),
-    [isHovered],
+    [isHovered, markerTop, previewTop],
   );
   const handleClick = useCallback(() => {
     onMarkerPress(marker);
@@ -318,7 +338,7 @@ function PromptMarkerRailItem({
     >
       <span style={promptMarkerDotBaseStyle} />
       <span data-testid={`prompt-scroll-preview-${marker.id}`} style={previewStyle}>
-        {marker.text}
+        {previewText}
       </span>
     </button>
   );
@@ -347,12 +367,14 @@ function PromptMarkerRail({
           viewportSize,
           contentSize,
         });
+        const previewTop = getPromptPreviewTop({ markerTop, viewportSize });
         const isHovered = hoveredPromptId === marker.id;
         return (
           <PromptMarkerRailItem
             key={marker.id}
             marker={marker}
             markerTop={markerTop}
+            previewTop={previewTop}
             isHovered={isHovered}
             onMarkerPress={onMarkerPress}
             onHoveredPromptChange={handleHoveredPromptChange}
