@@ -1,5 +1,4 @@
 import React, {
-  Fragment,
   type CSSProperties,
   useCallback,
   useEffect,
@@ -10,9 +9,11 @@ import React, {
 } from "react";
 import { ActivityIndicator } from "react-native";
 import { measureElement as measureVirtualElement, useVirtualizer } from "@tanstack/react-virtual";
+import { useWebElementScrollbar } from "@/components/use-web-scrollbar";
 import { estimateStreamItemHeight } from "./web-virtualization";
 import type { StreamRenderInput, StreamStrategy, StreamViewportHandle } from "./strategy";
 import { createStreamStrategy } from "./strategy";
+import type { StreamItem } from "@/types/stream";
 
 interface CreateWebStreamStrategyInput {
   isMobileBreakpoint: boolean;
@@ -25,7 +26,30 @@ const USER_SCROLL_DELTA_EPSILON = 1;
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 64;
 const AUTO_SCROLL_RESUME_THRESHOLD_PX = 1;
 const HISTORY_START_THRESHOLD_PX = 96;
-import { useWebElementScrollbar } from "@/components/use-web-scrollbar";
+const PROMPT_MARKER_SIZE = 6;
+const PROMPT_MARKER_HIT_SIZE = 28;
+const PROMPT_MARKER_RAIL_RIGHT = 10;
+const PROMPT_PREVIEW_WIDTH = 280;
+const PROMPT_PREVIEW_MAX_HEIGHT = 132;
+
+type PromptMarkerSegment = "virtualizedHistory" | "mountedHistory" | "liveHead";
+
+interface PromptMarkerDescriptor {
+  id: string;
+  text: string;
+  index: number;
+  segment: PromptMarkerSegment;
+}
+
+interface PromptMarker extends PromptMarkerDescriptor {
+  targetOffset: number;
+}
+
+interface PromptRailMetrics {
+  viewportSize: number;
+  contentSize: number;
+  offsetsById: Map<string, number>;
+}
 
 const historyStartSlotStyle: CSSProperties = {
   display: "flex",
@@ -35,6 +59,75 @@ const historyStartSlotStyle: CSSProperties = {
   paddingTop: 4,
   paddingBottom: 8,
 };
+
+const promptMarkerOverlayStyle: CSSProperties = {
+  position: "absolute",
+  top: 0,
+  right: PROMPT_MARKER_RAIL_RIGHT,
+  bottom: 0,
+  width: PROMPT_MARKER_HIT_SIZE,
+  pointerEvents: "none",
+  zIndex: 11,
+};
+
+const promptMarkerTargetBaseStyle: CSSProperties = {
+  position: "absolute",
+  right: 0,
+  width: PROMPT_MARKER_HIT_SIZE,
+  height: PROMPT_MARKER_HIT_SIZE,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  pointerEvents: "auto",
+  cursor: "pointer",
+};
+
+const promptMarkerDotBaseStyle: CSSProperties = {
+  width: PROMPT_MARKER_SIZE,
+  height: PROMPT_MARKER_SIZE,
+  borderRadius: 999,
+  backgroundColor: "#ffffff",
+  border: "1px solid rgba(0, 0, 0, 0.22)",
+  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.32)",
+};
+
+const promptPreviewBaseStyle: CSSProperties = {
+  position: "absolute",
+  right: PROMPT_MARKER_HIT_SIZE,
+  top: "50%",
+  width: PROMPT_PREVIEW_WIDTH,
+  maxHeight: PROMPT_PREVIEW_MAX_HEIGHT,
+  transform: "translateY(-50%)",
+  overflow: "hidden",
+  padding: "12px 14px",
+  borderRadius: 18,
+  borderTopRightRadius: 6,
+  backgroundColor: "var(--colors-surface3, #e4e4e7)",
+  color: "var(--colors-foreground, #1a1a1e)",
+  boxShadow: "0 12px 32px rgba(0, 0, 0, 0.24)",
+  fontSize: 14,
+  lineHeight: "20px",
+  whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
+  textAlign: "left",
+  transition: "opacity 120ms ease-out, transform 120ms ease-out",
+};
+
+const promptPreviewHiddenStyle: CSSProperties = {
+  opacity: 0,
+  pointerEvents: "none",
+  transform: "translateY(-50%) translateX(4px)",
+};
+
+const promptPreviewVisibleStyle: CSSProperties = {
+  opacity: 1,
+  pointerEvents: "auto",
+  transform: "translateY(-50%) translateX(0)",
+};
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
 function isScrollContainerNearBottom(
   scrollContainer: Pick<HTMLElement, "scrollTop" | "clientHeight" | "scrollHeight">,
@@ -92,6 +185,183 @@ function isScrollContainerOverscrolledPastBottom(
   return getScrollContainerDistanceFromBottom(scrollContainer) < 0;
 }
 
+function arePromptRailMetricsEqual(left: PromptRailMetrics, right: PromptRailMetrics): boolean {
+  if (
+    left.viewportSize !== right.viewportSize ||
+    left.contentSize !== right.contentSize ||
+    left.offsetsById.size !== right.offsetsById.size
+  ) {
+    return false;
+  }
+
+  for (const [id, offset] of left.offsetsById) {
+    if (right.offsetsById.get(id) !== offset) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function collectPromptMarkerDescriptors(
+  segments: StreamRenderInput["segments"],
+): PromptMarkerDescriptor[] {
+  const markers: PromptMarkerDescriptor[] = [];
+  const visit = (items: StreamItem[], segment: PromptMarkerSegment) => {
+    items.forEach((item, index) => {
+      if (item.kind !== "user_message") {
+        return;
+      }
+      markers.push({
+        id: item.id,
+        text: item.text,
+        index,
+        segment,
+      });
+    });
+  };
+
+  visit(segments.historyVirtualized, "virtualizedHistory");
+  visit(segments.historyMounted, "mountedHistory");
+  visit(segments.liveHead, "liveHead");
+  return markers;
+}
+
+function findStreamItemAnchor(
+  contentElement: HTMLElement | null,
+  itemId: string,
+): HTMLElement | null {
+  if (!contentElement) {
+    return null;
+  }
+  const anchors = contentElement.querySelectorAll<HTMLElement>("[data-stream-item-id]");
+  for (const anchor of anchors) {
+    if (anchor.dataset.streamItemId === itemId) {
+      return anchor;
+    }
+  }
+  return null;
+}
+
+function getPromptMarkerTop(input: {
+  targetOffset: number;
+  viewportSize: number;
+  contentSize: number;
+}): number {
+  const maxScrollOffset = Math.max(0, input.contentSize - input.viewportSize);
+  const maxMarkerTop = Math.max(0, input.viewportSize - PROMPT_MARKER_HIT_SIZE);
+  if (maxScrollOffset <= 0) {
+    return 0;
+  }
+  const clampedTarget = clamp(input.targetOffset, 0, maxScrollOffset);
+  return (clampedTarget / maxScrollOffset) * maxMarkerTop;
+}
+
+interface PromptMarkerRailProps {
+  markers: PromptMarker[];
+  viewportSize: number;
+  contentSize: number;
+  onMarkerPress: (marker: PromptMarker) => void;
+}
+
+interface PromptMarkerRailItemProps {
+  marker: PromptMarker;
+  markerTop: number;
+  isHovered: boolean;
+  onMarkerPress: (marker: PromptMarker) => void;
+  onHoveredPromptChange: (promptId: string | null) => void;
+}
+
+function PromptMarkerRailItem({
+  marker,
+  markerTop,
+  isHovered,
+  onMarkerPress,
+  onHoveredPromptChange,
+}: PromptMarkerRailItemProps) {
+  const targetStyle = useMemo(
+    (): CSSProperties => ({
+      ...promptMarkerTargetBaseStyle,
+      top: markerTop,
+      border: 0,
+      padding: 0,
+      background: "transparent",
+    }),
+    [markerTop],
+  );
+  const previewStyle = useMemo(
+    (): CSSProperties => ({
+      ...promptPreviewBaseStyle,
+      ...(isHovered ? promptPreviewVisibleStyle : promptPreviewHiddenStyle),
+    }),
+    [isHovered],
+  );
+  const handleClick = useCallback(() => {
+    onMarkerPress(marker);
+  }, [marker, onMarkerPress]);
+  const handleMouseEnter = useCallback(() => {
+    onHoveredPromptChange(marker.id);
+  }, [marker.id, onHoveredPromptChange]);
+  const handleMouseLeave = useCallback(() => {
+    onHoveredPromptChange(null);
+  }, [onHoveredPromptChange]);
+
+  return (
+    <button
+      type="button"
+      data-testid={`prompt-scroll-marker-${marker.id}`}
+      aria-label="Jump to prompt"
+      style={targetStyle}
+      onClick={handleClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      <span style={promptMarkerDotBaseStyle} />
+      <span data-testid={`prompt-scroll-preview-${marker.id}`} style={previewStyle}>
+        {marker.text}
+      </span>
+    </button>
+  );
+}
+
+function PromptMarkerRail({
+  markers,
+  viewportSize,
+  contentSize,
+  onMarkerPress,
+}: PromptMarkerRailProps) {
+  const [hoveredPromptId, setHoveredPromptId] = useState<string | null>(null);
+  const handleHoveredPromptChange = useCallback((promptId: string | null) => {
+    setHoveredPromptId(promptId);
+  }, []);
+
+  if (markers.length === 0 || contentSize <= viewportSize || viewportSize <= 0) {
+    return null;
+  }
+
+  return (
+    <div style={promptMarkerOverlayStyle} data-testid="prompt-marker-rail">
+      {markers.map((marker) => {
+        const markerTop = getPromptMarkerTop({
+          targetOffset: marker.targetOffset,
+          viewportSize,
+          contentSize,
+        });
+        const isHovered = hoveredPromptId === marker.id;
+        return (
+          <PromptMarkerRailItem
+            key={marker.id}
+            marker={marker}
+            markerTop={markerTop}
+            isHovered={isHovered}
+            onMarkerPress={onMarkerPress}
+            onHoveredPromptChange={handleHoveredPromptChange}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: boolean }) {
   const {
     segments,
@@ -110,6 +380,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   } = props;
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
+  const virtualRowsContainerRef = useRef<HTMLDivElement | null>(null);
   const handleScrollContainerRef = useCallback((node: HTMLElement | null) => {
     scrollContainerRef.current = node;
   }, []);
@@ -130,6 +401,11 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const pendingAutoScrollTimeoutRef = useRef<number | null>(null);
   const pendingVirtualRowMeasureFramesRef = useRef(new Map<Element, number>());
   const historyStartReadyRef = useRef(false);
+  const [promptRailMetrics, setPromptRailMetrics] = useState<PromptRailMetrics>({
+    viewportSize: 0,
+    contentSize: 0,
+    offsetsById: new Map(),
+  });
   const showDesktopWebScrollbar = !isMobileBreakpoint;
   const scrollbarOverlay = useWebElementScrollbar(scrollContainerRef, {
     enabled: showDesktopWebScrollbar,
@@ -173,6 +449,61 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   }, [rowVirtualizer]);
   const virtualRows = rowVirtualizer.getVirtualItems();
   const virtualTotalSize = rowVirtualizer.getTotalSize();
+
+  const getVirtualPromptOffset = useCallback(
+    (index: number): number | null => {
+      const offsetInfo = rowVirtualizer.getOffsetForIndex(index, "start");
+      if (!offsetInfo) {
+        return null;
+      }
+      const virtualRowsContainerOffset = virtualRowsContainerRef.current?.offsetTop ?? 0;
+      return virtualRowsContainerOffset + offsetInfo[0];
+    },
+    [rowVirtualizer],
+  );
+
+  const resolvePromptOffset = useCallback(
+    (marker: PromptMarkerDescriptor): number | null => {
+      if (marker.segment === "virtualizedHistory") {
+        return getVirtualPromptOffset(marker.index);
+      }
+      const anchor = findStreamItemAnchor(contentRef.current, marker.id);
+      return anchor?.offsetTop ?? null;
+    },
+    [getVirtualPromptOffset],
+  );
+
+  const updatePromptRailMetrics = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer || isMobileBreakpoint) {
+      setPromptRailMetrics((previous) => {
+        const next: PromptRailMetrics = {
+          viewportSize: 0,
+          contentSize: 0,
+          offsetsById: new Map(),
+        };
+        return arePromptRailMetricsEqual(previous, next) ? previous : next;
+      });
+      return;
+    }
+
+    const offsetsById = new Map<string, number>();
+    for (const marker of collectPromptMarkerDescriptors(segments)) {
+      const offset = resolvePromptOffset(marker);
+      if (offset !== null) {
+        offsetsById.set(marker.id, offset);
+      }
+    }
+
+    const next: PromptRailMetrics = {
+      viewportSize: scrollContainer.clientHeight,
+      contentSize: scrollContainer.scrollHeight,
+      offsetsById,
+    };
+    setPromptRailMetrics((previous) =>
+      arePromptRailMetricsEqual(previous, next) ? previous : next,
+    );
+  }, [isMobileBreakpoint, resolvePromptOffset, segments]);
 
   const measureVirtualizedRowElement = useCallback(
     (node: HTMLDivElement | null) => {
@@ -262,10 +593,12 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) {
       onNearBottomChange(true);
+      updatePromptRailMetrics();
       return;
     }
     syncNearBottom(scrollContainer, onNearBottomChange);
-  }, [onNearBottomChange]);
+    updatePromptRailMetrics();
+  }, [onNearBottomChange, updatePromptRailMetrics]);
 
   const handleDomScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -364,6 +697,16 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     segments.historyVirtualized.length,
     segments.liveHead.length,
     updateScrollMetrics,
+    virtualTotalSize,
+  ]);
+
+  useLayoutEffect(() => {
+    updatePromptRailMetrics();
+  }, [
+    segments.historyMounted,
+    segments.historyVirtualized,
+    segments.liveHead,
+    updatePromptRailMetrics,
     virtualTotalSize,
   ]);
 
@@ -520,14 +863,16 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   );
   const mountedHistoryRows = useMemo(() => {
     return segments.historyMounted.map((item, index) => (
-      <Fragment key={item.id}>
+      <div key={item.id} data-stream-item-id={item.id} data-stream-item-kind={item.kind}>
         {renderHistoryMountedRow(item, index, segments.historyMounted)}
-      </Fragment>
+      </div>
     ));
   }, [renderHistoryMountedRow, segments.historyMounted]);
   const liveHeadRows = useMemo(() => {
     return segments.liveHead.map((item, index) => (
-      <Fragment key={item.id}>{renderLiveHeadRow(item, index, segments.liveHead)}</Fragment>
+      <div key={item.id} data-stream-item-id={item.id} data-stream-item-kind={item.kind}>
+        {renderLiveHeadRow(item, index, segments.liveHead)}
+      </div>
     ));
   }, [renderLiveHeadRow, segments.liveHead]);
   const liveAuxiliary = useMemo(() => {
@@ -548,6 +893,30 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     !boundary.hasVirtualizedHistory &&
     !boundary.hasLiveHead &&
     !liveAuxiliary;
+  const promptMarkers = useMemo((): PromptMarker[] => {
+    return collectPromptMarkerDescriptors(segments).flatMap((marker) => {
+      const targetOffset = promptRailMetrics.offsetsById.get(marker.id);
+      return targetOffset === undefined ? [] : [{ ...marker, targetOffset }];
+    });
+  }, [promptRailMetrics.offsetsById, segments]);
+  const handlePromptMarkerPress = useCallback(
+    (marker: PromptMarker) => {
+      const scrollContainer = scrollContainerRef.current;
+      if (!scrollContainer) {
+        return;
+      }
+      const resolvedOffset = resolvePromptOffset(marker) ?? marker.targetOffset;
+      const maxScrollOffset = Math.max(
+        0,
+        scrollContainer.scrollHeight - scrollContainer.clientHeight,
+      );
+      scrollContainer.scrollTo({
+        top: clamp(resolvedOffset, 0, maxScrollOffset),
+        behavior: "auto",
+      });
+    },
+    [resolvePromptOffset],
+  );
 
   return (
     <>
@@ -560,7 +929,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         <div ref={handleContentRef} style={contentContainerStyle}>
           {historyStartSlot}
           {shouldUseVirtualizer ? (
-            <div style={virtualRowsContainerStyle}>
+            <div ref={virtualRowsContainerRef} style={virtualRowsContainerStyle}>
               {virtualRows.map((virtualRow) => {
                 const item = segments.historyVirtualized[virtualRow.index];
                 if (!item) {
@@ -570,6 +939,8 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
                   <div
                     key={virtualRow.key}
                     data-index={virtualRow.index}
+                    data-stream-item-id={item.id}
+                    data-stream-item-kind={item.kind}
                     ref={measureVirtualizedRowElement}
                     style={renderVirtualRowStyle(virtualRow.start)}
                   >
@@ -589,6 +960,12 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
           {shouldRenderEmpty ? listEmptyComponent : null}
         </div>
       </div>
+      <PromptMarkerRail
+        markers={promptMarkers}
+        viewportSize={promptRailMetrics.viewportSize}
+        contentSize={promptRailMetrics.contentSize}
+        onMarkerPress={handlePromptMarkerPress}
+      />
       {scrollbarOverlay}
     </>
   );
