@@ -10,6 +10,7 @@ import React, {
 import { ActivityIndicator } from "react-native";
 import { measureElement as measureVirtualElement, useVirtualizer } from "@tanstack/react-virtual";
 import { useWebElementScrollbar } from "@/components/use-web-scrollbar";
+import { useAppSettings } from "@/hooks/use-settings";
 import { estimateStreamItemHeight } from "./web-virtualization";
 import type { StreamRenderInput, StreamStrategy, StreamViewportHandle } from "./strategy";
 import { createStreamStrategy } from "./strategy";
@@ -401,12 +402,14 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const pendingAutoScrollTimeoutRef = useRef<number | null>(null);
   const pendingVirtualRowMeasureFramesRef = useRef(new Map<Element, number>());
   const historyStartReadyRef = useRef(false);
+  const { settings: appSettings } = useAppSettings();
   const [promptRailMetrics, setPromptRailMetrics] = useState<PromptRailMetrics>({
     viewportSize: 0,
     contentSize: 0,
     offsetsById: new Map(),
   });
   const showDesktopWebScrollbar = !isMobileBreakpoint;
+  const showPromptMarkers = showDesktopWebScrollbar && appSettings.promptScrollMarkers;
   const scrollbarOverlay = useWebElementScrollbar(scrollContainerRef, {
     enabled: showDesktopWebScrollbar,
     contentRef,
@@ -475,7 +478,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
 
   const updatePromptRailMetrics = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer || isMobileBreakpoint) {
+    if (!scrollContainer || !showPromptMarkers) {
       setPromptRailMetrics((previous) => {
         const next: PromptRailMetrics = {
           viewportSize: 0,
@@ -503,7 +506,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     setPromptRailMetrics((previous) =>
       arePromptRailMetricsEqual(previous, next) ? previous : next,
     );
-  }, [isMobileBreakpoint, resolvePromptOffset, segments]);
+  }, [resolvePromptOffset, segments, showPromptMarkers]);
 
   const measureVirtualizedRowElement = useCallback(
     (node: HTMLDivElement | null) => {

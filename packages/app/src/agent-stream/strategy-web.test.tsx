@@ -9,6 +9,10 @@ import type { StreamItem } from "@/types/stream";
 import type { StreamSegmentRenderers, StreamViewportHandle } from "./strategy";
 import { createWebStreamStrategy } from "./strategy-web";
 
+const mockSettingsState = vi.hoisted(() => ({
+  promptScrollMarkers: true,
+}));
+
 vi.hoisted(() => {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
@@ -24,6 +28,14 @@ vi.hoisted(() => {
     }),
   });
 });
+
+vi.mock("@/hooks/use-settings", () => ({
+  useAppSettings: () => ({
+    settings: {
+      promptScrollMarkers: mockSettingsState.promptScrollMarkers,
+    },
+  }),
+}));
 
 vi.mock("@/components/use-web-scrollbar", () => ({ useWebElementScrollbar: () => null }));
 
@@ -62,6 +74,7 @@ function createRenderers(onRowRender: () => void): StreamSegmentRenderers {
 function renderViewport(input: {
   root: Root;
   isMobileBreakpoint?: boolean;
+  promptScrollMarkers?: boolean;
   historyVirtualized?: StreamItem[];
   historyMounted?: StreamItem[];
   liveHead?: StreamItem[];
@@ -74,6 +87,7 @@ function renderViewport(input: {
   const historyVirtualized = input.historyVirtualized ?? [];
   const historyMounted = input.historyMounted ?? [];
   const liveHead = input.liveHead ?? [];
+  mockSettingsState.promptScrollMarkers = input.promptScrollMarkers ?? true;
 
   act(() => {
     input.root.render(
@@ -337,6 +351,23 @@ describe("createWebStreamStrategy", () => {
     renderViewport({
       root,
       isMobileBreakpoint: true,
+      historyMounted: [userMessage(1), userMessage(2)],
+    });
+
+    const scrollContainer = getRequiredElement(container, '[data-testid="agent-chat-scroll"]');
+    setScrollableMetrics({ scrollContainer, viewportHeight: 400, contentHeight: 1200 });
+    refreshScrollMetrics(scrollContainer);
+
+    expect(container.querySelector("[data-testid='prompt-marker-rail']")).toBeNull();
+  });
+
+  it("does not render prompt markers when the appearance setting is disabled", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    renderViewport({
+      root,
+      promptScrollMarkers: false,
       historyMounted: [userMessage(1), userMessage(2)],
     });
 
