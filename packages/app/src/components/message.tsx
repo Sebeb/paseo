@@ -129,7 +129,10 @@ interface UserMessageProps {
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
   disableOuterSpacing?: boolean;
+  presentation?: UserMessagePresentation;
 }
+
+type UserMessagePresentation = "inline" | "placeholder";
 
 interface UserMessageBubbleContentProps {
   message: string;
@@ -372,6 +375,9 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     maxHeight: 118,
     overflow: "hidden",
   },
+  placeholder: {
+    opacity: 0,
+  },
   text: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
@@ -590,6 +596,7 @@ export const UserMessage = memo(function UserMessage({
   isFirstInGroup = true,
   isLastInGroup = true,
   disableOuterSpacing,
+  presentation = "inline",
 }: UserMessageProps) {
   const isCompact = useIsCompactFormFactor();
   const { t } = useTranslation();
@@ -597,6 +604,7 @@ export const UserMessage = memo(function UserMessage({
   const [lightboxMetadata, setLightboxMetadata] = useState<UserMessageImageAttachment | null>(null);
   const handleLightboxClose = useCallback(() => setLightboxMetadata(null), []);
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
+  const isPlaceholder = presentation === "placeholder";
   const hasText = message.trim().length > 0;
   const showTrailingRow = hasText && (isCompact || isNative || isHovered);
   const formattedTimestamp = useMemo(
@@ -623,9 +631,11 @@ export const UserMessage = memo(function UserMessage({
         isLastInGroup ? userMessageStylesheet.containerLastInGroup : null,
         !isFirstInGroup || !isLastInGroup ? userMessageStylesheet.containerSpacing : null,
       ],
+      isPlaceholder ? userMessageStylesheet.placeholder : null,
     ],
-    [resolvedDisableOuterSpacing, isFirstInGroup, isLastInGroup],
+    [resolvedDisableOuterSpacing, isFirstInGroup, isLastInGroup, isPlaceholder],
   );
+  const bubbleStyle = userMessageStylesheet.bubble;
   const trailingRowStyle = useMemo(
     () => [
       userMessageStylesheet.trailingRow,
@@ -637,18 +647,24 @@ export const UserMessage = memo(function UserMessage({
   );
 
   return (
-    <View style={containerStyle} testID="user-message">
+    <View
+      style={containerStyle}
+      testID="user-message"
+      pointerEvents={isPlaceholder ? "none" : "auto"}
+      accessibilityElementsHidden={isPlaceholder}
+      importantForAccessibility={isPlaceholder ? "no-hide-descendants" : "auto"}
+    >
       <View
         style={userMessageStylesheet.content}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
-        <View style={userMessageStylesheet.bubble}>
+        <View style={bubbleStyle}>
           <UserMessageBubbleContent
             message={message}
             images={images}
             attachments={attachments}
-            onOpenImage={setLightboxMetadata}
+            onOpenImage={isPlaceholder ? undefined : setLightboxMetadata}
           />
         </View>
         {hasText ? (
@@ -670,30 +686,32 @@ export const UserMessage = memo(function UserMessage({
           </View>
         ) : null}
       </View>
-      <AttachmentLightbox metadata={lightboxMetadata} onClose={handleLightboxClose} />
+      {!isPlaceholder ? (
+        <AttachmentLightbox metadata={lightboxMetadata} onClose={handleLightboxClose} />
+      ) : null}
     </View>
   );
 });
 
-interface PinnedUserMessagePreviewProps {
+interface PinnedUserMessageProps {
   message: string;
   images?: UserMessageImageAttachment[];
   attachments?: AgentAttachment[];
 }
 
-export const PinnedUserMessagePreview = memo(function PinnedUserMessagePreview({
+export const PinnedUserMessage = memo(function PinnedUserMessage({
   message,
   images = EMPTY_USER_MESSAGE_IMAGES,
   attachments = EMPTY_USER_MESSAGE_ATTACHMENTS,
-}: PinnedUserMessagePreviewProps) {
+}: PinnedUserMessageProps) {
   const bubbleStyle = useMemo(
     () => [userMessageStylesheet.bubble, userMessageStylesheet.pinnedBubble],
     [],
   );
 
   return (
-    <View style={userMessageStylesheet.container} testID="pinned-user-message-preview">
-      <View style={userMessageStylesheet.content} pointerEvents="none">
+    <View style={userMessageStylesheet.container} testID="pinned-user-message" pointerEvents="none">
+      <View style={userMessageStylesheet.content}>
         <View style={bubbleStyle}>
           <UserMessageBubbleContent
             message={message}

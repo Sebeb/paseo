@@ -143,6 +143,7 @@ describe("createWebStreamStrategy", () => {
             onNearHistoryStart: vi.fn(),
             pinUserInputsEnabled: false,
             onPinnedUserInputChange: vi.fn(),
+            pinnedUserInputOverlay: null,
             isLoadingOlderHistory: false,
             hasOlderHistory: false,
             scrollEnabled: true,
@@ -190,6 +191,7 @@ describe("createWebStreamStrategy", () => {
             onNearHistoryStart,
             pinUserInputsEnabled: false,
             onPinnedUserInputChange: vi.fn(),
+            pinnedUserInputOverlay: null,
             isLoadingOlderHistory: false,
             hasOlderHistory: true,
             scrollEnabled: true,
@@ -255,6 +257,7 @@ describe("createWebStreamStrategy", () => {
             onNearHistoryStart: vi.fn(),
             pinUserInputsEnabled: true,
             onPinnedUserInputChange,
+            pinnedUserInputOverlay: <div data-testid="pinned-user-input-overlay" />,
             isLoadingOlderHistory: false,
             hasOlderHistory: false,
             scrollEnabled: true,
@@ -277,6 +280,9 @@ describe("createWebStreamStrategy", () => {
     expect(firstAssistantRow).toBeInstanceOf(HTMLElement);
     expect(secondUserRow).toBeInstanceOf(HTMLElement);
     expect(secondAssistantRow).toBeInstanceOf(HTMLElement);
+    expect(
+      scrollContainer?.querySelector('[data-testid="pinned-user-input-overlay"]'),
+    ).toBeInstanceOf(HTMLElement);
 
     Object.defineProperty(scrollContainer, "clientHeight", { configurable: true, value: 300 });
     Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 1000 });
@@ -303,7 +309,7 @@ describe("createWebStreamStrategy", () => {
     });
 
     expect(HTMLElement.prototype.scrollTo).toHaveBeenLastCalledWith({
-      top: 16,
+      top: 1,
       behavior: "smooth",
     });
   });

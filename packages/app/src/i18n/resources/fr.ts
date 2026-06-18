@@ -1464,11 +1464,6 @@ export const fr: TranslationResources = {
         description: "Lignes conservées dans le tampon du terminal intégré",
         accessibilityLabel: "Lignes de défilementTerminal",
       },
-      pinUserInputs: {
-        label: "Épingler les saisies utilisateur",
-        description:
-          "Garde visible le prompt utilisateur pertinent pendant le défilement des réponses",
-      },
       language: {
         label: "Langue",
         description: "Langue de l'application",
@@ -1532,6 +1527,14 @@ export const fr: TranslationResources = {
           ghostty: "Fantôme",
           auto: "Système",
         },
+      },
+      messages: {
+        title: "Messages",
+      },
+      pinUserInputs: {
+        label: "Épingler les saisies utilisateur",
+        description:
+          "Garde visible le prompt utilisateur pertinent pendant le défilement des réponses",
       },
       fonts: {
         title: "Polices",

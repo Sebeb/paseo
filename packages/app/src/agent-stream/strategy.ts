@@ -12,6 +12,7 @@ type EdgeSlot = "header" | "footer";
 type NeighborRelation = "above" | "below";
 type AssistantTurnTraversalStep = -1 | 1;
 export type StreamFrameChildOrder = "content-then-footer" | "footer-then-content";
+export const PINNED_USER_INPUT_SCROLL_TOP_OFFSET = 15;
 
 export type MaintainVisibleContentPositionConfig = Readonly<{
   minIndexForVisible: number;
@@ -66,6 +67,7 @@ export interface StreamRenderInput {
   onNearHistoryStart: () => void;
   pinUserInputsEnabled: boolean;
   onPinnedUserInputChange: (state: PinnedUserInputState | null) => void;
+  pinnedUserInputOverlay: ReactNode;
   isLoadingOlderHistory: boolean;
   hasOlderHistory: boolean;
   scrollEnabled: boolean;

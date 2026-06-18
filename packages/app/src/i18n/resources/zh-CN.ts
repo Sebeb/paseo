@@ -1406,10 +1406,6 @@ export const zhCN: TranslationResources = {
         description: "内置终端缓冲区保留的行数",
         accessibilityLabel: "终端回滚行数",
       },
-      pinUserInputs: {
-        label: "固定用户输入",
-        description: "滚动查看回复时保持相关用户提示可见",
-      },
       language: {
         label: "语言",
         description: "应用语言",
@@ -1472,6 +1468,13 @@ export const zhCN: TranslationResources = {
           ghostty: "Ghostty",
           auto: "系统",
         },
+      },
+      messages: {
+        title: "消息",
+      },
+      pinUserInputs: {
+        label: "固定用户输入",
+        description: "滚动查看回复时保持相关用户提示可见",
       },
       fonts: {
         title: "字体",

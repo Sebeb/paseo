@@ -1430,10 +1430,6 @@ export const en = {
         description: "Lines kept in the built-in terminal buffer",
         accessibilityLabel: "Terminal scrollback lines",
       },
-      pinUserInputs: {
-        label: "Pin user inputs",
-        description: "Keep the relevant user prompt visible while scrolling through responses",
-      },
       language: {
         label: "Language",
         description: "App language",
@@ -1496,6 +1492,13 @@ export const en = {
           ghostty: "Ghostty",
           auto: "System",
         },
+      },
+      messages: {
+        title: "Messages",
+      },
+      pinUserInputs: {
+        label: "Pin user inputs",
+        description: "Keep the relevant user prompt visible while scrolling through responses",
       },
       fonts: {
         title: "Fonts",

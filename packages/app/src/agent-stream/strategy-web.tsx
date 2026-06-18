@@ -13,8 +13,13 @@ import { measureElement as measureVirtualElement, useVirtualizer } from "@tansta
 import { useWebElementScrollbar } from "@/components/use-web-scrollbar";
 import { estimateStreamItemHeight } from "./web-virtualization";
 import type { StreamRenderInput, StreamStrategy, StreamViewportHandle } from "./strategy";
-import { createStreamStrategy } from "./strategy";
-import { selectPinnedUserInput, type PinnedUserInputCandidate } from "./pinned-user-input";
+import { createStreamStrategy, PINNED_USER_INPUT_SCROLL_TOP_OFFSET } from "./strategy";
+import {
+  collectEstimatedPinnedUserInputCandidates,
+  findEstimatedStreamItemTop,
+  selectPinnedUserInput,
+  type PinnedUserInputCandidate,
+} from "./pinned-user-input";
 
 interface CreateWebStreamStrategyInput {
   isMobileBreakpoint: boolean;
@@ -43,7 +48,7 @@ function StreamItemElement({ children, itemId, setStreamItemElement }: StreamIte
   );
 
   return (
-    <div key={itemId} data-stream-item-id={itemId} ref={handleRef}>
+    <div key={itemId} data-stream-item-id={itemId} ref={handleRef} style={streamItemElementStyle}>
       {children}
     </div>
   );
@@ -85,6 +90,26 @@ const historyStartSlotStyle: CSSProperties = {
   minHeight: 32,
   paddingTop: 4,
   paddingBottom: 8,
+};
+
+const pinnedUserInputStickySlotStyle: CSSProperties = {
+  position: "sticky",
+  top: 0,
+  zIndex: 4,
+  height: 0,
+  pointerEvents: "none",
+};
+
+const pinnedUserInputStickyLayerStyle: CSSProperties = {
+  position: "relative",
+  height: 0,
+  pointerEvents: "auto",
+};
+
+const streamItemElementStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  width: "100%",
 };
 
 function isScrollContainerNearBottom(
@@ -156,6 +181,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     onNearHistoryStart,
     pinUserInputsEnabled,
     onPinnedUserInputChange,
+    pinnedUserInputOverlay,
     isLoadingOlderHistory,
     hasOlderHistory,
     scrollEnabled,
@@ -334,20 +360,12 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   }, [onNearBottomChange]);
 
   const collectPinnedUserInputCandidates = useCallback((): PinnedUserInputCandidate[] => {
-    const candidates: PinnedUserInputCandidate[] = [];
     const virtualContainerTop = virtualRowsContainerRef.current?.offsetTop ?? 0;
-    let virtualTop = virtualContainerTop;
-    for (const item of segments.historyVirtualized) {
-      const height = estimateStreamItemHeight(item);
-      if (item.kind === "user_message") {
-        candidates.push({
-          item,
-          top: virtualTop,
-          bottom: virtualTop + height,
-        });
-      }
-      virtualTop += height;
-    }
+    const candidates = collectEstimatedPinnedUserInputCandidates({
+      items: segments.historyVirtualized,
+      estimateHeight: estimateStreamItemHeight,
+      initialTop: virtualContainerTop,
+    });
 
     const mountedItems = [...segments.historyMounted, ...segments.liveHead];
     for (const item of mountedItems) {
@@ -596,18 +614,26 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         const element = streamItemElementByIdRef.current.get(itemId);
         if (element) {
           setFollowOutput(false);
-          scrollContainer.scrollTo({ top: element.offsetTop, behavior: "smooth" });
+          scrollContainer.scrollTo({
+            top: Math.max(0, element.offsetTop - PINNED_USER_INPUT_SCROLL_TOP_OFFSET),
+            behavior: "smooth",
+          });
           return;
         }
-        let estimatedTop = virtualRowsContainerRef.current?.offsetTop ?? 0;
-        for (const item of segments.historyVirtualized) {
-          if (item.id === itemId) {
-            setFollowOutput(false);
-            scrollContainer.scrollTo({ top: estimatedTop, behavior: "smooth" });
-            return;
-          }
-          estimatedTop += estimateStreamItemHeight(item);
+        const estimatedTop = findEstimatedStreamItemTop({
+          items: segments.historyVirtualized,
+          itemId,
+          estimateHeight: estimateStreamItemHeight,
+          initialTop: virtualRowsContainerRef.current?.offsetTop ?? 0,
+        });
+        if (estimatedTop === null) {
+          return;
         }
+        setFollowOutput(false);
+        scrollContainer.scrollTo({
+          top: Math.max(0, estimatedTop - PINNED_USER_INPUT_SCROLL_TOP_OFFSET),
+          behavior: "smooth",
+        });
       },
       prepareForViewportChange: () => {
         if (!followOutputRef.current) {
@@ -712,6 +738,11 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         id={`agent-chat-scroll-${shouldUseVirtualizer ? "web-dom-virtualized" : "web-dom-scroll"}`}
         style={scrollContainerStyle}
       >
+        {pinnedUserInputOverlay ? (
+          <div style={pinnedUserInputStickySlotStyle}>
+            <div style={pinnedUserInputStickyLayerStyle}>{pinnedUserInputOverlay}</div>
+          </div>
+        ) : null}
         <div ref={handleContentRef} style={contentContainerStyle}>
           {historyStartSlot}
           {shouldUseVirtualizer ? (

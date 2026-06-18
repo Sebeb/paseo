@@ -1424,10 +1424,6 @@ export const ar: TranslationResources = {
         description: "يتم الاحتفاظ بالخطوط في المخزن المؤقت الطرفي المدمج",
         accessibilityLabel: "خطوط التمرير Terminal",
       },
-      pinUserInputs: {
-        label: "تثبيت إدخالات المستخدم",
-        description: "يبقي مطالبة المستخدم ذات الصلة مرئية أثناء التمرير عبر الردود",
-      },
       language: {
         label: "لغة",
         description: "لغة التطبيق",
@@ -1490,6 +1486,13 @@ export const ar: TranslationResources = {
           ghostty: "شبحي",
           auto: "نظام",
         },
+      },
+      messages: {
+        title: "الرسائل",
+      },
+      pinUserInputs: {
+        label: "تثبيت إدخالات المستخدم",
+        description: "يبقي مطالبة المستخدم ذات الصلة مرئية أثناء التمرير عبر الردود",
       },
       fonts: {
         title: "الخطوط",

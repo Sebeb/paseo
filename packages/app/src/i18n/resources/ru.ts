@@ -1451,10 +1451,6 @@ export const ru: TranslationResources = {
         description: "Строки, хранящиеся во встроенном буфере терминала.",
         accessibilityLabel: "Линии прокрутки Terminal",
       },
-      pinUserInputs: {
-        label: "Закреплять ввод пользователя",
-        description: "Показывает связанный запрос пользователя при прокрутке ответов",
-      },
       language: {
         label: "Язык",
         description: "Язык приложения",
@@ -1518,6 +1514,13 @@ export const ru: TranslationResources = {
           ghostty: "Призрачный",
           auto: "Система",
         },
+      },
+      messages: {
+        title: "Сообщения",
+      },
+      pinUserInputs: {
+        label: "Закреплять ввод пользователя",
+        description: "Показывает связанный запрос пользователя при прокрутке ответов",
       },
       fonts: {
         title: "Шрифты",

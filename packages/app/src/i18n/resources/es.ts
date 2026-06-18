@@ -1461,11 +1461,6 @@ export const es: TranslationResources = {
         description: "Líneas mantenidas en el búfer de terminal incorporado",
         accessibilityLabel: "Líneas del historial de terminal",
       },
-      pinUserInputs: {
-        label: "Fijar entradas del usuario",
-        description:
-          "Mantiene visible el prompt relevante del usuario al desplazarte por las respuestas",
-      },
       language: {
         label: "Idioma",
         description: "Idioma de la aplicación",
@@ -1528,6 +1523,14 @@ export const es: TranslationResources = {
           ghostty: "fantasmal",
           auto: "Sistema",
         },
+      },
+      messages: {
+        title: "Mensajes",
+      },
+      pinUserInputs: {
+        label: "Fijar entradas del usuario",
+        description:
+          "Mantiene visible el prompt relevante del usuario al desplazarte por las respuestas",
       },
       fonts: {
         title: "Fuentes",

@@ -18,6 +18,7 @@ import {
   Pressable,
   Platform,
   ActivityIndicator,
+  type LayoutChangeEvent,
   type PressableStateCallbackType,
   type StyleProp,
   type ViewStyle,
@@ -25,7 +26,7 @@ import {
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { MAX_CONTENT_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
 import { useMutation } from "@tanstack/react-query";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut, SlideInUp, SlideOutUp } from "react-native-reanimated";
 import MaskedView from "@react-native-masked-view/masked-view";
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from "react-native-svg";
 import { Check, ChevronDown, X } from "lucide-react-native";
@@ -34,7 +35,7 @@ import {
   AssistantMessage,
   SpeakMessage,
   UserMessage,
-  PinnedUserMessagePreview,
+  PinnedUserMessage,
   ActivityLog,
   ToolCall,
   TodoListCard,
@@ -82,20 +83,30 @@ import { navigateToPreparedWorkspaceTab } from "@/utils/workspace-navigation";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { isWeb } from "@/constants/platform";
 import type { Theme } from "@/styles/theme";
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { recordRenderProfileReasons } from "@/utils/render-profiler";
 import { MountedTabActiveContext } from "@/components/split-container";
 import { useAppSettings } from "@/hooks/use-settings";
 import type { PinnedUserInputState } from "./pinned-user-input";
 
-const PINNED_USER_INPUT_MASK_ELEMENT = (
+const PINNED_USER_INPUT_TOP_PADDING = 15;
+const PINNED_USER_INPUT_MAX_HEIGHT = 118;
+const PINNED_USER_INPUT_GRADIENT_HEIGHT = 48;
+const PINNED_USER_INPUT_SOLID_BACKGROUND_HEIGHT =
+  PINNED_USER_INPUT_TOP_PADDING + PINNED_USER_INPUT_MAX_HEIGHT;
+const PINNED_USER_INPUT_OVERLAY_HEIGHT =
+  PINNED_USER_INPUT_SOLID_BACKGROUND_HEIGHT + PINNED_USER_INPUT_GRADIENT_HEIGHT;
+const pinnedUserInputEntering = SlideInUp.duration(320);
+const pinnedUserInputExiting = SlideOutUp.duration(280);
+const pinnedUserInputGradientMask = (
   <Svg width="100%" height="100%" preserveAspectRatio="none">
     <Defs>
-      <SvgLinearGradient id="pinnedUserInputFade" x1="0" y1="0" x2="0" y2="1">
-        <Stop offset="0" stopColor="#000000" stopOpacity={1} />
-        <Stop offset="1" stopColor="#000000" stopOpacity={0} />
+      <SvgLinearGradient id="pinnedUserInputFadeMask" x1="0" y1="0" x2="0" y2="1">
+        <Stop offset="0%" stopColor="#000000" stopOpacity="1" />
+        <Stop offset="100%" stopColor="#000000" stopOpacity="0" />
       </SvgLinearGradient>
     </Defs>
-    <Rect x="0" y="0" width="100%" height="100%" fill="url(#pinnedUserInputFade)" />
+    <Rect x="0" y="0" width="100%" height="100%" fill="url(#pinnedUserInputFadeMask)" />
   </Svg>
 );
 
@@ -118,46 +129,80 @@ function renderLiveAuxiliaryNode(input: {
   );
 }
 
-function PinnedUserInputGradient() {
+function PinnedUserInputGradient({ style }: { style: StyleProp<ViewStyle> }) {
   return (
-    <MaskedView
-      pointerEvents="none"
-      style={stylesheet.pinnedUserInputGradient}
-      maskElement={PINNED_USER_INPUT_MASK_ELEMENT}
-    >
+    <MaskedView pointerEvents="none" style={style} maskElement={pinnedUserInputGradientMask}>
       <View pointerEvents="none" style={stylesheet.pinnedUserInputGradientFill} />
     </MaskedView>
   );
 }
 
 function PinnedUserInputOverlay({
-  pinnedUserInput,
   accessibilityLabel,
+  children,
+  entering,
+  exiting,
   onPress,
 }: {
-  pinnedUserInput: PinnedUserInputState;
   accessibilityLabel: string;
+  children: ReactNode;
+  entering?: ComponentProps<typeof Animated.View>["entering"];
+  exiting?: ComponentProps<typeof Animated.View>["exiting"];
   onPress: () => void;
 }) {
-  const item = pinnedUserInput.item;
+  const [solidBackgroundHeight, setSolidBackgroundHeight] = useState(
+    PINNED_USER_INPUT_SOLID_BACKGROUND_HEIGHT,
+  );
+  const handlePinnedContentLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextHeight = Math.max(PINNED_USER_INPUT_TOP_PADDING, event.nativeEvent.layout.height);
+    setSolidBackgroundHeight((previousHeight) =>
+      previousHeight === nextHeight ? previousHeight : nextHeight,
+    );
+  }, []);
+  const overlayStyle = useMemo(
+    () => [
+      stylesheet.pinnedUserInputOverlay,
+      inlineUnistylesStyle({
+        height: solidBackgroundHeight + PINNED_USER_INPUT_GRADIENT_HEIGHT,
+      }),
+    ],
+    [solidBackgroundHeight],
+  );
+  const backgroundBlockStyle = useMemo(
+    () => [
+      stylesheet.pinnedUserInputBackgroundBlock,
+      inlineUnistylesStyle({ height: solidBackgroundHeight }),
+    ],
+    [solidBackgroundHeight],
+  );
+  const gradientStyle = useMemo(
+    () => [
+      stylesheet.pinnedUserInputGradient,
+      inlineUnistylesStyle({ top: solidBackgroundHeight }),
+    ],
+    [solidBackgroundHeight],
+  );
+
   return (
-    <View pointerEvents="box-none" style={stylesheet.pinnedUserInputOverlay}>
-      <PinnedUserInputGradient />
-      <View pointerEvents="box-none" style={stylesheet.pinnedUserInputContentWrapper}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={accessibilityLabel}
-          onPress={onPress}
-          testID="pinned-user-input-button"
-        >
-          <PinnedUserMessagePreview
-            message={item.text}
-            images={item.images}
-            attachments={item.attachments}
-          />
-        </Pressable>
-      </View>
-    </View>
+    <Animated.View
+      pointerEvents="box-none"
+      entering={entering}
+      exiting={exiting}
+      style={overlayStyle}
+    >
+      <View pointerEvents="none" style={backgroundBlockStyle} />
+      <PinnedUserInputGradient style={gradientStyle} />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        onPress={onPress}
+        onLayout={handlePinnedContentLayout}
+        testID="pinned-user-input-button"
+        style={stylesheet.pinnedUserInputPressable}
+      >
+        {children}
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -527,6 +572,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
     const renderUserMessageItem = useCallback(
       (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "user_message" }>) => {
+        const presentation = pinnedUserInput?.item.id === item.id ? "placeholder" : "inline";
         return (
           <UserMessage
             serverId={resolvedServerId}
@@ -540,10 +586,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             client={client}
             isFirstInGroup={layoutItem.isFirstInUserGroup}
             isLastInGroup={layoutItem.isLastInUserGroup}
+            presentation={presentation}
           />
         );
       },
-      [agent.capabilities, agentId, client, resolvedServerId],
+      [agent.capabilities, agentId, client, pinnedUserInput?.item.id, resolvedServerId],
     );
 
     const renderAssistantMessageItem = useCallback(
@@ -822,6 +869,30 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       !streamRenderStrategy.shouldDisableParentScrollOnInlineDetailsExpansion() ||
       expandedInlineToolCallIds.size === 0;
 
+    const pinnedUserInputOverlay = useMemo(() => {
+      const item = pinnedUserInput?.item;
+      if (!item) {
+        return null;
+      }
+
+      return (
+        <PinnedUserInputOverlay
+          accessibilityLabel={t("agentStream.scrollToPinnedUserInput")}
+          entering={shouldDisableEntryExitAnimations ? undefined : pinnedUserInputEntering}
+          exiting={shouldDisableEntryExitAnimations ? undefined : pinnedUserInputExiting}
+          onPress={scrollToPinnedUserInput}
+        >
+          <StreamItemWrapper gapBelow={0}>
+            <PinnedUserMessage
+              message={item.text}
+              images={item.images}
+              attachments={item.attachments}
+            />
+          </StreamItemWrapper>
+        </PinnedUserInputOverlay>
+      );
+    }, [pinnedUserInput?.item, scrollToPinnedUserInput, shouldDisableEntryExitAnimations, t]);
+
     return (
       <ToolCallSheetProvider>
         <View style={stylesheet.container}>
@@ -839,6 +910,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               onNearHistoryStart: loadOlder,
               pinUserInputsEnabled: appSettings.pinUserInputs,
               onPinnedUserInputChange: handlePinnedUserInputChange,
+              pinnedUserInputOverlay,
               isLoadingOlderHistory: isLoadingOlder,
               hasOlderHistory: hasOlder,
               scrollEnabled: streamScrollEnabled,
@@ -847,13 +919,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               forwardListContentContainerStyle: stylesheet.forwardListContentContainer,
             })}
           </MessageOuterSpacingProvider>
-          {pinnedUserInput ? (
-            <PinnedUserInputOverlay
-              pinnedUserInput={pinnedUserInput}
-              accessibilityLabel={t("agentStream.scrollToPinnedUserInput")}
-              onPress={scrollToPinnedUserInput}
-            />
-          ) : null}
           {!isNearBottom && (
             <Animated.View
               style={stylesheet.scrollToBottomContainer}
@@ -1331,29 +1396,31 @@ const stylesheet = StyleSheet.create((theme) => ({
     top: 0,
     left: 0,
     right: 0,
-    height: 154,
+    height: PINNED_USER_INPUT_OVERLAY_HEIGHT,
     pointerEvents: "box-none",
   },
-  pinnedUserInputGradient: {
+  pinnedUserInputBackgroundBlock: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
-    height: 154,
+    height: PINNED_USER_INPUT_SOLID_BACKGROUND_HEIGHT,
+    backgroundColor: theme.colors.surface0,
+  },
+  pinnedUserInputGradient: {
+    position: "absolute",
+    top: PINNED_USER_INPUT_SOLID_BACKGROUND_HEIGHT,
+    left: 0,
+    right: 0,
+    height: PINNED_USER_INPUT_GRADIENT_HEIGHT,
   },
   pinnedUserInputGradientFill: {
     flex: 1,
     backgroundColor: theme.colors.surface0,
   },
-  pinnedUserInputContentWrapper: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
+  pinnedUserInputPressable: {
     width: "100%",
-    maxWidth: MAX_CONTENT_WIDTH,
-    alignSelf: "center",
-    paddingHorizontal: theme.spacing[4],
+    paddingTop: PINNED_USER_INPUT_TOP_PADDING,
   },
 }));
 
