@@ -171,6 +171,8 @@ export const en = {
     scrollToBottom: "Scroll to bottom",
     thinking: {
       label: "Thinking",
+      workedFor: "Worked for {{duration}}",
+      workingFor: "Working for {{duration}}",
     },
     permission: {
       plan: "Plan",
@@ -1499,7 +1501,13 @@ export const en = {
         title: "Messages",
         collapseThinking: {
           label: "Collapse thinking",
-          description: "Hide reasoning, tool calls, and intermediate output once the agent replies",
+          description: "Hide reasoning, tool calls, and intermediate output",
+          accessibilityLabel: "Collapse thinking ({{value}})",
+          options: {
+            never: "Never",
+            completed: "Completed Responses",
+            completedAndActive: "Completed and Active Responses",
+          },
         },
       },
       fonts: {

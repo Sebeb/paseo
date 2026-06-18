@@ -173,6 +173,8 @@ export const es: TranslationResources = {
     scrollToBottom: "Desplazarse hacia abajo",
     thinking: {
       label: "Pensamiento",
+      workedFor: "Trabajó durante {{duration}}",
+      workingFor: "Trabajando durante {{duration}}",
     },
     permission: {
       plan: "Plan",
@@ -1530,8 +1532,13 @@ export const es: TranslationResources = {
         title: "Mensajes",
         collapseThinking: {
           label: "Contraer pensamiento",
-          description:
-            "Oculta razonamiento, llamadas a herramientas y salida intermedia cuando el agente responde",
+          description: "Oculta razonamiento, llamadas a herramientas y salida intermedia",
+          accessibilityLabel: "Contraer pensamiento ({{value}})",
+          options: {
+            never: "Nunca",
+            completed: "Respuestas completadas",
+            completedAndActive: "Respuestas completadas y activas",
+          },
         },
       },
       fonts: {

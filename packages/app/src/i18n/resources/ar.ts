@@ -173,6 +173,8 @@ export const ar: TranslationResources = {
     scrollToBottom: "قم بالتمرير إلى الأسفل",
     thinking: {
       label: "التفكير",
+      workedFor: "عمل لمدة {{duration}}",
+      workingFor: "يعمل منذ {{duration}}",
     },
     permission: {
       plan: "يخطط",
@@ -1493,7 +1495,13 @@ export const ar: TranslationResources = {
         title: "الرسائل",
         collapseThinking: {
           label: "طي التفكير",
-          description: "إخفاء الاستدلال واستدعاءات الأدوات والمخرجات الوسيطة بعد رد الوكيل",
+          description: "إخفاء الاستدلال واستدعاءات الأدوات والمخرجات الوسيطة",
+          accessibilityLabel: "طي التفكير ({{value}})",
+          options: {
+            never: "أبدًا",
+            completed: "الردود المكتملة",
+            completedAndActive: "الردود المكتملة والنشطة",
+          },
         },
       },
       fonts: {

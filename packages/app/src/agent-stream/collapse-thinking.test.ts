@@ -4,6 +4,10 @@ import { buildCollapseThinkingGroups } from "./collapse-thinking";
 import { orderHeadForStreamRenderStrategy, orderTailForStreamRenderStrategy } from "./strategy";
 import { resolveStreamRenderStrategy } from "./strategy-resolver";
 
+function buildCompletedThinkingGroups(items: readonly StreamItem[]) {
+  return buildCollapseThinkingGroups({ items, behavior: "completed" });
+}
+
 function timestamp(seed: number): Date {
   return new Date(`2026-01-01T00:00:${seed.toString().padStart(2, "0")}.000Z`);
 }
@@ -55,12 +59,12 @@ function toolCall(id: string, seed: number): StreamItem {
 }
 
 function groupItemIds(items: StreamItem[]): string[][] {
-  return buildCollapseThinkingGroups(items).groups.map((group) => group.itemIds);
+  return buildCompletedThinkingGroups(items).groups.map((group) => group.itemIds);
 }
 
 describe("buildCollapseThinkingGroups", () => {
   it("groups reasoning and tool calls while leaving the final assistant outside", () => {
-    const index = buildCollapseThinkingGroups([
+    const index = buildCompletedThinkingGroups([
       userMessage("u1", 1),
       thought("t1", 2),
       toolCall("tool-1", 3),
@@ -72,12 +76,14 @@ describe("buildCollapseThinkingGroups", () => {
       anchorItemId: "t1",
       itemIds: ["t1", "tool-1"],
       defaultExpanded: false,
+      status: "completed",
+      finalAssistantItemId: "a1",
     });
     expect(index.groupByItemId.has("a1")).toBe(false);
   });
 
   it("groups intermediate assistant text and leaves the last assistant visible", () => {
-    const index = buildCollapseThinkingGroups([
+    const index = buildCompletedThinkingGroups([
       userMessage("u1", 1),
       assistantMessage("a1", 2),
       thought("t1", 3),
@@ -89,7 +95,7 @@ describe("buildCollapseThinkingGroups", () => {
   });
 
   it("keeps an active turn with no assistant candidate expanded", () => {
-    const index = buildCollapseThinkingGroups([
+    const index = buildCompletedThinkingGroups([
       userMessage("u1", 1),
       thought("t1", 2),
       toolCall("tool-1", 3),
@@ -98,12 +104,27 @@ describe("buildCollapseThinkingGroups", () => {
     expect(index.groups[0]).toMatchObject({
       itemIds: ["t1", "tool-1"],
       defaultExpanded: true,
+      status: "active",
+      finalAssistantItemId: null,
+    });
+  });
+
+  it("collapses an active turn by default in completed-and-active mode", () => {
+    const index = buildCollapseThinkingGroups({
+      behavior: "completed-and-active",
+      items: [userMessage("u1", 1), thought("t1", 2), toolCall("tool-1", 3)],
+    });
+
+    expect(index.groups[0]).toMatchObject({
+      itemIds: ["t1", "tool-1"],
+      defaultExpanded: false,
+      status: "active",
     });
   });
 
   it("auto-collapses once an assistant candidate appears", () => {
-    const beforeAssistant = buildCollapseThinkingGroups([userMessage("u1", 1), thought("t1", 2)]);
-    const afterAssistant = buildCollapseThinkingGroups([
+    const beforeAssistant = buildCompletedThinkingGroups([userMessage("u1", 1), thought("t1", 2)]);
+    const afterAssistant = buildCompletedThinkingGroups([
       userMessage("u1", 1),
       thought("t1", 2),
       assistantMessage("a1", 3),
@@ -116,7 +137,7 @@ describe("buildCollapseThinkingGroups", () => {
   });
 
   it("handles multiple turns independently", () => {
-    const index = buildCollapseThinkingGroups([
+    const index = buildCompletedThinkingGroups([
       userMessage("u1", 1),
       thought("t1", 2),
       assistantMessage("a1", 3),

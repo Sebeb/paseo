@@ -61,36 +61,52 @@ describe("loadAppSettingsFromStorage", () => {
     expect(result.language).toBe("system");
   });
 
-  it("defaults collapse thinking to disabled when storage is empty", async () => {
+  it("defaults collapse thinking to never when storage is empty", async () => {
     const deps = makeDeps();
 
     const result = await loadAppSettingsFromStorage(deps);
 
-    expect(result.collapseThinking).toBe(false);
+    expect(result.collapseThinking).toBe("never");
   });
 
   it("loads persisted collapse thinking", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: "completed-and-active" }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.collapseThinking).toBe("completed-and-active");
+  });
+
+  it("migrates legacy boolean collapse thinking values", async () => {
+    const enabled = makeDeps({
+      storage: createInMemoryKeyValueStorage({
         [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: true }),
       }),
     });
+    const disabled = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: false }),
+      }),
+    });
 
-    const result = await loadAppSettingsFromStorage(deps);
-
-    expect(result.collapseThinking).toBe(true);
+    expect((await loadAppSettingsFromStorage(enabled)).collapseThinking).toBe("completed");
+    expect((await loadAppSettingsFromStorage(disabled)).collapseThinking).toBe("never");
   });
 
-  it("drops a non-boolean collapse thinking value back to the default", async () => {
+  it("drops an unknown collapse thinking value back to the default", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
-        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: "true" }),
+        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: "sometimes" }),
       }),
     });
 
     const result = await loadAppSettingsFromStorage(deps);
 
-    expect(result.collapseThinking).toBe(false);
+    expect(result.collapseThinking).toBe("never");
   });
 
   it("loads configured terminal scrollback lines from app settings", async () => {
@@ -271,7 +287,7 @@ describe("saveAppSettings", () => {
 
     await saveAppSettings({
       queryClient,
-      updates: { collapseThinking: true },
+      updates: { collapseThinking: "completed" },
       deps,
     });
 
@@ -279,7 +295,7 @@ describe("saveAppSettings", () => {
     expect(persisted).toMatchObject({
       theme: "light",
       sendBehavior: "queue",
-      collapseThinking: true,
+      collapseThinking: "completed",
     });
   });
 

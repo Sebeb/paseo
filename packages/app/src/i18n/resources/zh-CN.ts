@@ -173,6 +173,8 @@ export const zhCN: TranslationResources = {
     scrollToBottom: "滚动到底部",
     thinking: {
       label: "思考",
+      workedFor: "已工作 {{duration}}",
+      workingFor: "正在工作 {{duration}}",
     },
     permission: {
       plan: "Plan",
@@ -1475,7 +1477,13 @@ export const zhCN: TranslationResources = {
         title: "消息",
         collapseThinking: {
           label: "折叠思考",
-          description: "Agent 回复后隐藏推理、工具调用和中间输出",
+          description: "隐藏推理、工具调用和中间输出",
+          accessibilityLabel: "折叠思考（{{value}}）",
+          options: {
+            never: "从不",
+            completed: "已完成回复",
+            completedAndActive: "已完成和进行中的回复",
+          },
         },
       },
       fonts: {

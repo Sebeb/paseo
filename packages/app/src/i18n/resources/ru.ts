@@ -173,6 +173,8 @@ export const ru: TranslationResources = {
     scrollToBottom: "Прокрутить вниз",
     thinking: {
       label: "Размышления",
+      workedFor: "Работал {{duration}}",
+      workingFor: "Работает {{duration}}",
     },
     permission: {
       plan: "План",
@@ -1521,8 +1523,13 @@ export const ru: TranslationResources = {
         title: "Сообщения",
         collapseThinking: {
           label: "Сворачивать размышления",
-          description:
-            "Скрывать рассуждения, вызовы инструментов и промежуточный вывод после ответа агента",
+          description: "Скрывать рассуждения, вызовы инструментов и промежуточный вывод",
+          accessibilityLabel: "Сворачивать размышления ({{value}})",
+          options: {
+            never: "Никогда",
+            completed: "Завершенные ответы",
+            completedAndActive: "Завершенные и активные ответы",
+          },
         },
       },
       fonts: {

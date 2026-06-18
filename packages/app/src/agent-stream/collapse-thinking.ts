@@ -1,10 +1,13 @@
 import type { StreamItem } from "@/types/stream";
+import type { CollapseThinkingBehavior } from "@/hooks/use-settings";
 
 export interface ThinkingGroup {
   id: string;
   anchorItemId: string;
   itemIds: string[];
   defaultExpanded: boolean;
+  status: "active" | "completed";
+  finalAssistantItemId: string | null;
 }
 
 export interface ThinkingGroupIndex {
@@ -13,7 +16,11 @@ export interface ThinkingGroupIndex {
   groupByItemId: Map<string, ThinkingGroup>;
 }
 
-export function buildCollapseThinkingGroups(items: readonly StreamItem[]): ThinkingGroupIndex {
+export function buildCollapseThinkingGroups(input: {
+  items: readonly StreamItem[];
+  behavior: Exclude<CollapseThinkingBehavior, "never">;
+}): ThinkingGroupIndex {
+  const { items, behavior } = input;
   const groups: ThinkingGroup[] = [];
   let turnStartIndex = findNextUserMessageIndex(items, 0);
 
@@ -21,20 +28,26 @@ export function buildCollapseThinkingGroups(items: readonly StreamItem[]): Think
     const turnEndIndex = findNextUserMessageIndex(items, turnStartIndex + 1) ?? items.length;
     const turnItems = items.slice(turnStartIndex + 1, turnEndIndex);
     const finalAssistantIndex = findLastAssistantMessageIndex(turnItems);
+    const status = finalAssistantIndex === null ? "active" : "completed";
+    const defaultExpanded = status === "active" && behavior === "completed";
     const groupItems =
       finalAssistantIndex === null
         ? turnItems
         : turnItems.filter((_, index) => index !== finalAssistantIndex);
+    const finalAssistantItem =
+      finalAssistantIndex === null ? null : (turnItems[finalAssistantIndex] ?? null);
 
     if (groupItems.length > 0) {
       const userMessage = items[turnStartIndex];
       const anchorItem = groupItems[0];
       if (userMessage && anchorItem) {
         groups.push({
-          id: `thinking:${userMessage.id}:${finalAssistantIndex === null ? "active" : "final"}`,
+          id: `thinking:${userMessage.id}:${status === "active" ? "active" : "final"}`,
           anchorItemId: anchorItem.id,
           itemIds: groupItems.map((item) => item.id),
-          defaultExpanded: finalAssistantIndex === null,
+          defaultExpanded,
+          status,
+          finalAssistantItemId: finalAssistantItem?.id ?? null,
         });
       }
     }
