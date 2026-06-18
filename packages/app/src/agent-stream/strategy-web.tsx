@@ -439,6 +439,10 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   });
   const showDesktopWebScrollbar = !isMobileBreakpoint;
   const showPromptMarkers = showDesktopWebScrollbar && appSettings.promptScrollMarkers;
+  const promptMarkerDescriptors = useMemo(
+    () => collectPromptMarkerDescriptors(segments),
+    [segments],
+  );
   const scrollbarOverlay = useWebElementScrollbar(scrollContainerRef, {
     enabled: showDesktopWebScrollbar,
     contentRef,
@@ -520,7 +524,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
 
     const offsetsById = new Map<string, number>();
-    for (const marker of collectPromptMarkerDescriptors(segments)) {
+    for (const marker of promptMarkerDescriptors) {
       const offset = resolvePromptOffset(marker);
       if (offset !== null) {
         offsetsById.set(marker.id, offset);
@@ -535,7 +539,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     setPromptRailMetrics((previous) =>
       arePromptRailMetricsEqual(previous, next) ? previous : next,
     );
-  }, [resolvePromptOffset, segments, showPromptMarkers]);
+  }, [promptMarkerDescriptors, resolvePromptOffset, showPromptMarkers]);
 
   const measureVirtualizedRowElement = useCallback(
     (node: HTMLDivElement | null) => {
@@ -625,12 +629,10 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) {
       onNearBottomChange(true);
-      updatePromptRailMetrics();
       return;
     }
     syncNearBottom(scrollContainer, onNearBottomChange);
-    updatePromptRailMetrics();
-  }, [onNearBottomChange, updatePromptRailMetrics]);
+  }, [onNearBottomChange]);
 
   const handleDomScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -661,13 +663,29 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     lastKnownScrollTopRef.current = currentScrollTop;
     updateScrollMetrics();
     if (
+      showPromptMarkers &&
+      (scrollContainer.clientHeight !== promptRailMetrics.viewportSize ||
+        scrollContainer.scrollHeight !== promptRailMetrics.contentSize)
+    ) {
+      updatePromptRailMetrics();
+    }
+    if (
       historyStartReadyRef.current &&
       hasOlderHistory &&
       currentScrollTop <= HISTORY_START_THRESHOLD_PX
     ) {
       onNearHistoryStart();
     }
-  }, [cancelPendingStickToBottom, hasOlderHistory, onNearHistoryStart, updateScrollMetrics]);
+  }, [
+    cancelPendingStickToBottom,
+    hasOlderHistory,
+    onNearHistoryStart,
+    promptRailMetrics.contentSize,
+    promptRailMetrics.viewportSize,
+    showPromptMarkers,
+    updatePromptRailMetrics,
+    updateScrollMetrics,
+  ]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -750,8 +768,10 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
 
     updateScrollMetrics();
+    updatePromptRailMetrics();
     const observer = new ResizeObserver(() => {
       updateScrollMetrics();
+      updatePromptRailMetrics();
       if (!followOutputRef.current) {
         return;
       }
@@ -764,7 +784,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     return () => {
       observer.disconnect();
     };
-  }, [scheduleStickToBottom, updateScrollMetrics]);
+  }, [scheduleStickToBottom, updatePromptRailMetrics, updateScrollMetrics]);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -874,6 +894,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       overscrollBehaviorY: "contain",
     };
   }, [scrollEnabled]);
+  const viewportChromeStyle = useMemo(
+    (): CSSProperties => ({
+      position: "relative",
+      display: "flex",
+      flex: 1,
+      minHeight: 0,
+    }),
+    [],
+  );
   const virtualRowsContainerStyle = useMemo((): CSSProperties => {
     return {
       position: "relative",
@@ -936,11 +965,11 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     !boundary.hasLiveHead &&
     !liveAuxiliary;
   const promptMarkers = useMemo((): PromptMarker[] => {
-    return collectPromptMarkerDescriptors(segments).flatMap((marker) => {
+    return promptMarkerDescriptors.flatMap((marker) => {
       const targetOffset = promptRailMetrics.offsetsById.get(marker.id);
       return targetOffset === undefined ? [] : [{ ...marker, targetOffset }];
     });
-  }, [promptRailMetrics.offsetsById, segments]);
+  }, [promptMarkerDescriptors, promptRailMetrics.offsetsById]);
   const handlePromptMarkerPress = useCallback(
     (marker: PromptMarker) => {
       const scrollContainer = scrollContainerRef.current;
@@ -961,7 +990,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   );
 
   return (
-    <>
+    <div style={viewportChromeStyle}>
       <div
         ref={handleScrollContainerRef}
         data-testid="agent-chat-scroll"
@@ -1009,7 +1038,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         onMarkerPress={handlePromptMarkerPress}
       />
       {scrollbarOverlay}
-    </>
+    </div>
   );
 }
 
