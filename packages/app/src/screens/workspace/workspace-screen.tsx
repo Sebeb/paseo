@@ -80,6 +80,7 @@ import {
   buildWorkspaceTabPersistenceKey,
   collectAllTabs,
   getFocusedBrowserId,
+  type RecentlyClosedWorkspaceTab,
   type WorkspaceLayout,
   useWorkspaceLayoutStore,
   useWorkspaceLayoutStoreHydrated,
@@ -200,6 +201,7 @@ import { RenderProfile } from "@/utils/render-profiler";
 const WORKSPACE_SETUP_AUTO_OPEN_WINDOW_MS = 30_000;
 const WORKSPACE_FLOATING_PANEL_PORTAL_HOST_PREFIX = "workspace-floating-panels";
 const EMPTY_UI_TABS: WorkspaceTab[] = [];
+const EMPTY_RECENTLY_CLOSED_TABS: RecentlyClosedWorkspaceTab[] = [];
 const EMPTY_WORKSPACE_SCRIPTS: WorkspaceDescriptor["scripts"] = [];
 const EMPTY_PINNED_AGENT_IDS = new Set<string>();
 const EMPTY_SET = new Set<string>();
@@ -1976,6 +1978,10 @@ function WorkspaceScreenContent({
   );
   const focusWorkspaceTab = useWorkspaceLayoutStore((state) => state.focusTab);
   const closeWorkspaceTab = useWorkspaceLayoutStore((state) => state.closeTab);
+  const restoreClosedWorkspaceTab = useWorkspaceLayoutStore((state) => state.restoreClosedTab);
+  const restoreLastClosedWorkspaceTab = useWorkspaceLayoutStore(
+    (state) => state.restoreLastClosedTab,
+  );
   const unpinWorkspaceAgent = useWorkspaceLayoutStore((state) => state.unpinAgent);
   const hideWorkspaceAgent = useWorkspaceLayoutStore((state) => state.hideAgent);
   const retargetWorkspaceTab = useWorkspaceLayoutStore((state) => state.retargetTab);
@@ -1993,6 +1999,11 @@ function WorkspaceScreenContent({
   );
   const _hiddenAgentIds = useWorkspaceLayoutStore((state) =>
     persistenceKey ? (state.hiddenAgentIdsByWorkspace[persistenceKey] ?? EMPTY_SET) : EMPTY_SET,
+  );
+  const recentlyClosedTabs = useWorkspaceLayoutStore((state) =>
+    persistenceKey
+      ? (state.recentlyClosedTabsByWorkspace[persistenceKey] ?? EMPTY_RECENTLY_CLOSED_TABS)
+      : EMPTY_RECENTLY_CLOSED_TABS,
   );
   const pendingByDraftId = useCreateFlowStore((state) => state.pendingByDraftId);
   const { closingTabIds, closeTab } = useCloseTabs();
@@ -2561,6 +2572,16 @@ function WorkspaceScreenContent({
     [focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
   );
 
+  const handleRestoreClosedTab = useCallback(
+    (entryKey: string) => {
+      if (!persistenceKey) {
+        return;
+      }
+      restoreClosedWorkspaceTab(persistenceKey, entryKey);
+    },
+    [persistenceKey, restoreClosedWorkspaceTab],
+  );
+
   const handleOpenUrlInBrowserTab = useCallback(
     (url: string) => {
       if (!persistenceKey || !getIsElectron()) {
@@ -2976,6 +2997,11 @@ function WorkspaceScreenContent({
             void handleCloseTabById(activeTabId);
           }
           return true;
+        case "workspace.tab.restore-last-closed":
+          if (persistenceKey) {
+            restoreLastClosedWorkspaceTab(persistenceKey);
+          }
+          return true;
         case "workspace.tab.navigate-index": {
           const next = tabs[action.index - 1] ?? null;
           if (next?.tabId) {
@@ -3005,6 +3031,8 @@ function WorkspaceScreenContent({
       handleCreateDraftTab,
       handleCreateTerminal,
       navigateToTabId,
+      persistenceKey,
+      restoreLastClosedWorkspaceTab,
       tabs,
     ],
   );
@@ -3104,6 +3132,7 @@ function WorkspaceScreenContent({
     actions: [
       "workspace.tab.new",
       "workspace.tab.close-current",
+      "workspace.tab.restore-last-closed",
       "workspace.tab.navigate-index",
       "workspace.tab.navigate-relative",
       "workspace.terminal.new",
@@ -3561,6 +3590,7 @@ function WorkspaceScreenContent({
         normalizedWorkspaceId={normalizedWorkspaceId}
         isWorkspaceFocused={isRouteFocused}
         uiTabs={uiTabs}
+        recentlyClosedTabs={recentlyClosedTabs}
         hoveredCloseTabKey={hoveredCloseTabKey}
         setHoveredCloseTabKey={setHoveredCloseTabKey}
         closingTabIds={closingTabIds}
@@ -3574,6 +3604,7 @@ function WorkspaceScreenContent({
         onCloseTabsToLeft={handleCloseTabsToLeftInPane}
         onCloseTabsToRight={handleCloseTabsToRightInPane}
         onCloseOtherTabs={handleCloseOtherTabsInPane}
+        onRestoreClosedTab={handleRestoreClosedTab}
         onCreateDraftTab={handleCreateDraftTab}
         onCreateTerminalTab={handleCreateTerminal}
         onCreateBrowserTab={handleCreateBrowserTab}
@@ -3597,6 +3628,7 @@ function WorkspaceScreenContent({
     normalizedWorkspaceId,
     isRouteFocused,
     uiTabs,
+    recentlyClosedTabs,
     hoveredCloseTabKey,
     closingTabIds,
     navigateToTabId,
@@ -3609,6 +3641,7 @@ function WorkspaceScreenContent({
     handleCloseTabsToLeftInPane,
     handleCloseTabsToRightInPane,
     handleCloseOtherTabsInPane,
+    handleRestoreClosedTab,
     handleCreateDraftTab,
     handleCreateTerminal,
     handleCreateBrowserTab,
@@ -3699,6 +3732,7 @@ function WorkspaceScreenContent({
           paneId={focusedPaneIdOrUndefined}
           isFocused={isRouteFocused}
           tabs={desktopTabRowItems}
+          recentlyClosedTabs={recentlyClosedTabs}
           normalizedServerId={normalizedServerId}
           normalizedWorkspaceId={normalizedWorkspaceId}
           setHoveredCloseTabKey={setHoveredCloseTabKey}
@@ -3712,6 +3746,7 @@ function WorkspaceScreenContent({
           onCloseTabsToLeft={handleCloseTabsToLeft}
           onCloseTabsToRight={handleCloseTabsToRight}
           onCloseOtherTabs={handleCloseOtherTabs}
+          onRestoreClosedTab={handleRestoreClosedTab}
           onCreateDraftTab={handleCreateDraftTab}
           onCreateTerminalTab={handleCreateTerminal}
           onCreateBrowserTab={handleCreateBrowserTab}
