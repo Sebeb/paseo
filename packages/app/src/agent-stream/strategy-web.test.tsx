@@ -528,7 +528,7 @@ describe("createWebStreamStrategy", () => {
     expect(markerTop).toBeLessThan(20);
   });
 
-  it("scrolls a mounted prompt to the top when its marker is clicked", () => {
+  it("scrolls a mounted prompt near the top with padding when its marker is clicked", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -550,12 +550,12 @@ describe("createWebStreamStrategy", () => {
     });
 
     expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledWith({
-      top: 320,
+      top: 302,
       behavior: "auto",
     });
   });
 
-  it("scrolls a virtualized prompt using the virtualizer offset", () => {
+  it("scrolls a virtualized prompt using the virtualizer offset with top padding", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -575,7 +575,7 @@ describe("createWebStreamStrategy", () => {
     });
 
     expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledWith({
-      top: 288,
+      top: 270,
       behavior: "auto",
     });
   });
