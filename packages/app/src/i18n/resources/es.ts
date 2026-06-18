@@ -173,8 +173,6 @@ export const es: TranslationResources = {
     scrollToBottom: "Desplazarse hacia abajo",
     thinking: {
       label: "Pensamiento",
-      itemCount_one: "{{count}} elemento",
-      itemCount_other: "{{count}} elementos",
     },
     permission: {
       plan: "Plan",
@@ -1460,11 +1458,6 @@ export const es: TranslationResources = {
           external: "Navegador externo",
         },
       },
-      collapseThinking: {
-        label: "Contraer pensamiento",
-        description:
-          "Oculta razonamiento, llamadas a herramientas y salida intermedia cuando el agente responde",
-      },
       terminalScrollback: {
         label: "Historial de terminal",
         description: "Líneas mantenidas en el búfer de terminal incorporado",
@@ -1531,6 +1524,14 @@ export const es: TranslationResources = {
           claude: "claudio",
           ghostty: "fantasmal",
           auto: "Sistema",
+        },
+      },
+      messages: {
+        title: "Mensajes",
+        collapseThinking: {
+          label: "Contraer pensamiento",
+          description:
+            "Oculta razonamiento, llamadas a herramientas y salida intermedia cuando el agente responde",
         },
       },
       fonts: {

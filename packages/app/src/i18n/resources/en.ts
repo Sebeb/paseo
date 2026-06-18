@@ -171,8 +171,6 @@ export const en = {
     scrollToBottom: "Scroll to bottom",
     thinking: {
       label: "Thinking",
-      itemCount_one: "{{count}} item",
-      itemCount_other: "{{count}} items",
     },
     permission: {
       plan: "Plan",
@@ -1429,10 +1427,6 @@ export const en = {
           external: "External browser",
         },
       },
-      collapseThinking: {
-        label: "Collapse thinking",
-        description: "Hide reasoning, tool calls, and intermediate output once the agent replies",
-      },
       terminalScrollback: {
         label: "Terminal scrollback",
         description: "Lines kept in the built-in terminal buffer",
@@ -1499,6 +1493,13 @@ export const en = {
           claude: "Claude",
           ghostty: "Ghostty",
           auto: "System",
+        },
+      },
+      messages: {
+        title: "Messages",
+        collapseThinking: {
+          label: "Collapse thinking",
+          description: "Hide reasoning, tool calls, and intermediate output once the agent replies",
         },
       },
       fonts: {

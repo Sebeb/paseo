@@ -973,11 +973,7 @@ function ThinkingGroupRow({
 
   return (
     <StreamItemWrapper gapBelow={gapBelow}>
-      <CollapsibleThinkingGroup
-        expanded={isExpanded}
-        itemCount={groupLayouts.length}
-        onExpandedChange={handleExpandedChange}
-      >
+      <CollapsibleThinkingGroup expanded={isExpanded} onExpandedChange={handleExpandedChange}>
         {groupLayouts.map((layoutItem, index) => {
           return (
             <ThinkingGroupContentItem
@@ -1015,12 +1011,10 @@ function ThinkingGroupContentItem({
 
 function CollapsibleThinkingGroup({
   expanded,
-  itemCount,
   onExpandedChange,
   children,
 }: {
   expanded: boolean;
-  itemCount: number;
   onExpandedChange: (expanded: boolean) => void;
   children: ReactNode;
 }) {
@@ -1039,9 +1033,6 @@ function CollapsibleThinkingGroup({
       >
         <Icon size={14} color={thinkingGroupStyles.chevron.color} />
         <Text style={thinkingGroupStyles.title}>{t("agentStream.thinking.label")}</Text>
-        <Text style={thinkingGroupStyles.count}>
-          {t("agentStream.thinking.itemCount", { count: itemCount })}
-        </Text>
       </Pressable>
       {expanded ? <View style={thinkingGroupStyles.content}>{children}</View> : null}
     </View>
@@ -1509,11 +1500,6 @@ const thinkingGroupStyles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
-  },
-  count: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-    fontVariant: ["tabular-nums"],
   },
   content: {
     borderTopWidth: theme.borderWidth[1],

@@ -173,8 +173,6 @@ export const ru: TranslationResources = {
     scrollToBottom: "Прокрутить вниз",
     thinking: {
       label: "Размышления",
-      itemCount_one: "{{count}} элемент",
-      itemCount_other: "{{count}} элементов",
     },
     permission: {
       plan: "План",
@@ -1450,11 +1448,6 @@ export const ru: TranslationResources = {
           external: "Внешний браузер",
         },
       },
-      collapseThinking: {
-        label: "Сворачивать размышления",
-        description:
-          "Скрывать рассуждения, вызовы инструментов и промежуточный вывод после ответа агента",
-      },
       terminalScrollback: {
         label: "Terminal прокрутка назад",
         description: "Строки, хранящиеся во встроенном буфере терминала.",
@@ -1522,6 +1515,14 @@ export const ru: TranslationResources = {
           claude: "Клод",
           ghostty: "Призрачный",
           auto: "Система",
+        },
+      },
+      messages: {
+        title: "Сообщения",
+        collapseThinking: {
+          label: "Сворачивать размышления",
+          description:
+            "Скрывать рассуждения, вызовы инструментов и промежуточный вывод после ответа агента",
         },
       },
       fonts: {

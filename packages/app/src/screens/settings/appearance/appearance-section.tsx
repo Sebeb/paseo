@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import {
   MAX_CODE_FONT_SIZE,
@@ -390,6 +391,13 @@ export function AppearanceSection() {
     [updateSettings],
   );
 
+  const handleCollapseThinkingChange = useCallback(
+    (collapseThinking: boolean) => {
+      void updateSettings({ collapseThinking });
+    },
+    [updateSettings],
+  );
+
   const handleSyntaxThemeChange = useCallback(
     (syntaxTheme: SyntaxThemeId) => {
       void updateSettings({ syntaxTheme });
@@ -475,6 +483,25 @@ export function AppearanceSection() {
       <SettingsSection title={t("settings.appearance.theme.title")}>
         <View style={settingsStyles.card}>
           <ThemeRow value={settings.theme} onChange={handleThemeChange} />
+        </View>
+      </SettingsSection>
+      <SettingsSection title={t("settings.appearance.messages.title")}>
+        <View style={settingsStyles.card}>
+          <View style={settingsStyles.row}>
+            <View style={settingsStyles.rowContent}>
+              <Text style={settingsStyles.rowTitle}>
+                {t("settings.appearance.messages.collapseThinking.label")}
+              </Text>
+              <Text style={settingsStyles.rowHint}>
+                {t("settings.appearance.messages.collapseThinking.description")}
+              </Text>
+            </View>
+            <Switch
+              value={settings.collapseThinking}
+              onValueChange={handleCollapseThinkingChange}
+              accessibilityLabel={t("settings.appearance.messages.collapseThinking.label")}
+            />
+          </View>
         </View>
       </SettingsSection>
       <SettingsSection title={t("settings.appearance.fonts.title")}>

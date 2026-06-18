@@ -173,8 +173,6 @@ export const ar: TranslationResources = {
     scrollToBottom: "قم بالتمرير إلى الأسفل",
     thinking: {
       label: "التفكير",
-      itemCount_one: "{{count}} عنصر",
-      itemCount_other: "{{count}} عناصر",
     },
     permission: {
       plan: "يخطط",
@@ -1423,10 +1421,6 @@ export const ar: TranslationResources = {
           external: "متصفح خارجي",
         },
       },
-      collapseThinking: {
-        label: "طي التفكير",
-        description: "إخفاء الاستدلال واستدعاءات الأدوات والمخرجات الوسيطة بعد رد الوكيل",
-      },
       terminalScrollback: {
         label: "التمرير Terminal",
         description: "يتم الاحتفاظ بالخطوط في المخزن المؤقت الطرفي المدمج",
@@ -1493,6 +1487,13 @@ export const ar: TranslationResources = {
           claude: "كلود",
           ghostty: "شبحي",
           auto: "نظام",
+        },
+      },
+      messages: {
+        title: "الرسائل",
+        collapseThinking: {
+          label: "طي التفكير",
+          description: "إخفاء الاستدلال واستدعاءات الأدوات والمخرجات الوسيطة بعد رد الوكيل",
         },
       },
       fonts: {

@@ -77,7 +77,6 @@ import { AddHostModal } from "@/components/add-host-modal";
 import { PairLinkModal } from "@/components/pair-link-modal";
 import { KeyboardShortcutsSection } from "@/screens/settings/keyboard-shortcuts-section";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { CommunityLinks } from "@/components/community-links";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -249,7 +248,6 @@ interface GeneralSectionProps {
   settings: AppSettings;
   isDesktopApp: boolean;
   handleSendBehaviorChange: (behavior: SendBehavior) => void;
-  handleCollapseThinkingChange: (collapseThinking: boolean) => void;
   handleServiceUrlBehaviorChange: (behavior: ServiceUrlBehavior) => void;
   handleLanguageChange: (language: AppLanguage) => void;
   handleTerminalScrollbackLinesChange: (lines: number) => void;
@@ -306,7 +304,6 @@ function GeneralSection({
   settings,
   isDesktopApp,
   handleSendBehaviorChange,
-  handleCollapseThinkingChange,
   handleServiceUrlBehaviorChange,
   handleLanguageChange,
   handleTerminalScrollbackLinesChange,
@@ -366,21 +363,6 @@ function GeneralSection({
             value={settings.sendBehavior}
             onValueChange={handleSendBehaviorChange}
             options={sendBehaviorOptions}
-          />
-        </View>
-        <View style={ROW_WITH_BORDER_STYLE}>
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>
-              {t("settings.general.collapseThinking.label")}
-            </Text>
-            <Text style={settingsStyles.rowHint}>
-              {t("settings.general.collapseThinking.description")}
-            </Text>
-          </View>
-          <Switch
-            value={settings.collapseThinking}
-            onValueChange={handleCollapseThinkingChange}
-            accessibilityLabel={t("settings.general.collapseThinking.label")}
           />
         </View>
         <View style={ROW_WITH_BORDER_STYLE}>
@@ -1312,13 +1294,6 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
     [updateSettings],
   );
 
-  const handleCollapseThinkingChange = useCallback(
-    (collapseThinking: boolean) => {
-      void updateSettings({ collapseThinking });
-    },
-    [updateSettings],
-  );
-
   const handleLanguageChange = useCallback(
     (language: AppLanguage) => {
       void updateSettings({ language });
@@ -1531,7 +1506,6 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
               settings={settings}
               isDesktopApp={isDesktopApp}
               handleSendBehaviorChange={handleSendBehaviorChange}
-              handleCollapseThinkingChange={handleCollapseThinkingChange}
               handleServiceUrlBehaviorChange={handleServiceUrlBehaviorChange}
               handleLanguageChange={handleLanguageChange}
               handleTerminalScrollbackLinesChange={handleTerminalScrollbackLinesChange}

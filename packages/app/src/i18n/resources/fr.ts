@@ -174,8 +174,6 @@ export const fr: TranslationResources = {
     scrollToBottom: "Faire défiler vers le bas",
     thinking: {
       label: "Réflexion",
-      itemCount_one: "{{count}} élément",
-      itemCount_other: "{{count}} éléments",
     },
     permission: {
       plan: "Plan",
@@ -1463,11 +1461,6 @@ export const fr: TranslationResources = {
           external: "Navigateur externe",
         },
       },
-      collapseThinking: {
-        label: "Réduire la réflexion",
-        description:
-          "Masque le raisonnement, les appels d'outils et les sorties intermédiaires quand l'agent répond",
-      },
       terminalScrollback: {
         label: "DéfilementTerminal",
         description: "Lignes conservées dans le tampon du terminal intégré",
@@ -1535,6 +1528,14 @@ export const fr: TranslationResources = {
           claude: "Claude",
           ghostty: "Fantôme",
           auto: "Système",
+        },
+      },
+      messages: {
+        title: "Messages",
+        collapseThinking: {
+          label: "Réduire la réflexion",
+          description:
+            "Masque le raisonnement, les appels d'outils et les sorties intermédiaires quand l'agent répond",
         },
       },
       fonts: {

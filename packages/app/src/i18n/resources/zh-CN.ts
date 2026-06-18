@@ -173,8 +173,6 @@ export const zhCN: TranslationResources = {
     scrollToBottom: "滚动到底部",
     thinking: {
       label: "思考",
-      itemCount_one: "{{count}} 项",
-      itemCount_other: "{{count}} 项",
     },
     permission: {
       plan: "Plan",
@@ -1405,10 +1403,6 @@ export const zhCN: TranslationResources = {
           external: "外部浏览器",
         },
       },
-      collapseThinking: {
-        label: "折叠思考",
-        description: "Agent 回复后隐藏推理、工具调用和中间输出",
-      },
       terminalScrollback: {
         label: "终端回滚",
         description: "内置终端缓冲区保留的行数",
@@ -1475,6 +1469,13 @@ export const zhCN: TranslationResources = {
           claude: "Claude",
           ghostty: "Ghostty",
           auto: "系统",
+        },
+      },
+      messages: {
+        title: "消息",
+        collapseThinking: {
+          label: "折叠思考",
+          description: "Agent 回复后隐藏推理、工具调用和中间输出",
         },
       },
       fonts: {
