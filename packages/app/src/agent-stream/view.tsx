@@ -214,6 +214,7 @@ function renderLiveHeadStreamItem(input: {
 export interface AgentStreamViewHandle {
   scrollToBottom(reason?: BottomAnchorLocalRequest["reason"]): void;
   prepareForViewportChange(): void;
+  pauseBottomAnchoringForNextLayoutChange(): void;
 }
 
 export interface AgentStreamViewProps {
@@ -443,12 +444,18 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         prepareForViewportChange() {
           viewportRef.current?.prepareForViewportChange();
         },
+        pauseBottomAnchoringForNextLayoutChange() {
+          viewportRef.current?.pauseBottomAnchoringForNextLayoutChange();
+        },
       }),
       [],
     );
 
     const scrollToBottom = useCallback(() => {
       viewportRef.current?.scrollToBottom("jump-to-bottom");
+    }, []);
+    const pauseBottomAnchoringForNextLayoutChange = useCallback(() => {
+      viewportRef.current?.pauseBottomAnchoringForNextLayoutChange();
     }, []);
 
     const setInlineDetailsExpanded = useCallback(
@@ -652,6 +659,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               layoutItemById={layoutItemById}
               expanded={expandedThinkingGroupIds.get(thinkingGroup.id)}
               onExpandedChange={setExpandedThinkingGroupIds}
+              onExpandStart={pauseBottomAnchoringForNextLayoutChange}
               runningStartedAt={baseRenderModel.turnTiming.runningStartedAt}
               timingByAssistantId={baseRenderModel.turnTiming.byAssistantId}
               renderStreamItemContent={renderStreamItemContent}
@@ -671,6 +679,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         baseRenderModel.turnTiming.byAssistantId,
         baseRenderModel.turnTiming.runningStartedAt,
         layoutItemById,
+        pauseBottomAnchoringForNextLayoutChange,
         renderStreamItemContent,
         streamRenderStrategy,
         thinkingGroupIndex,
@@ -940,6 +949,7 @@ interface ThinkingGroupRowProps {
   layoutItemById: Map<string, StreamLayoutItem>;
   expanded: boolean | undefined;
   onExpandedChange: (updater: (previous: Map<string, boolean>) => Map<string, boolean>) => void;
+  onExpandStart: () => void;
   runningStartedAt: Date | null;
   timingByAssistantId: Map<string, TurnTiming>;
   renderStreamItemContent: (layoutItem: StreamLayoutItem) => ReactNode;
@@ -950,6 +960,7 @@ function ThinkingGroupRow({
   layoutItemById,
   expanded,
   onExpandedChange,
+  onExpandStart,
   runningStartedAt,
   timingByAssistantId,
   renderStreamItemContent,
@@ -994,6 +1005,7 @@ function ThinkingGroupRow({
         expanded={isExpanded}
         groupStatus={group.status}
         runningStartedAt={runningStartedAt}
+        onExpandStart={onExpandStart}
         onExpandedChange={handleExpandedChange}
       >
         {groupLayouts.map((layoutItem, index) => {
@@ -1036,6 +1048,7 @@ function CollapsibleThinkingGroup({
   expanded,
   groupStatus,
   runningStartedAt,
+  onExpandStart,
   onExpandedChange,
   children,
 }: {
@@ -1043,10 +1056,16 @@ function CollapsibleThinkingGroup({
   expanded: boolean;
   groupStatus: ThinkingGroup["status"];
   runningStartedAt: Date | null;
+  onExpandStart: () => void;
   onExpandedChange: (expanded: boolean) => void;
   children: ReactNode;
 }) {
-  const handlePress = useCallback(() => onExpandedChange(!expanded), [expanded, onExpandedChange]);
+  const handlePress = useCallback(() => {
+    if (!expanded) {
+      onExpandStart();
+    }
+    onExpandedChange(!expanded);
+  }, [expanded, onExpandStart, onExpandedChange]);
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
   const Icon = expanded ? ChevronDown : ChevronRight;
 
