@@ -1239,6 +1239,7 @@ const stylesheet = StyleSheet.create((theme) => ({
   container: {
     flex: 1,
     backgroundColor: theme.colors.surface0,
+    position: "relative",
   },
   contentWrapper: {
     width: "100%",
@@ -1342,13 +1343,16 @@ const stylesheet = StyleSheet.create((theme) => ({
   },
   pinnedUserInputGradientFill: {
     flex: 1,
-    backgroundColor: theme.colors.surface2,
+    backgroundColor: theme.colors.surface0,
   },
   pinnedUserInputContentWrapper: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
     width: "100%",
     maxWidth: MAX_CONTENT_WIDTH,
     alignSelf: "center",
-    paddingTop: theme.spacing[4],
     paddingHorizontal: theme.spacing[4],
   },
 }));
