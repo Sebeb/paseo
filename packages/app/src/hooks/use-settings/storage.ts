@@ -12,6 +12,7 @@ export type SendBehavior = "interrupt" | "queue";
 export type ReleaseChannel = "stable" | "beta";
 export type ServiceUrlBehavior = "ask" | "in-app" | "external";
 export type WorkspaceTitleSource = "title" | "branch";
+export type CollapseThinkingBehavior = "never" | "completed" | "completed-and-active";
 
 const VALID_THEMES = new Set<string>([...Object.keys(THEME_TO_UNISTYLES), "auto"]);
 const VALID_SERVICE_URL_BEHAVIORS = new Set<ServiceUrlBehavior>(["ask", "in-app", "external"]);
@@ -31,6 +32,7 @@ export interface AppSettings {
   theme: ThemeName | "auto";
   language: AppLanguage;
   sendBehavior: SendBehavior;
+  collapseThinking: CollapseThinkingBehavior;
   serviceUrlBehavior: ServiceUrlBehavior;
   terminalScrollbackLines: number;
   uiFontFamily: string; // "" = platform default UI stack
@@ -46,10 +48,15 @@ export interface Settings extends AppSettings {
   releaseChannel: ReleaseChannel;
 }
 
+interface StoredAppSettings extends Partial<Omit<AppSettings, "collapseThinking">> {
+  collapseThinking?: unknown;
+}
+
 export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   theme: "auto",
   language: "system",
   sendBehavior: "interrupt",
+  collapseThinking: "never",
   serviceUrlBehavior: "ask",
   terminalScrollbackLines: DEFAULT_TERMINAL_SCROLLBACK_LINES,
   uiFontFamily: "",
@@ -102,7 +109,7 @@ export async function loadAppSettingsFromStorage(deps: SettingsDeps): Promise<Ap
   try {
     const stored = await deps.storage.getItem(APP_SETTINGS_KEY);
     if (stored) {
-      const parsed = JSON.parse(stored) as Partial<AppSettings>;
+      const parsed = JSON.parse(stored) as StoredAppSettings;
       return { ...DEFAULT_CLIENT_SETTINGS, ...pickAppSettings(parsed) };
     }
 
@@ -151,7 +158,7 @@ export async function loadSettingsFromStorage(deps: SettingsDeps): Promise<Setti
   };
 }
 
-function pickAppSettings(stored: Partial<AppSettings>): Partial<AppSettings> {
+function pickAppSettings(stored: StoredAppSettings): Partial<AppSettings> {
   const result: Partial<AppSettings> = {};
   if (typeof stored.theme === "string" && VALID_THEMES.has(stored.theme)) {
     result.theme = stored.theme;
@@ -162,6 +169,10 @@ function pickAppSettings(stored: Partial<AppSettings>): Partial<AppSettings> {
   }
   if (stored.sendBehavior === "interrupt" || stored.sendBehavior === "queue") {
     result.sendBehavior = stored.sendBehavior;
+  }
+  const collapseThinking = parseCollapseThinkingBehavior(stored.collapseThinking);
+  if (collapseThinking !== null) {
+    result.collapseThinking = collapseThinking;
   }
   if (
     typeof stored.serviceUrlBehavior === "string" &&
@@ -205,6 +216,20 @@ function pickAppSettings(stored: Partial<AppSettings>): Partial<AppSettings> {
     result.workspaceTitleSource = stored.workspaceTitleSource;
   }
   return result;
+}
+
+function isCollapseThinkingBehavior(value: string): value is CollapseThinkingBehavior {
+  return value === "never" || value === "completed" || value === "completed-and-active";
+}
+
+function parseCollapseThinkingBehavior(value: unknown): CollapseThinkingBehavior | null {
+  if (typeof value === "string") {
+    return isCollapseThinkingBehavior(value) ? value : null;
+  }
+  if (typeof value === "boolean") {
+    return value ? "completed" : "never";
+  }
+  return null;
 }
 
 function pickAppSettingsFromLegacy(legacy: Record<string, unknown>): Partial<AppSettings> {

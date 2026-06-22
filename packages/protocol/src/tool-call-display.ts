@@ -129,15 +129,15 @@ function buildCanonicalDetailDisplay(input: ToolCallDisplayInput): DetailDisplay
 
 function buildUnknownDetailOverride(input: ToolCallDisplayInput): DetailDisplay {
   const lowerName = input.name.trim().toLowerCase();
+  if (lowerName === "thinking") {
+    return {
+      displayName: "Thinking",
+    };
+  }
   if (input.detail.type === "unknown" && lowerName === "task") {
     return {
       displayName: "Task",
       summary: isRecord(input.metadata) ? readString(input.metadata.subAgentActivity) : undefined,
-    };
-  }
-  if (input.detail.type === "unknown" && lowerName === "thinking") {
-    return {
-      displayName: "Thinking",
     };
   }
   if (lowerName === "terminal") {

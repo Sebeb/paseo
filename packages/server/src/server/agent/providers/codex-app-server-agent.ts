@@ -125,7 +125,6 @@ const CODEX_NON_ORIGINATING_APP_SERVER_CLIENT_INFO = {
   title: "Codex App Server Daemon",
   version: "0.0.0",
 } as const;
-const ASSISTANT_MESSAGE_BOUNDARY_MARKDOWN = "\n\n---\n\n";
 const CODEX_TOOL_THREAD_ITEM_TYPES = new Set([
   "commandExecution",
   "fileChange",
@@ -2929,7 +2928,6 @@ export class CodexAppServerAgentSession implements AgentSession {
   private pendingReasoning = new Map<string, string[]>();
   private pendingCommandOutputDeltas = new Map<string, string[]>();
   private pendingFileChangeOutputDeltas = new Map<string, string[]>();
-  private pendingAssistantMessageBoundary = false;
   private terminalCommandByProcessId = new Map<string, string>();
   private pendingUnlabeledTerminalInteractions = new Set<string>();
   private emittedTerminalInteractionKeys = new Set<string>();
@@ -4504,22 +4502,15 @@ export class CodexAppServerAgentSession implements AgentSession {
         this.emitSubAgentActivityUpdate(subAgentCallId, "running");
         return;
       }
-      const isFirstDeltaForItem = prev.length === 0;
       this.emitEvent({
         type: "timeline",
         provider: CODEX_PROVIDER,
         item: {
           type: "assistant_message",
           messageId: parsed.itemId,
-          text:
-            isFirstDeltaForItem && this.pendingAssistantMessageBoundary
-              ? `${ASSISTANT_MESSAGE_BOUNDARY_MARKDOWN}${parsed.delta}`
-              : parsed.delta,
+          text: parsed.delta,
         },
       });
-      if (isFirstDeltaForItem) {
-        this.pendingAssistantMessageBoundary = false;
-      }
       return;
     }
     if (parsed.kind === "reasoning_delta") {
@@ -4621,7 +4612,6 @@ export class CodexAppServerAgentSession implements AgentSession {
     this.pendingReasoning.clear();
     this.pendingCommandOutputDeltas.clear();
     this.pendingFileChangeOutputDeltas.clear();
-    this.pendingAssistantMessageBoundary = false;
     this.warnedIncompleteEditToolCallIds.clear();
     this.unpairedCompactionNotificationCompletions = 0;
     this.unpairedCompactionItemCompletions = 0;
@@ -4890,9 +4880,6 @@ export class CodexAppServerAgentSession implements AgentSession {
       return;
     }
     if (this.consumeStreamedTextCompletion(timelineItem, itemId)) {
-      if (timelineItem.type === "assistant_message") {
-        this.pendingAssistantMessageBoundary = true;
-      }
       if (itemId) {
         this.emittedItemCompletedIds.add(itemId);
         this.emittedItemStartedIds.delete(itemId);
@@ -4913,9 +4900,6 @@ export class CodexAppServerAgentSession implements AgentSession {
       this.warnOnIncompleteEditToolCall(timelineItem, "item_completed", parsed.item);
     }
     this.emitEvent({ type: "timeline", provider: CODEX_PROVIDER, item: timelineItem });
-    if (timelineItem.type === "assistant_message") {
-      this.pendingAssistantMessageBoundary = true;
-    }
     if (itemId) {
       this.emittedItemCompletedIds.add(itemId);
       this.emittedItemStartedIds.delete(itemId);

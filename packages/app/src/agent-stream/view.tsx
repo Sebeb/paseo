@@ -16,18 +16,41 @@ import {
   View,
   Text,
   Pressable,
+  ScrollView,
   Platform,
   ActivityIndicator,
+  StyleSheet as RNStyleSheet,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  type LayoutChangeEvent,
   type PressableStateCallbackType,
   type StyleProp,
+  type TextStyle,
   type ViewStyle,
 } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { MAX_CONTENT_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
 import { useMutation } from "@tanstack/react-query";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
-import { Check, ChevronDown, X } from "lucide-react-native";
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  MessageSquareText,
+  Wrench,
+  X,
+} from "lucide-react-native";
 import { usePanelStore } from "@/stores/panel-store";
+import { useAppSettings } from "@/hooks/use-settings";
 import {
   AssistantMessage,
   SpeakMessage,
@@ -56,6 +79,15 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { ToolCallDetailsContent } from "@/components/tool-call-details";
 import { QuestionFormCard } from "@/components/question-form-card";
 import { ToolCallSheetProvider } from "@/components/tool-call-sheet";
+import {
+  buildCollapseThinkingGroups,
+  getThinkingGroupCounts,
+  getThinkingGroupPreviewMessages,
+  shouldShowThinkingGroupPreview,
+  type ThinkingGroup,
+  type ThinkingGroupIndex,
+  type ThinkingGroupPreviewMessage,
+} from "./collapse-thinking";
 import { type AgentStreamRenderModel, buildAgentStreamRenderModel } from "./model";
 import { resolveStreamRenderStrategy } from "./strategy-resolver";
 import { type StreamSegmentRenderers, type StreamViewportHandle } from "./strategy";
@@ -205,6 +237,7 @@ function renderLiveHeadStreamItem(input: {
 export interface AgentStreamViewHandle {
   scrollToBottom(reason?: BottomAnchorLocalRequest["reason"]): void;
   prepareForViewportChange(): void;
+  pauseBottomAnchoringForNextLayoutChange(): void;
 }
 
 export interface AgentStreamViewProps {
@@ -232,6 +265,14 @@ const AGENT_CAPABILITY_FLAG_KEYS: (keyof AgentCapabilityFlags)[] = [
 ];
 
 const EMPTY_STREAM_HEAD: StreamItem[] = [];
+
+const EMPTY_THINKING_GROUP_INDEX: ThinkingGroupIndex = {
+  groups: [],
+  groupByAnchorItemId: new Map(),
+  groupByItemId: new Map(),
+};
+
+const THINKING_GROUP_PREVIEW_BOTTOM_EPSILON = 4;
 
 const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamViewProps>(
   function AgentStreamView(
@@ -263,8 +304,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const [expandedInlineToolCallIds, setExpandedInlineToolCallIds] = useState<Set<string>>(
       new Set(),
     );
+    const [expandedThinkingGroupIds, setExpandedThinkingGroupIds] = useState<Map<string, boolean>>(
+      new Map(),
+    );
     const openFileExplorerForCheckout = usePanelStore((state) => state.openFileExplorerForCheckout);
     const setExplorerTabForCheckout = usePanelStore((state) => state.setExplorerTabForCheckout);
+    const collapseThinkingBehavior = useAppSettings().settings.collapseThinking;
 
     // Get serverId (fallback to agent's serverId if not provided)
     const resolvedServerId = serverId ?? agent.serverId ?? "";
@@ -298,6 +343,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     useEffect(() => {
       setIsNearBottom(true);
       setExpandedInlineToolCallIds(new Set());
+      setExpandedThinkingGroupIds(new Map());
     }, [agentId]);
 
     const handleInlinePathPress = useStableEvent(
@@ -374,6 +420,20 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     }
     const effectiveStreamItems = isActive ? streamItems : frozenStreamItemsRef.current;
     const effectiveStreamHead = isActive ? streamHead : frozenStreamHeadRef.current;
+    const chronologicalStreamItems = useMemo(
+      () => [...effectiveStreamItems, ...(effectiveStreamHead ?? EMPTY_STREAM_HEAD)],
+      [effectiveStreamHead, effectiveStreamItems],
+    );
+    const thinkingGroupIndex = useMemo(() => {
+      if (collapseThinkingBehavior === "never") {
+        return EMPTY_THINKING_GROUP_INDEX;
+      }
+      return buildCollapseThinkingGroups({
+        items: chronologicalStreamItems,
+        behavior: collapseThinkingBehavior,
+        agentStatus: agent.status,
+      });
+    }, [agent.status, chronologicalStreamItems, collapseThinkingBehavior]);
 
     const baseRenderModel = useMemo(() => {
       return buildAgentStreamRenderModel({
@@ -410,12 +470,18 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         prepareForViewportChange() {
           viewportRef.current?.prepareForViewportChange();
         },
+        pauseBottomAnchoringForNextLayoutChange() {
+          viewportRef.current?.pauseBottomAnchoringForNextLayoutChange();
+        },
       }),
       [],
     );
 
     const scrollToBottom = useCallback(() => {
       viewportRef.current?.scrollToBottom("jump-to-bottom");
+    }, []);
+    const pauseBottomAnchoringForNextLayoutChange = useCallback(() => {
+      viewportRef.current?.pauseBottomAnchoringForNextLayoutChange();
     }, []);
 
     const setInlineDetailsExpanded = useCallback(
@@ -595,8 +661,36 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
     const bottomTurnFooterHost = streamLayout.auxiliaryTurnFooter;
 
+    const layoutItemById = useMemo(() => {
+      const itemById = new Map<string, StreamLayoutItem>();
+      for (const item of streamLayout.history) {
+        itemById.set(item.item.id, item);
+      }
+      for (const item of streamLayout.liveHead) {
+        itemById.set(item.item.id, item);
+      }
+      return itemById;
+    }, [streamLayout.history, streamLayout.liveHead]);
+
     const renderStreamItem = useCallback(
       (layoutItem: StreamLayoutItem) => {
+        const thinkingGroup = thinkingGroupIndex.groupByItemId.get(layoutItem.item.id);
+        if (thinkingGroup) {
+          if (thinkingGroup.anchorItemId !== layoutItem.item.id) {
+            return null;
+          }
+          return (
+            <ThinkingGroupRow
+              group={thinkingGroup}
+              layoutItemById={layoutItemById}
+              expanded={expandedThinkingGroupIds.get(thinkingGroup.id)}
+              onExpandedChange={setExpandedThinkingGroupIds}
+              onExpandStart={pauseBottomAnchoringForNextLayoutChange}
+              renderStreamItemContent={renderStreamItemContent}
+            />
+          );
+        }
+
         const content = renderStreamItemContent(layoutItem);
         return renderStreamItemWithTurnFooter({
           content,
@@ -604,7 +698,14 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           strategy: streamRenderStrategy,
         });
       },
-      [renderStreamItemContent, streamRenderStrategy],
+      [
+        expandedThinkingGroupIds,
+        layoutItemById,
+        pauseBottomAnchoringForNextLayoutChange,
+        renderStreamItemContent,
+        streamRenderStrategy,
+        thinkingGroupIndex,
+      ],
     );
 
     const pendingPermissionItems = useMemo(
@@ -863,6 +964,401 @@ function ToolCallSlot({
     [onInlineDetailsExpandedChangeByItemId, itemId],
   );
   return <ToolCall {...rest} onInlineDetailsExpandedChange={handleExpandedChange} />;
+}
+
+interface ThinkingGroupRowProps {
+  group: ThinkingGroup;
+  layoutItemById: Map<string, StreamLayoutItem>;
+  expanded: boolean | undefined;
+  onExpandedChange: (updater: (previous: Map<string, boolean>) => Map<string, boolean>) => void;
+  onExpandStart: () => void;
+  renderStreamItemContent: (layoutItem: StreamLayoutItem) => ReactNode;
+}
+
+function ThinkingGroupRow({
+  group,
+  layoutItemById,
+  expanded,
+  onExpandedChange,
+  onExpandStart,
+  renderStreamItemContent,
+}: ThinkingGroupRowProps) {
+  const groupLayouts = useMemo(() => {
+    const layouts: StreamLayoutItem[] = [];
+    for (const itemId of group.itemIds) {
+      const layoutItem = layoutItemById.get(itemId);
+      if (layoutItem) {
+        layouts.push(layoutItem);
+      }
+    }
+    return layouts;
+  }, [group.itemIds, layoutItemById]);
+
+  const lastLayout = groupLayouts.at(-1);
+  const gapBelow = lastLayout?.gapBelow ?? 0;
+  const isExpanded = expanded ?? group.defaultExpanded;
+  const groupItems = useMemo(
+    () => groupLayouts.map((layoutItem) => layoutItem.item),
+    [groupLayouts],
+  );
+  const counts = useMemo(() => getThinkingGroupCounts(groupItems), [groupItems]);
+  const previewMessages = useMemo(() => getThinkingGroupPreviewMessages(groupItems), [groupItems]);
+  const showPreview = shouldShowThinkingGroupPreview({
+    expanded: isExpanded,
+    groupStatus: group.status,
+    messageCount: counts.messageCount,
+  });
+
+  const handleExpandedChange = useCallback(
+    (nextExpanded: boolean) => {
+      onExpandedChange((previous) => {
+        const next = new Map(previous);
+        next.set(group.id, nextExpanded);
+        return next;
+      });
+    },
+    [group.id, onExpandedChange],
+  );
+
+  if (groupLayouts.length === 0) {
+    return null;
+  }
+
+  return (
+    <StreamItemWrapper gapBelow={gapBelow}>
+      <CollapsibleThinkingGroup
+        counts={counts}
+        expanded={isExpanded}
+        groupStatus={group.status}
+        onExpandStart={onExpandStart}
+        onExpandedChange={handleExpandedChange}
+        previewMessages={previewMessages}
+        showPreview={showPreview}
+      >
+        {groupLayouts.map((layoutItem, index) => {
+          return (
+            <ThinkingGroupContentItem
+              key={layoutItem.item.id}
+              layoutItem={layoutItem}
+              isLast={index === groupLayouts.length - 1}
+              renderStreamItemContent={renderStreamItemContent}
+            />
+          );
+        })}
+      </CollapsibleThinkingGroup>
+    </StreamItemWrapper>
+  );
+}
+
+function ThinkingGroupContentItem({
+  layoutItem,
+  isLast,
+  renderStreamItemContent,
+}: {
+  layoutItem: StreamLayoutItem;
+  isLast: boolean;
+  renderStreamItemContent: (layoutItem: StreamLayoutItem) => ReactNode;
+}) {
+  const content = renderStreamItemContent(layoutItem);
+  const itemStyle = useMemo(
+    () => (isLast ? undefined : { marginBottom: layoutItem.gapBelow }),
+    [isLast, layoutItem.gapBelow],
+  );
+  if (!content) {
+    return null;
+  }
+  return <View style={itemStyle}>{content}</View>;
+}
+
+function CollapsibleThinkingGroup({
+  counts,
+  expanded,
+  groupStatus,
+  onExpandStart,
+  onExpandedChange,
+  previewMessages,
+  showPreview,
+  children,
+}: {
+  counts: ReturnType<typeof getThinkingGroupCounts>;
+  expanded: boolean;
+  groupStatus: ThinkingGroup["status"];
+  onExpandStart: () => void;
+  onExpandedChange: (expanded: boolean) => void;
+  previewMessages: ThinkingGroupPreviewMessage[];
+  showPreview: boolean;
+  children: ReactNode;
+}) {
+  const handlePress = useCallback(() => {
+    if (!expanded) {
+      onExpandStart();
+    }
+    onExpandedChange(!expanded);
+  }, [expanded, onExpandStart, onExpandedChange]);
+  const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
+  const Icon = expanded ? ChevronDown : ChevronRight;
+
+  return (
+    <View style={thinkingGroupStyles.container}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={accessibilityState}
+        onPress={handlePress}
+        style={thinkingGroupStyles.header}
+      >
+        <Icon size={14} color={thinkingGroupStyles.chevron.color} />
+        <ThinkingGroupHeaderTitle groupStatus={groupStatus} style={thinkingGroupStyles.title} />
+        <ThinkingGroupHeaderCounts counts={counts} />
+      </Pressable>
+      {expanded ? <View style={thinkingGroupStyles.content}>{children}</View> : null}
+      {showPreview ? <ThinkingGroupPreview messages={previewMessages} /> : null}
+    </View>
+  );
+}
+
+function ThinkingGroupHeaderTitle({
+  groupStatus,
+  style,
+}: {
+  groupStatus: ThinkingGroup["status"];
+  style: StyleProp<TextStyle>;
+}) {
+  const { t } = useTranslation();
+  const isActive = groupStatus === "active";
+  const pulseProgress = useSharedValue(0);
+  const pulseStyle = useAnimatedStyle(() => {
+    return {
+      opacity: 0.28 + pulseProgress.value * 0.72,
+    };
+  });
+  const titleBaseStyle = useMemo(
+    () => (isActive ? [style, thinkingGroupStyles.titlePulsingBase] : style),
+    [isActive, style],
+  );
+  const titlePulseOverlayStyle = useMemo(
+    () => [thinkingGroupStaticStyles.titlePulseOverlay, pulseStyle],
+    [pulseStyle],
+  );
+  const titlePulseTextStyle = useMemo(() => [style, thinkingGroupStyles.titlePulseText], [style]);
+
+  useEffect(() => {
+    if (!isActive) {
+      cancelAnimation(pulseProgress);
+      pulseProgress.value = 0;
+      return;
+    }
+    pulseProgress.value = 0;
+    pulseProgress.value = withRepeat(
+      withTiming(1, { duration: 2200, easing: Easing.inOut(Easing.cubic) }),
+      -1,
+      true,
+    );
+    return () => {
+      cancelAnimation(pulseProgress);
+    };
+  }, [pulseProgress, isActive]);
+
+  return (
+    <View style={thinkingGroupStyles.titleContainer}>
+      <Text numberOfLines={1} style={titleBaseStyle}>
+        {t("agentStream.thinking.label")}
+      </Text>
+      {isActive ? (
+        <Animated.View pointerEvents="none" style={titlePulseOverlayStyle}>
+          <Text numberOfLines={1} style={titlePulseTextStyle}>
+            {t("agentStream.thinking.label")}
+          </Text>
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+}
+
+function ThinkingGroupHeaderCounts({
+  counts,
+}: {
+  counts: ReturnType<typeof getThinkingGroupCounts>;
+}) {
+  const { t } = useTranslation();
+  return (
+    <View style={thinkingGroupStyles.counts}>
+      {counts.messageCount > 0 ? (
+        <View
+          accessibilityLabel={t("agentStream.thinking.messageCount", {
+            count: counts.messageCount,
+          })}
+          style={thinkingGroupStyles.countPill}
+        >
+          <MessageSquareText size={13} color={thinkingGroupStyles.countIcon.color} />
+          <Text style={thinkingGroupStyles.countText}>{counts.messageCount}</Text>
+        </View>
+      ) : null}
+      {counts.toolCallCount > 0 ? (
+        <View
+          accessibilityLabel={t("agentStream.thinking.toolCallCount", {
+            count: counts.toolCallCount,
+          })}
+          style={thinkingGroupStyles.countPill}
+        >
+          <Wrench size={13} color={thinkingGroupStyles.countIcon.color} />
+          <Text style={thinkingGroupStyles.countText}>{counts.toolCallCount}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function ThinkingGroupPreview({ messages }: { messages: ThinkingGroupPreviewMessage[] }) {
+  const scrollRef = useRef<React.ElementRef<typeof ScrollView>>(null);
+  const viewportHeightRef = useRef(0);
+  const contentHeightRef = useRef(0);
+  const currentScrollYRef = useRef(0);
+  const isPinnedToBottomRef = useRef(true);
+
+  const updatePinnedToBottom = useCallback(
+    (scrollY: number, contentHeight: number, viewportHeight: number) => {
+      const maxScrollY = Math.max(0, contentHeight - viewportHeight);
+      currentScrollYRef.current = scrollY;
+      isPinnedToBottomRef.current = maxScrollY - scrollY <= THINKING_GROUP_PREVIEW_BOTTOM_EPSILON;
+    },
+    [],
+  );
+
+  const scrollPreviewToBottom = useCallback((animated: boolean) => {
+    const targetY = Math.max(0, contentHeightRef.current - viewportHeightRef.current);
+    currentScrollYRef.current = targetY;
+    isPinnedToBottomRef.current = true;
+    scrollRef.current?.scrollTo({ y: targetY, animated });
+  }, []);
+
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      updatePinnedToBottom(
+        Math.max(0, contentOffset.y),
+        Math.max(0, contentSize.height),
+        Math.max(0, layoutMeasurement.height),
+      );
+    },
+    [updatePinnedToBottom],
+  );
+
+  const handlePreviewLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const viewportHeight = Math.max(0, event.nativeEvent.layout.height);
+      viewportHeightRef.current = viewportHeight;
+      if (isPinnedToBottomRef.current) {
+        scrollPreviewToBottom(false);
+        return;
+      }
+      updatePinnedToBottom(currentScrollYRef.current, contentHeightRef.current, viewportHeight);
+    },
+    [scrollPreviewToBottom, updatePinnedToBottom],
+  );
+
+  const handleContentSizeChange = useCallback(
+    (_width: number, height: number) => {
+      contentHeightRef.current = Math.max(0, height);
+      if (isPinnedToBottomRef.current) {
+        scrollPreviewToBottom(false);
+        return;
+      }
+      updatePinnedToBottom(
+        currentScrollYRef.current,
+        contentHeightRef.current,
+        viewportHeightRef.current,
+      );
+    },
+    [scrollPreviewToBottom, updatePinnedToBottom],
+  );
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      currentScrollYRef.current = 0;
+      isPinnedToBottomRef.current = true;
+    }
+  }, [messages.length]);
+
+  return (
+    <View style={thinkingGroupStyles.preview}>
+      <ScrollView
+        ref={scrollRef}
+        onLayout={handlePreviewLayout}
+        onContentSizeChange={handleContentSizeChange}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        scrollEnabled
+        showsVerticalScrollIndicator={false}
+        style={thinkingGroupStyles.previewScroll}
+        contentContainerStyle={thinkingGroupStaticStyles.previewContent}
+      >
+        {messages.map((message) => (
+          <ThinkingGroupPreviewMessageRow key={message.id} message={message} />
+        ))}
+      </ScrollView>
+      <PreviewFade edge="top" />
+      <PreviewFade edge="bottom" />
+    </View>
+  );
+}
+
+function ThinkingGroupPreviewMessageRow({ message }: { message: ThinkingGroupPreviewMessage }) {
+  return (
+    <View style={thinkingGroupStyles.previewMessage}>
+      <Text style={thinkingGroupStyles.previewText}>{message.text}</Text>
+    </View>
+  );
+}
+
+function PreviewFade({ edge }: { edge: "top" | "bottom" }) {
+  const isTop = edge === "top";
+  const containerStyle = useMemo(
+    () => [
+      thinkingGroupStyles.previewFade,
+      isTop ? thinkingGroupStyles.previewFadeTop : thinkingGroupStyles.previewFadeBottom,
+    ],
+    [isTop],
+  );
+  const fadeBands = useMemo(
+    () =>
+      isTop
+        ? [
+            {
+              key: "strong",
+              style: [thinkingGroupStyles.previewFadeBand, thinkingGroupStyles.previewFadeStrong],
+            },
+            {
+              key: "medium",
+              style: [thinkingGroupStyles.previewFadeBand, thinkingGroupStyles.previewFadeMedium],
+            },
+            {
+              key: "weak",
+              style: [thinkingGroupStyles.previewFadeBand, thinkingGroupStyles.previewFadeWeak],
+            },
+          ]
+        : [
+            {
+              key: "weak",
+              style: [thinkingGroupStyles.previewFadeBand, thinkingGroupStyles.previewFadeWeak],
+            },
+            {
+              key: "medium",
+              style: [thinkingGroupStyles.previewFadeBand, thinkingGroupStyles.previewFadeMedium],
+            },
+            {
+              key: "strong",
+              style: [thinkingGroupStyles.previewFadeBand, thinkingGroupStyles.previewFadeStrong],
+            },
+          ],
+    [isTop],
+  );
+  return (
+    <View pointerEvents="none" style={containerStyle}>
+      {fadeBands.map((fadeBand) => (
+        <View key={`${edge}-${fadeBand.key}`} style={fadeBand.style} />
+      ))}
+    </View>
+  );
 }
 
 const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
@@ -1301,6 +1797,134 @@ const permissionStyles = StyleSheet.create((theme) => ({
 }));
 
 const optionTextPrimaryStyle = [permissionStyles.optionText, permissionStyles.optionTextPrimary];
+
+const thinkingGroupStyles = StyleSheet.create((theme) => ({
+  container: {
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface1,
+    overflow: "hidden",
+  },
+  header: {
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    paddingVertical: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+  },
+  chevron: {
+    color: theme.colors.foregroundMuted,
+  },
+  title: {
+    flex: 1,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.normal,
+  },
+  titlePulsingBase: {
+    color: theme.colors.foregroundMuted,
+  },
+  titlePulseText: {
+    color: theme.colors.foreground,
+  },
+  titleContainer: {
+    flex: 1,
+    minWidth: 0,
+    overflow: "hidden",
+    position: "relative",
+  },
+  counts: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    marginLeft: "auto",
+  },
+  countPill: {
+    minWidth: 34,
+    height: 22,
+    paddingHorizontal: theme.spacing[2],
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.surface2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.spacing[1],
+  },
+  countIcon: {
+    color: theme.colors.foregroundMuted,
+  },
+  countText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.medium,
+    fontVariant: ["tabular-nums"],
+  },
+  content: {
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
+    padding: theme.spacing[3],
+  },
+  preview: {
+    height: 168,
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
+    position: "relative",
+    overflow: "hidden",
+  },
+  previewScroll: {
+    flex: 1,
+  },
+  previewMessage: {
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[1],
+  },
+  previewText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+  },
+  previewFade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 16,
+    flexDirection: "column",
+  },
+  previewFadeTop: {
+    top: 0,
+  },
+  previewFadeBottom: {
+    bottom: 0,
+  },
+  previewFadeBand: {
+    flex: 1,
+    backgroundColor: theme.colors.surface1,
+  },
+  previewFadeStrong: {
+    opacity: 0.92,
+  },
+  previewFadeMedium: {
+    opacity: 0.58,
+  },
+  previewFadeWeak: {
+    opacity: 0.24,
+  },
+}));
+
+const thinkingGroupStaticStyles = RNStyleSheet.create({
+  titlePulseOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  previewContent: {
+    paddingVertical: 10,
+  },
+});
 
 interface StreamItemWrapperProps {
   gapBelow: number;
