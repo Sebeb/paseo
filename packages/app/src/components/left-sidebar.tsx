@@ -1,5 +1,5 @@
 import { router, usePathname } from "expo-router";
-import { FolderPlus, History, Home, Plus, Search, Settings, X } from "lucide-react-native";
+import { FolderPlus, History, Home, Search, Settings, X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import {
   type Dispatch,
@@ -34,8 +34,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
-import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
-import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/sidebar-display-preferences-menu";
+import { SidebarGroupingSelector } from "@/components/sidebar/sidebar-grouping-selector";
 import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/combobox";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -64,12 +63,10 @@ import { useWindowControlsPadding } from "@/utils/desktop-window";
 import { canCloseLeftSidebarGesture } from "@/utils/sidebar-animation-state";
 import {
   buildHostOpenProjectRoute,
-  buildHostNewWorkspaceRoute,
   buildHostSessionsRoute,
   buildSettingsRoute,
   mapPathnameToServer,
 } from "@/utils/host-routes";
-import type { ShortcutKey } from "@/utils/format-shortcut";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
@@ -102,8 +99,8 @@ interface SidebarSharedProps {
   toggleProjectCollapsed: SidebarShortcutModel["toggleProjectCollapsed"];
   handleRefresh: () => void;
   handleHostSelect: (nextServerId: string) => void;
-  handleNewWorkspaceNavigate: () => void;
   handleOpenProject: () => void;
+  handleViewMore: () => void;
   handleHome: () => void;
   handleSettings: () => void;
   labels: SidebarLabels;
@@ -113,12 +110,10 @@ interface SidebarSharedProps {
     active: boolean;
     onPress: () => void;
   }) => ReactElement;
-  newWorkspaceKeys: ShortcutKey[][] | null;
 }
 
 interface SidebarLabels {
   addProject: string;
-  newWorkspace: string;
   home: string;
   settings: string;
   switchHost: string;
@@ -132,13 +127,11 @@ interface MobileSidebarProps extends SidebarSharedProps {
   insetsBottom: number;
   isOpen: boolean;
   closeSidebar: () => void;
-  handleViewMoreNavigate: () => void;
 }
 
 interface DesktopSidebarProps extends SidebarSharedProps {
   insetsTop: number;
   isOpen: boolean;
-  handleViewMore: () => void;
 }
 
 export const LeftSidebar = memo(function LeftSidebar({
@@ -243,11 +236,6 @@ export const LeftSidebar = memo(function LeftSidebar({
     void openProjectPicker();
   }, [openProjectPicker]);
 
-  const handleNewWorkspaceNavigate = useCallback(() => {
-    if (!activeServerId) return;
-    router.navigate(buildHostNewWorkspaceRoute(activeServerId));
-  }, [activeServerId]);
-
   const handleSettingsMobile = useCallback(() => {
     showMobileAgent();
     router.push(buildSettingsRoute());
@@ -268,7 +256,14 @@ export const LeftSidebar = memo(function LeftSidebar({
     router.push(buildHostOpenProjectRoute(activeServerId));
   }, [activeServerId]);
 
-  const handleViewMoreNavigate = useCallback(() => {
+  const handleViewMoreDesktop = useCallback(() => {
+    if (!activeServerId) {
+      return;
+    }
+    router.push(buildHostSessionsRoute(activeServerId));
+  }, [activeServerId]);
+
+  const handleViewMoreMobile = useCallback(() => {
     if (!activeServerId) {
       return;
     }
@@ -287,12 +282,9 @@ export const LeftSidebar = memo(function LeftSidebar({
     [pathname],
   );
 
-  const newWorkspaceKeys = useShortcutKeys("new-workspace");
-
   const labels = useMemo(
     (): SidebarLabels => ({
       addProject: t("sidebar.actions.addProject"),
-      newWorkspace: t("sidebar.actions.newWorkspace"),
       home: t("sidebar.actions.home"),
       settings: t("sidebar.actions.settings"),
       switchHost: t("sidebar.host.switchTitle"),
@@ -324,7 +316,6 @@ export const LeftSidebar = memo(function LeftSidebar({
     handleHostSelect,
     renderHostOption,
     labels,
-    newWorkspaceKeys,
   };
 
   if (isCompactLayout) {
@@ -335,11 +326,10 @@ export const LeftSidebar = memo(function LeftSidebar({
         insetsBottom={insets.bottom}
         isOpen={isOpen}
         closeSidebar={showMobileAgent}
-        handleNewWorkspaceNavigate={handleNewWorkspaceNavigate}
         handleOpenProject={handleOpenProjectMobile}
+        handleViewMore={handleViewMoreMobile}
         handleHome={handleHomeMobile}
         handleSettings={handleSettingsMobile}
-        handleViewMoreNavigate={handleViewMoreNavigate}
       />
     );
   }
@@ -349,11 +339,10 @@ export const LeftSidebar = memo(function LeftSidebar({
       {...sharedProps}
       insetsTop={insets.top}
       isOpen={isOpen}
-      handleNewWorkspaceNavigate={handleNewWorkspaceNavigate}
       handleOpenProject={handleOpenProjectDesktop}
+      handleViewMore={handleViewMoreDesktop}
       handleHome={handleHomeDesktop}
       handleSettings={handleSettingsDesktop}
-      handleViewMore={handleViewMoreNavigate}
     />
   );
 });
@@ -429,12 +418,14 @@ function FooterIconButton({
   accessibilityLabel,
   icon: Icon,
   theme,
+  isActive = false,
 }: {
   onPress: () => void;
   testID: string;
   accessibilityLabel: string;
   icon: typeof FolderPlus;
   theme: SidebarTheme;
+  isActive?: boolean;
 }) {
   return (
     <Pressable
@@ -450,7 +441,7 @@ function FooterIconButton({
       {({ hovered }) => (
         <Icon
           size={theme.iconSize.md}
-          color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
+          color={hovered || isActive ? theme.colors.foreground : theme.colors.foregroundMuted}
         />
       )}
     </Pressable>
@@ -498,10 +489,12 @@ function SidebarFooter({
   setIsHostPickerOpen,
   handleHostSelect,
   renderHostOption,
+  handleViewMore,
   handleOpenProject,
   handleHome,
   handleSettings,
   labels,
+  isSessionsActive,
 }: {
   theme: SidebarTheme;
   activeServerId: string | null;
@@ -513,6 +506,7 @@ function SidebarFooter({
   setIsHostPickerOpen: Dispatch<SetStateAction<boolean>>;
   handleHostSelect: (nextServerId: string) => void;
   renderHostOption: SidebarSharedProps["renderHostOption"];
+  handleViewMore: () => void;
   handleOpenProject: () => void;
   handleHome: () => void;
   handleSettings: () => void;
@@ -522,7 +516,9 @@ function SidebarFooter({
     settings: string;
     switchHost: string;
     searchHosts: string;
+    sessions: string;
   };
+  isSessionsActive: boolean;
 }) {
   const newAgentKeys = useShortcutKeys("new-agent");
   return (
@@ -537,6 +533,28 @@ function SidebarFooter({
         />
       </View>
       <View style={styles.footerIconRow}>
+        <FooterIconButton
+          onPress={handleViewMore}
+          testID="sidebar-sessions"
+          accessibilityLabel={labels.sessions}
+          icon={History}
+          theme={theme}
+          isActive={isSessionsActive}
+        />
+        <FooterIconButton
+          onPress={handleSettings}
+          testID="sidebar-settings"
+          accessibilityLabel={labels.settings}
+          icon={Settings}
+          theme={theme}
+        />
+        <FooterIconButton
+          onPress={handleHome}
+          testID="sidebar-home"
+          accessibilityLabel={labels.home}
+          icon={Home}
+          theme={theme}
+        />
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
             <FooterIconButton
@@ -551,20 +569,6 @@ function SidebarFooter({
             <AddProjectTooltipContent newAgentKeys={newAgentKeys} label={labels.addProject} />
           </TooltipContent>
         </Tooltip>
-        <FooterIconButton
-          onPress={handleHome}
-          testID="sidebar-home"
-          accessibilityLabel={labels.home}
-          icon={Home}
-          theme={theme}
-        />
-        <FooterIconButton
-          onPress={handleSettings}
-          testID="sidebar-settings"
-          accessibilityLabel={labels.settings}
-          icon={Settings}
-          theme={theme}
-        />
       </View>
       <Combobox
         options={hostOptions}
@@ -603,9 +607,8 @@ function MobileSidebar({
   handleRefresh,
   handleHostSelect,
   renderHostOption,
-  newWorkspaceKeys,
-  handleNewWorkspaceNavigate,
   handleOpenProject,
+  handleViewMore,
   handleHome,
   handleSettings,
   labels,
@@ -613,7 +616,6 @@ function MobileSidebar({
   insetsBottom,
   isOpen,
   closeSidebar,
-  handleViewMoreNavigate,
 }: MobileSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
@@ -637,31 +639,16 @@ function MobileSidebar({
     closeSidebar();
   }, [closeSidebar, gestureAnimatingRef]);
 
-  const handleViewMore = useCallback(() => {
-    if (!activeServerId) {
-      return;
-    }
-    translateX.value = -windowWidth;
-    backdropOpacity.value = 0;
-    closeSidebar();
-    handleViewMoreNavigate();
-  }, [
-    activeServerId,
-    backdropOpacity,
-    closeSidebar,
-    handleViewMoreNavigate,
-    translateX,
-    windowWidth,
-  ]);
-
   const handleWorkspacePress = useCallback(() => {
     closeSidebar();
   }, [closeSidebar]);
 
-  const handleNewWorkspace = useCallback(() => {
+  const handleFooterHistoryPress = useCallback(() => {
+    translateX.value = -windowWidth;
+    backdropOpacity.value = 0;
     closeSidebar();
-    handleNewWorkspaceNavigate();
-  }, [closeSidebar, handleNewWorkspaceNavigate]);
+    handleViewMore();
+  }, [backdropOpacity, closeSidebar, handleViewMore, translateX, windowWidth]);
 
   const closeGesture = useMemo(
     () =>
@@ -808,24 +795,6 @@ function MobileSidebar({
       <GestureDetector gesture={closeGesture} touchAction="pan-y">
         <Animated.View style={mobileSidebarStyle} pointerEvents="auto">
           <View style={styles.sidebarContent} pointerEvents="auto">
-            <View style={styles.sidebarHeaderGroup}>
-              <SidebarHeaderRow
-                icon={Plus}
-                label={labels.newWorkspace}
-                onPress={handleNewWorkspace}
-                testID="sidebar-global-new-workspace"
-                variant="compact"
-                shortcutKeys={newWorkspaceKeys}
-              />
-              <SidebarHeaderRow
-                icon={History}
-                label={labels.sessions}
-                onPress={handleViewMore}
-                isActive={isSessionsActive}
-                testID="sidebar-sessions"
-                variant="compact"
-              />
-            </View>
             <WorkspacesSectionHeader serverId={activeServerId} />
             <Pressable
               style={styles.mobileCloseButton}
@@ -876,10 +845,12 @@ function MobileSidebar({
               setIsHostPickerOpen={setIsHostPickerOpen}
               handleHostSelect={handleHostSelect}
               renderHostOption={renderHostOption}
+              handleViewMore={handleFooterHistoryPress}
               handleOpenProject={handleOpenProject}
               handleHome={handleHome}
               handleSettings={handleSettings}
               labels={labels}
+              isSessionsActive={isSessionsActive}
             />
           </View>
         </Animated.View>
@@ -908,15 +879,13 @@ function DesktopSidebar({
   handleRefresh,
   handleHostSelect,
   renderHostOption,
-  newWorkspaceKeys,
-  handleNewWorkspaceNavigate,
   handleOpenProject,
+  handleViewMore,
   handleHome,
   handleSettings,
   labels,
   insetsTop,
   isOpen,
-  handleViewMore,
 }: DesktopSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
@@ -988,24 +957,6 @@ function DesktopSidebar({
         <View style={styles.sidebarDragArea}>
           <TitlebarDragRegion />
           {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
-          <View style={styles.sidebarHeaderGroup}>
-            <SidebarHeaderRow
-              icon={Plus}
-              label={labels.newWorkspace}
-              onPress={handleNewWorkspaceNavigate}
-              testID="sidebar-global-new-workspace"
-              variant="compact"
-              shortcutKeys={newWorkspaceKeys}
-            />
-            <SidebarHeaderRow
-              icon={History}
-              label={labels.sessions}
-              onPress={handleViewMore}
-              isActive={isSessionsActive}
-              testID="sidebar-sessions"
-              variant="compact"
-            />
-          </View>
         </View>
         <WorkspacesSectionHeader serverId={activeServerId} />
 
@@ -1038,10 +989,12 @@ function DesktopSidebar({
           setIsHostPickerOpen={setIsHostPickerOpen}
           handleHostSelect={handleHostSelect}
           renderHostOption={renderHostOption}
+          handleViewMore={handleViewMore}
           handleOpenProject={handleOpenProject}
           handleHome={handleHome}
           handleSettings={handleSettings}
           labels={labels}
+          isSessionsActive={isSessionsActive}
         />
 
         {/* Resize handle - absolutely positioned over right border */}
@@ -1096,7 +1049,7 @@ function WorkspacesSectionHeader({ serverId }: { serverId: string | null }) {
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
             <View>
-              <SidebarDisplayPreferencesMenu serverId={serverId} />
+              <SidebarGroupingSelector serverId={serverId} />
             </View>
           </TooltipTrigger>
           <TooltipContent side="bottom" align="center" offset={8}>
@@ -1129,16 +1082,6 @@ const staticStyles = RNStyleSheet.create({
 });
 
 const styles = StyleSheet.create((theme) => ({
-  sidebarHeaderGroup: {
-    paddingTop: theme.spacing[2],
-    gap: 2,
-    // Distance from History's bottom edge to the divider. WorkspacesSectionHeader
-    // uses a slightly smaller paddingTop to balance the action buttons' centering
-    // offset so the divider reads as visually centered between the two.
-    paddingBottom: theme.spacing[1.5],
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
   workspacesSectionHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1150,9 +1093,6 @@ const styles = StyleSheet.create((theme) => ({
     // Align the trailing action pill's right edge with the New workspace and
     // project row pills (both 8px from the sidebar edge).
     paddingRight: theme.spacing[2],
-    // Less than sidebarHeaderGroup's paddingBottom: the 28px-tall action buttons
-    // center the title and add their own offset above it, so equal padding reads
-    // as a larger gap than History's. Trim paddingTop to balance it visually.
     paddingTop: theme.spacing[1],
     paddingBottom: theme.spacing[1],
   },
