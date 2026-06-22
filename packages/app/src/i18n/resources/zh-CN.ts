@@ -787,6 +787,16 @@ export const zhCN: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "折叠工作区",
+        expand: "展开工作区",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "显示全部",
+        showAllLabel: "显示所有标签",
+        showLess: "显示更少",
+        showLessLabel: "显示更少标签",
+      },
       status: {
         scriptsAvailable: "有可用 scripts",
         creating: "正在创建...",
@@ -1469,6 +1479,16 @@ export const zhCN: TranslationResources = {
           claude: "Claude",
           ghostty: "Ghostty",
           auto: "系统",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

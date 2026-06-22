@@ -14,7 +14,6 @@ import { DiffStat } from "@/components/diff-stat";
 import {
   View,
   Text,
-  ActivityIndicator,
   Pressable,
   FlatList,
   type LayoutChangeEvent,
@@ -1096,7 +1095,6 @@ type PressableStyleFn = (
 const foregroundIconColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedIconColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
-const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
 const ThemedAlignJustify = withUnistyles(AlignJustify);
 const ThemedColumns2 = withUnistyles(Columns2);
 const ThemedPilcrow = withUnistyles(Pilcrow);
@@ -1289,7 +1287,6 @@ interface DiffRefreshButtonProps {
 }
 
 const ThemedRotateCw = withUnistyles(RotateCw);
-const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 
 function DiffRefreshButton({ isRefreshing, toggleStyle, onPress }: DiffRefreshButtonProps) {
   const { t } = useTranslation();
@@ -1309,10 +1306,7 @@ function DiffRefreshButton({ isRefreshing, toggleStyle, onPress }: DiffRefreshBu
         >
           <View style={styles.refreshIcon}>
             {isRefreshing ? (
-              <ThemedLoadingSpinner
-                size={ICON_SIZE.sm}
-                uniProps={foregroundMutedIconColorMapping}
-              />
+              <LoadingSpinner size={ICON_SIZE.sm} />
             ) : (
               <ThemedRotateCw size={ICON_SIZE.sm} uniProps={foregroundMutedIconColorMapping} />
             )}
@@ -1416,7 +1410,7 @@ function DiffBodyContent({
   if (isStatusLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ThemedActivityIndicator size="large" uniProps={foregroundMutedIconColorMapping} />
+        <LoadingSpinner size="large" />
         <Text style={styles.loadingText}>{checkingRepositoryLabel}</Text>
       </View>
     );
@@ -1438,7 +1432,7 @@ function DiffBodyContent({
   if (isDiffLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ThemedActivityIndicator size="large" uniProps={foregroundMutedIconColorMapping} />
+        <LoadingSpinner size="large" />
       </View>
     );
   }

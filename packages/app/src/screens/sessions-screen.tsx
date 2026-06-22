@@ -2,7 +2,7 @@ import { useMemo, useState, useCallback, useEffect } from "react";
 import { View, Text } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { router } from "expo-router";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { StyleSheet } from "react-native-unistyles";
 import { ChevronLeft } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { MenuHeader } from "@/components/headers/menu-header";
@@ -23,7 +23,6 @@ export function SessionsScreen({ serverId }: { serverId: string }) {
 }
 
 function SessionsScreenContent({ serverId }: { serverId: string }) {
-  const { theme } = useUnistyles();
   const { t } = useTranslation();
   const { agents, hasMore, isInitialLoad, isLoadingMore, isRevalidating, loadMore, refreshAll } =
     useAgentHistory({
@@ -70,7 +69,7 @@ function SessionsScreenContent({ serverId }: { serverId: string }) {
       <MenuHeader title={t("sessions.title")} />
       {isInitialLoad ? (
         <View style={styles.loadingContainer}>
-          <LoadingSpinner size="large" color={theme.colors.foregroundMuted} />
+          <LoadingSpinner size="large" />
         </View>
       ) : null}
       {!isInitialLoad && sortedAgents.length === 0 ? (

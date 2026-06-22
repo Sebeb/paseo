@@ -802,6 +802,16 @@ export const en = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "Collapse workspace",
+        expand: "Expand workspace",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "Show all",
+        showAllLabel: "Show all tabs",
+        showLess: "Show less",
+        showLessLabel: "Show fewer tabs",
+      },
       status: {
         scriptsAvailable: "Scripts available",
         creating: "Creating...",
@@ -1493,6 +1503,16 @@ export const en = {
           claude: "Claude",
           ghostty: "Ghostty",
           auto: "System",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

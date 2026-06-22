@@ -2,13 +2,19 @@ import {
   View,
   Text,
   Pressable,
-  ActivityIndicator,
+  Platform,
+  StatusBar,
   ScrollView,
   type GestureResponderEvent,
+  type PointerEvent as RNPointerEvent,
   type PressableStateCallbackType,
   type ViewStyle,
 } from "react-native";
+import * as Haptics from "expo-haptics";
+import { useMutation, useQueries } from "@tanstack/react-query";
 import { ProjectIconView } from "@/components/project-icon-view";
+import { GitHubIcon } from "@/components/icons/github-icon";
+import { AdaptiveRenameModal } from "@/components/rename-modal";
 import {
   memo,
   useCallback,
@@ -17,6 +23,7 @@ import {
   useEffect,
   useRef,
   type ReactElement,
+  type ReactNode,
   type MutableRefObject,
   type Ref,
 } from "react";
@@ -30,16 +37,23 @@ import {
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import { type GestureType } from "react-native-gesture-handler";
+import * as Clipboard from "expo-clipboard";
+import { DiffStat } from "@/components/diff-stat";
 import {
+  Archive,
   CircleAlert,
+  CircleCheck,
   ChevronDown,
   ChevronRight,
+  Copy,
   ExternalLink,
   GitPullRequest,
   Settings,
   MoreVertical,
+  Pencil,
   Plus,
   Trash2,
+  X,
 } from "lucide-react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { DraggableList, type DraggableRenderItemInfo } from "./draggable-list";
@@ -57,8 +71,26 @@ import {
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
+import { useAppSettings } from "@/hooks/use-settings";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
-import { useSessionStore } from "@/stores/session-store";
+import { useSessionStore, type Agent } from "@/stores/session-store";
+import {
+  buildWorkspaceTabPersistenceKey,
+  collectAllPanes,
+  collectAllTabs,
+  findMainPane,
+  useWorkspaceLayoutStore,
+} from "@/stores/workspace-layout-store";
+import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
+import {
+  useSidebarViewStore,
+  type SidebarBadgeMode,
+  type SidebarEmbeddedRecentTabCount,
+  type SidebarEmbeddedTabSortMode,
+} from "@/stores/sidebar-view-store";
+import { useCreateFlowStore } from "@/stores/create-flow-store";
+import { useBrowserStore } from "@/stores/browser-store";
+import { useWorkspaceSetupStore } from "@/stores/workspace-setup-store";
 import { useShowShortcutBadges } from "@/hooks/use-show-shortcut-badges";
 import { ContextMenuTrigger, useContextMenu } from "@/components/ui/context-menu";
 import {
@@ -67,18 +99,25 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SyncedLoader } from "@/components/synced-loader";
 import { useToast } from "@/contexts/toast-context";
+import { useCheckoutGitActionsStore } from "@/git/actions-store";
+import { toWorktreeArchiveRisk } from "@/git/worktree-archive-warning";
 import { hasVisibleOrderChanged, mergeWithRemainder } from "@/utils/sidebar-reorder";
-import { SidebarWorkspaceRow } from "@/components/sidebar/sidebar-workspace-row";
-import { useLongPressDragInteraction } from "@/components/sidebar/use-long-press-drag-interaction";
+import { decideLongPressMove } from "@/utils/sidebar-gesture-arbitration";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { projectIconPlaceholderLabelFromDisplayName } from "@/utils/project-display-name";
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
 import { isEmphasizedStatusDotBucket } from "@/utils/status-dot-color";
 import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import { SidebarStatusWorkspaceList } from "@/components/sidebar/sidebar-status-list";
-import { SidebarWorkspaceShortcutBadge } from "@/components/sidebar/sidebar-workspace-row-content";
+import {
+  SidebarWorkspaceRowFrame,
+  SidebarWorkspaceRowContent,
+  SidebarWorkspaceShortcutBadge,
+} from "@/components/sidebar/sidebar-workspace-row-content";
+import { mergeEmbeddedVisibleTabOrder } from "@/components/sidebar/embedded-tabs-order";
 import {
   useProjectNamesMap,
   useStatusModeWorkspaceEntries,
@@ -86,10 +125,39 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Shortcut } from "@/components/ui/shortcut";
+import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
+import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
+import { useClearWorkspaceAttention } from "@/hooks/use-clear-workspace-attention";
 import type { PrHint } from "@/git/use-pr-status-query";
 import { buildSidebarProjectRowModel } from "@/utils/sidebar-project-row-model";
+import { redirectIfArchivingActiveWorkspace } from "@/utils/sidebar-workspace-archive-redirect";
 import { openExternalUrl } from "@/utils/open-external-url";
+import { requireWorkspaceDirectory, resolveWorkspaceDirectory } from "@/utils/workspace-directory";
+import { useWorkspaceArchive } from "@/workspace/use-workspace-archive";
+import { generateDraftId } from "@/stores/draft-keys";
+import { deriveWorkspacePaneState } from "@/screens/workspace/workspace-pane-state";
+import {
+  buildTerminalsQueryKey,
+  TERMINALS_QUERY_STALE_TIME,
+  type ListTerminalsPayload,
+} from "@/screens/workspace/terminals/state";
+import {
+  WorkspaceTabIcon,
+  WorkspaceTabPresentationResolver,
+} from "@/screens/workspace/workspace-tab-presentation";
+import { useWorkspaceTabClose } from "@/screens/workspace/use-workspace-tab-close";
+import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-types";
+import type { WorkspaceTab } from "@/stores/workspace-tabs-store";
+import {
+  combineSidebarTabStatusSummaries,
+  createEmptySidebarTabStatusSummary,
+  SIDEBAR_TAB_STATUS_BADGE_BUCKETS,
+  summarizeSidebarTabs,
+  type SidebarTabStatusBucket,
+  type SidebarTabStatusSummary,
+  type SidebarTerminalStatusRecord,
+} from "@/utils/sidebar-tab-status-summary";
 import {
   isWeb as platformIsWeb,
   isNative as platformIsNative,
@@ -101,19 +169,244 @@ const workspaceKeyExtractor = (workspace: SidebarWorkspaceEntry) => workspace.wo
 
 const projectKeyExtractor = (project: SidebarProjectEntry) => project.projectKey;
 
+const WORKSPACE_STATUS_DOT_WIDTH = 14;
 const DEFAULT_STATUS_DOT_SIZE = 7;
 const EMPHASIZED_STATUS_DOT_SIZE = 9;
 const DEFAULT_STATUS_DOT_OFFSET = 0;
 const EMPHASIZED_STATUS_DOT_OFFSET = -1;
+const EMPTY_AGENT_MAP = new Map<string, Agent>();
+const EMPTY_TAB_STATUS_SUMMARY = createEmptySidebarTabStatusSummary();
 const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedGitPullRequest = withUnistyles(GitPullRequest);
-const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
+const ThemedGitHubIcon = withUnistyles(GitHubIcon);
 const ThemedCircleAlert = withUnistyles(CircleAlert);
+const ThemedCircleCheck = withUnistyles(CircleCheck);
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 const ThemedPlus = withUnistyles(Plus);
+const ThemedChevronDown = withUnistyles(ChevronDown);
+const ThemedX = withUnistyles(X);
+
+interface EmbeddedSidebarTabItem {
+  descriptor: WorkspaceTabDescriptor;
+  tab: WorkspaceTab;
+  paneId: string;
+  mainPane: boolean;
+  forceShown: boolean;
+}
+
+function getTabAgent(tab: WorkspaceTab, agents: ReadonlyMap<string, Agent>): Agent | null {
+  return tab.target.kind === "agent" ? (agents.get(tab.target.agentId) ?? null) : null;
+}
+
+function getTabLastUpdatedAt(tab: WorkspaceTab, agents: ReadonlyMap<string, Agent>): number {
+  const agent = getTabAgent(tab, agents);
+  return agent?.lastUserMessageAt?.getTime() ?? tab.createdAt;
+}
+
+interface WorkspaceTabsForSummary {
+  workspace: SidebarWorkspaceEntry;
+  tabs: WorkspaceTab[];
+}
+
+interface TerminalQueryRequest {
+  workspaceKey: string;
+  serverId: string;
+  workspaceId: string;
+  workspaceDirectory: string;
+}
+
+function useSidebarTabStatusSummaries(input: {
+  workspaces: readonly SidebarWorkspaceEntry[];
+  enabled: boolean;
+}): Map<string, SidebarTabStatusSummary> {
+  const serverId = input.workspaces[0]?.serverId ?? null;
+  const layoutByWorkspace = useWorkspaceLayoutStore((state) => state.layoutByWorkspace);
+  const agents = useSessionStore((state) =>
+    serverId ? (state.sessions[serverId]?.agents ?? null) : null,
+  );
+  const client = useSessionStore((state) =>
+    serverId ? (state.sessions[serverId]?.client ?? null) : null,
+  );
+  const pendingCreatesByDraftId = useCreateFlowStore((state) => state.pendingByDraftId);
+  const setupSnapshots = useWorkspaceSetupStore((state) => state.snapshots);
+  const browsersById = useBrowserStore((state) => state.browsersById);
+
+  const workspaceTabs = useMemo<WorkspaceTabsForSummary[]>(() => {
+    if (!input.enabled) {
+      return [];
+    }
+    return input.workspaces.map((workspace) => {
+      const persistenceKey = buildWorkspaceTabPersistenceKey({
+        serverId: workspace.serverId,
+        workspaceId: workspace.workspaceId,
+      });
+      const layout = persistenceKey ? (layoutByWorkspace[persistenceKey] ?? null) : null;
+      return {
+        workspace,
+        tabs: layout ? collectAllTabs(layout.root) : [],
+      };
+    });
+  }, [input.enabled, input.workspaces, layoutByWorkspace]);
+
+  const terminalRequests = useMemo<TerminalQueryRequest[]>(() => {
+    const requests: TerminalQueryRequest[] = [];
+    for (const entry of workspaceTabs) {
+      const workspaceDirectory = resolveWorkspaceDirectory({
+        workspaceDirectory: entry.workspace.workspaceDirectory,
+      });
+      if (!workspaceDirectory) {
+        continue;
+      }
+      const hasTerminalTab = entry.tabs.some((tab) => tab.target.kind === "terminal");
+      if (!hasTerminalTab) {
+        continue;
+      }
+      requests.push({
+        workspaceKey: entry.workspace.workspaceKey,
+        serverId: entry.workspace.serverId,
+        workspaceId: entry.workspace.workspaceId,
+        workspaceDirectory,
+      });
+    }
+    return requests;
+  }, [workspaceTabs]);
+
+  const terminalQueries = useQueries({
+    queries: terminalRequests.map((request) => ({
+      queryKey: buildTerminalsQueryKey(
+        request.serverId,
+        request.workspaceDirectory,
+        request.workspaceId,
+      ),
+      enabled: input.enabled && Boolean(client),
+      queryFn: async (): Promise<ListTerminalsPayload> => {
+        if (!client) {
+          throw new Error("Host disconnected");
+        }
+        return client.listTerminals(request.workspaceDirectory, undefined, {
+          workspaceId: request.workspaceId,
+        });
+      },
+      staleTime: TERMINALS_QUERY_STALE_TIME,
+    })),
+  });
+
+  const terminalsByWorkspaceKey = useMemo(() => {
+    const byWorkspaceKey = new Map<string, Map<string, SidebarTerminalStatusRecord>>();
+    for (let index = 0; index < terminalRequests.length; index += 1) {
+      const request = terminalRequests[index];
+      const query = terminalQueries[index];
+      if (!request || !query?.data) {
+        continue;
+      }
+      byWorkspaceKey.set(
+        request.workspaceKey,
+        new Map(
+          query.data.terminals.map((terminal) => [
+            terminal.id,
+            { id: terminal.id, activity: terminal.activity ?? null },
+          ]),
+        ),
+      );
+    }
+    return byWorkspaceKey;
+  }, [terminalQueries, terminalRequests]);
+
+  return useMemo(() => {
+    const summaries = new Map<string, SidebarTabStatusSummary>();
+    for (const entry of workspaceTabs) {
+      summaries.set(
+        entry.workspace.workspaceKey,
+        summarizeSidebarTabs({
+          tabs: entry.tabs,
+          serverId: entry.workspace.serverId,
+          workspaceId: entry.workspace.workspaceId,
+          agents,
+          pendingCreatesByDraftId,
+          setupSnapshots,
+          browsersById,
+          terminalsById: terminalsByWorkspaceKey.get(entry.workspace.workspaceKey) ?? new Map(),
+        }),
+      );
+    }
+    return summaries;
+  }, [
+    agents,
+    browsersById,
+    pendingCreatesByDraftId,
+    setupSnapshots,
+    terminalsByWorkspaceKey,
+    workspaceTabs,
+  ]);
+}
+
+function isTabForceShown(input: {
+  tab: WorkspaceTab;
+  activeTabId: string | null;
+  agents: ReadonlyMap<string, Agent>;
+}): boolean {
+  if (input.tab.tabId === input.activeTabId) {
+    return true;
+  }
+  const agent = getTabAgent(input.tab, input.agents);
+  if (!agent) {
+    return false;
+  }
+  return (
+    agent.requiresAttention === true ||
+    agent.pendingPermissions.length > 0 ||
+    agent.status === "initializing" ||
+    agent.status === "running"
+  );
+}
+
+function sortEmbeddedTabs(input: {
+  tabs: EmbeddedSidebarTabItem[];
+  sortMode: SidebarEmbeddedTabSortMode;
+  agents: ReadonlyMap<string, Agent>;
+}): EmbeddedSidebarTabItem[] {
+  if (input.sortMode === "manual") {
+    return input.tabs;
+  }
+  const sorted = input.tabs.slice();
+  sorted.sort((left, right) => {
+    const leftValue =
+      input.sortMode === "created"
+        ? left.tab.createdAt
+        : getTabLastUpdatedAt(left.tab, input.agents);
+    const rightValue =
+      input.sortMode === "created"
+        ? right.tab.createdAt
+        : getTabLastUpdatedAt(right.tab, input.agents);
+    return rightValue - leftValue;
+  });
+  return sorted;
+}
+
+function applyRecentTabCount(input: {
+  tabs: EmbeddedSidebarTabItem[];
+  recentCount: SidebarEmbeddedRecentTabCount;
+}): EmbeddedSidebarTabItem[] {
+  if (input.recentCount === "all") {
+    return input.tabs;
+  }
+  const visible = input.tabs.slice(0, input.recentCount);
+  const visibleIds = new Set(visible.map((item) => item.tab.tabId));
+  for (const item of input.tabs) {
+    if (!item.forceShown || visibleIds.has(item.tab.tabId)) {
+      continue;
+    }
+    visibleIds.add(item.tab.tabId);
+    visible.push(item);
+  }
+  return visible;
+}
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
+const ThemedCopy = withUnistyles(Copy);
+const ThemedArchive = withUnistyles(Archive);
+const ThemedPencil = withUnistyles(Pencil);
 
 const foregroundColorMapping = (theme: Theme) => ({
   color: theme.colors.foreground,
@@ -134,10 +427,7 @@ const purpleColorMapping = (theme: Theme) => ({
   color: theme.colors.palette.purple[500],
 });
 const syncedLoaderColorMapping = (theme: Theme) => ({
-  color:
-    theme.colorScheme === "light"
-      ? theme.colors.palette.amber[700]
-      : theme.colors.palette.amber[500],
+  color: theme.colors.palette.blue[500],
 });
 
 function getPrIconUniMapping(state: PrHint["state"]) {
@@ -149,6 +439,87 @@ function getPrIconUniMapping(state: PrHint["state"]) {
     case "closed":
       return redColorMapping;
   }
+}
+
+function getVisibleStatusSummaryCount(summary: SidebarTabStatusSummary): number {
+  return SIDEBAR_TAB_STATUS_BADGE_BUCKETS.reduce(
+    (total, bucket) => total + summary.counts[bucket],
+    0,
+  );
+}
+
+function SidebarStatusSummaryBadges({ summary }: { summary: SidebarTabStatusSummary }) {
+  if (getVisibleStatusSummaryCount(summary) <= 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.statusSummaryBadges}>
+      {SIDEBAR_TAB_STATUS_BADGE_BUCKETS.map((bucket) => (
+        <StatusSummaryCountBadge key={bucket} bucket={bucket} count={summary.counts[bucket]} />
+      ))}
+    </View>
+  );
+}
+
+function StatusSummaryCountBadge({
+  bucket,
+  count,
+}: {
+  bucket: SidebarTabStatusBucket;
+  count: number;
+}) {
+  const colorStyle = getStatusSummaryCountColorStyle(bucket);
+  const containerStyle = useMemo(() => [styles.statusSummaryCountBadge, colorStyle], [colorStyle]);
+  const textStyle = useMemo(() => [styles.statusSummaryCountText, colorStyle], [colorStyle]);
+  if (count <= 0) {
+    return null;
+  }
+  if (bucket === "running") {
+    return (
+      <View style={styles.statusSummarySpinnerCountBadge}>
+        <LoadingSpinner size={18} />
+        <Text style={textStyle}>{count}</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={containerStyle}>
+      <Text style={textStyle}>{count}</Text>
+    </View>
+  );
+}
+
+function SidebarTabStatusSymbol({ bucket }: { bucket: SidebarTabStatusBucket }) {
+  if (bucket === "running") {
+    return (
+      <View style={styles.embeddedTabStatusSlot}>
+        <ThemedSyncedLoader size={11} uniProps={syncedLoaderColorMapping} />
+      </View>
+    );
+  }
+  if (bucket === "needs_input") {
+    return (
+      <View style={styles.embeddedTabStatusSlot}>
+        <ThemedCircleAlert size={13} uniProps={amberColorMapping} />
+      </View>
+    );
+  }
+  if (bucket === "failed") {
+    return (
+      <View style={styles.embeddedTabStatusSlot}>
+        <ThemedX size={13} uniProps={redColorMapping} />
+      </View>
+    );
+  }
+  if (bucket === "attention") {
+    return (
+      <View style={styles.embeddedTabStatusSlot}>
+        <View style={styles.embeddedTabStatusAttentionDot} />
+      </View>
+    );
+  }
+  return null;
 }
 
 function isWorkspaceSelected(input: {
@@ -179,26 +550,22 @@ function isProjectSelectedByRoute(input: {
   );
 }
 
-function navigateToNewWorkspaceForProject(input: {
-  serverId: string | null;
-  project: SidebarProjectEntry;
-  displayName: string;
-  onWorkspacePress?: () => void;
-}) {
-  if (!input.serverId) {
-    return;
-  }
-  input.onWorkspacePress?.();
-  router.navigate(
-    buildHostNewWorkspaceRoute(input.serverId, input.project.iconWorkingDir, {
-      displayName: input.displayName,
-      projectId: input.project.projectKey,
-    }) as Href,
-  );
-}
-
 function activeWorkspaceSelectionKey(selection: ActiveWorkspaceSelection | null): string {
   return selection ? `${selection.serverId}:${selection.workspaceId}` : "";
+}
+
+function selectionForSelectedWorkspace(
+  selected: boolean,
+  workspace: SidebarWorkspaceEntry,
+): ActiveWorkspaceSelection | null {
+  return selected ? { serverId: workspace.serverId, workspaceId: workspace.workspaceId } : null;
+}
+
+function isShiftPressed(event: GestureResponderEvent): boolean {
+  if (!("shiftKey" in event.nativeEvent)) {
+    return false;
+  }
+  return event.nativeEvent.shiftKey === true;
 }
 
 interface SidebarWorkspaceListProps {
@@ -222,9 +589,10 @@ interface ProjectHeaderRowProps {
   displayName: string;
   iconDataUri: string | null;
   workspace: SidebarWorkspaceEntry | null;
+  statusSummary?: SidebarTabStatusSummary | null;
   selected?: boolean;
   chevron: "expand" | "collapse" | null;
-  onPress: () => void;
+  onPress: (event: GestureResponderEvent) => void;
   serverId: string | null;
   canCreateWorktree: boolean;
   isProjectActive?: boolean;
@@ -239,6 +607,45 @@ interface ProjectHeaderRowProps {
   onRemoveProject?: () => void;
   removeProjectStatus?: "idle" | "pending";
   dragHandleProps?: DraggableListDragHandleProps;
+}
+
+interface WorkspaceRowInnerProps {
+  workspace: SidebarWorkspaceEntry;
+  badgeMode: SidebarBadgeMode;
+  tabStatusSummary: SidebarTabStatusSummary;
+  selected: boolean;
+  shortcutNumber: number | null;
+  showShortcutBadge: boolean;
+  onPress: (event: GestureResponderEvent) => void;
+  drag: () => void;
+  isDragging: boolean;
+  isArchiving: boolean;
+  isCreating?: boolean;
+  dragHandleProps?: DraggableListDragHandleProps;
+  menuController: ReturnType<typeof useContextMenu> | null;
+  archiveLabel?: string;
+  archiveStatus?: "idle" | "pending" | "success";
+  archivePendingLabel?: string;
+  onArchive?: () => void;
+  onCreateTab?: (event?: GestureResponderEvent) => void;
+  onCopyBranchName?: () => void;
+  onCopyPath?: () => void;
+  onRename?: () => void;
+  onMarkAsRead?: () => void;
+  expandable?: boolean;
+  expanded?: boolean;
+  onToggleExpanded?: (event: GestureResponderEvent) => void;
+  archiveShortcutKeys?: ShortcutKey[][] | null;
+}
+
+function getWorkspaceArchiveStatus(
+  isWorktree: boolean,
+  archiveStatus: "idle" | "pending" | "success",
+  isArchivingWorkspace: boolean,
+): "idle" | "pending" | "success" {
+  if (isWorktree) return archiveStatus;
+  if (isArchivingWorkspace) return "pending";
+  return "idle";
 }
 
 export function PrBadge({ hint }: { hint: PrHint }) {
@@ -288,6 +695,18 @@ export function PrBadge({ hint }: { hint: PrHint }) {
   );
 }
 
+function ChecksBadge({ checks }: { checks: PrHint["checks"] }) {
+  if (!checks || checks.length === 0) return null;
+  const failed = checks.filter((check) => check.status === "failure").length;
+  if (failed === 0) return null;
+  return (
+    <View style={checksBadgeStyles.badge}>
+      <ThemedGitHubIcon size={10} uniProps={redColorMapping} />
+      <Text style={checksBadgeStyles.text}>{failed} failed</Text>
+    </View>
+  );
+}
+
 function prBadgePressableStyle({ pressed }: PressableStateCallbackType) {
   return [prBadgeStyles.badge, pressed && prBadgeStyles.badgePressed];
 }
@@ -296,6 +715,59 @@ function projectKebabStyle({
   hovered = false,
 }: PressableStateCallbackType & { hovered?: boolean }) {
   return [styles.projectKebabButton, hovered && styles.projectKebabButtonHovered];
+}
+
+function workspaceKebabStyle({
+  hovered = false,
+}: PressableStateCallbackType & { hovered?: boolean }) {
+  return [styles.kebabButton, hovered && styles.kebabButtonHovered];
+}
+
+function newWorkspaceTabButtonStyle({
+  hovered = false,
+  pressed,
+}: PressableStateCallbackType & { hovered?: boolean }) {
+  return [styles.workspaceIconButton, (hovered || pressed) && styles.workspaceIconButtonHovered];
+}
+
+function embeddedTabsVisibilityToggleStyle({
+  hovered = false,
+  pressed,
+}: PressableStateCallbackType & { hovered?: boolean }) {
+  return [
+    styles.embeddedTabsVisibilityToggle,
+    (hovered || pressed) && styles.embeddedTabsVisibilityToggleHovered,
+  ];
+}
+
+function embeddedTabCloseButtonStyle({
+  hovered = false,
+  pressed,
+}: PressableStateCallbackType & { hovered?: boolean }) {
+  return [
+    styles.embeddedTabCloseButton,
+    (hovered || pressed) && styles.embeddedTabCloseButtonHovered,
+  ];
+}
+
+function getProjectWorkspaceRowStyle({
+  embeddedTabsEnabled = false,
+  isDragging,
+  selected,
+  isHovered,
+}: {
+  embeddedTabsEnabled?: boolean;
+  isDragging: boolean;
+  selected: boolean;
+  isHovered: boolean;
+}) {
+  return [
+    styles.workspaceRow,
+    embeddedTabsEnabled && styles.workspaceRowEmbeddedTabs,
+    isDragging && styles.workspaceRowDragging,
+    selected && styles.sidebarRowSelected,
+    isHovered && styles.workspaceRowHovered,
+  ];
 }
 
 function noop() {}
@@ -317,6 +789,20 @@ const prBadgeStyles = StyleSheet.create((theme) => ({
   },
   textHovered: {
     color: theme.colors.foreground,
+  },
+}));
+
+const checksBadgeStyles = StyleSheet.create((theme) => ({
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  text: {
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.normal,
+    lineHeight: 14,
+    color: theme.colors.palette.red[500],
   },
 }));
 
@@ -352,44 +838,49 @@ function ProjectLeadingVisual({
   iconDataUri,
   workspace,
   projectKey,
-  chevron = null,
-  showChevron = false,
   isArchiving = false,
+  suppressWorkspaceStatusVisual = false,
+  chevron = null,
+  isHovered = false,
 }: {
   displayName: string;
   iconDataUri: string | null;
   workspace: SidebarWorkspaceEntry | null;
   projectKey: string;
-  chevron?: "expand" | "collapse" | null;
-  showChevron?: boolean;
   isArchiving?: boolean;
+  suppressWorkspaceStatusVisual?: boolean;
+  chevron?: "expand" | "collapse" | null;
+  isHovered?: boolean;
 }) {
   const placeholderLabel = projectIconPlaceholderLabelFromDisplayName(displayName);
   const placeholderInitial = placeholderLabel.charAt(0).toUpperCase();
   const activeWorkspace = workspace;
+  if (suppressWorkspaceStatusVisual || !activeWorkspace) {
+    return (
+      <ProjectLeadingVisualSlot chevron={chevron} isHovered={isHovered}>
+        <ProjectIcon
+          iconDataUri={iconDataUri}
+          placeholderInitial={placeholderInitial}
+          projectKey={projectKey}
+        />
+      </ProjectLeadingVisualSlot>
+    );
+  }
   const shouldShowWorkspaceStatus =
     activeWorkspace !== null && (isArchiving || activeWorkspace.statusBucket !== "done");
   const shouldShowSyncedLoader = activeWorkspace
     ? shouldRenderSyncedStatusLoader({ bucket: activeWorkspace.statusBucket })
     : false;
 
-  if (showChevron && chevron !== null) {
+  if (!shouldShowWorkspaceStatus) {
     return (
-      <View style={styles.projectLeadingVisualSlot}>
-        <ProjectInlineChevron chevron={chevron} />
-      </View>
-    );
-  }
-
-  if (!shouldShowWorkspaceStatus || !activeWorkspace) {
-    return (
-      <View style={styles.projectLeadingVisualSlot}>
+      <ProjectLeadingVisualSlot chevron={chevron} isHovered={isHovered}>
         <ProjectIcon
           iconDataUri={iconDataUri}
           placeholderInitial={placeholderInitial}
           projectKey={projectKey}
         />
-      </View>
+      </ProjectLeadingVisualSlot>
     );
   }
 
@@ -401,17 +892,22 @@ function ProjectLeadingVisual({
       isArchiving={isArchiving}
       shouldShowSyncedLoader={shouldShowSyncedLoader}
       activeWorkspace={activeWorkspace}
+      chevron={chevron}
+      isHovered={isHovered}
     />
   );
 }
 
-function ProjectRowTrailingActions({
+function ProjectHeaderTrailingContent({
   project,
   displayName,
   canCreateWorktree,
   isHovered,
   isMobileBreakpoint,
   isProjectActive,
+  statusSummary,
+  shortcutNumber,
+  showShortcutBadge,
   onBeginWorkspaceSetup,
   onRemoveProject,
   removeProjectStatus,
@@ -422,34 +918,75 @@ function ProjectRowTrailingActions({
   isHovered: boolean;
   isMobileBreakpoint: boolean;
   isProjectActive: boolean;
+  statusSummary: SidebarTabStatusSummary | null;
+  shortcutNumber: number | null;
+  showShortcutBadge: boolean;
   onBeginWorkspaceSetup: () => void;
   onRemoveProject?: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
 }) {
-  const actionsVisible = isHovered || platformIsNative || isMobileBreakpoint;
+  const showShortcut = showShortcutBadge && shortcutNumber !== null;
+  const showStatusSummary = Boolean(statusSummary && !showShortcut);
+  const showTrailingActions = isHovered || platformIsNative || isMobileBreakpoint;
+  return (
+    <>
+      {showTrailingActions ? (
+        <ProjectRowTrailingActions
+          project={project}
+          displayName={displayName}
+          isProjectActive={isProjectActive}
+          canCreateWorktree={canCreateWorktree}
+          onBeginWorkspaceSetup={onBeginWorkspaceSetup}
+          onRemoveProject={onRemoveProject}
+          removeProjectStatus={removeProjectStatus}
+        />
+      ) : null}
+      {showStatusSummary && statusSummary ? (
+        <SidebarStatusSummaryBadges summary={statusSummary} />
+      ) : null}
+      {showShortcut ? (
+        <View style={styles.projectShortcutBadgeOverlay} pointerEvents="none">
+          <SidebarWorkspaceShortcutBadge number={shortcutNumber} />
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+function ProjectRowTrailingActions({
+  project,
+  displayName,
+  canCreateWorktree,
+  isProjectActive,
+  onBeginWorkspaceSetup,
+  onRemoveProject,
+  removeProjectStatus,
+}: {
+  project: SidebarProjectEntry;
+  displayName: string;
+  canCreateWorktree: boolean;
+  isProjectActive: boolean;
+  onBeginWorkspaceSetup: () => void;
+  onRemoveProject?: () => void;
+  removeProjectStatus: "idle" | "pending" | "success";
+}) {
   return (
     <View style={styles.projectTrailingActions}>
       {canCreateWorktree ? (
         <NewWorktreeButton
           displayName={displayName}
           onPress={onBeginWorkspaceSetup}
-          visible={actionsVisible}
           showShortcutHint={isProjectActive}
           testID={`sidebar-project-new-worktree-${project.projectKey}`}
         />
       ) : null}
       {onRemoveProject ? (
-        <View
-          style={!actionsVisible && styles.projectKebabButtonHidden}
-          pointerEvents={actionsVisible ? "auto" : "none"}
-        >
-          <ProjectKebabMenu
-            projectKey={project.projectKey}
-            projectPath={project.iconWorkingDir}
-            onRemoveProject={onRemoveProject}
-            removeProjectStatus={removeProjectStatus}
-          />
-        </View>
+        <ProjectKebabMenu
+          projectKey={project.projectKey}
+          projectPath={project.iconWorkingDir}
+          onRemoveProject={onRemoveProject}
+          removeProjectStatus={removeProjectStatus}
+        />
       ) : null}
     </View>
   );
@@ -457,6 +994,12 @@ function ProjectRowTrailingActions({
 
 const trash2LeadingIcon = <ThemedTrash2 size={14} uniProps={foregroundMutedColorMapping} />;
 const settingsLeadingIcon = <ThemedSettings size={14} uniProps={foregroundMutedColorMapping} />;
+const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
+const markAsReadLeadingIcon = (
+  <ThemedCircleCheck size={14} uniProps={foregroundMutedColorMapping} />
+);
+const archiveLeadingIcon = <ThemedArchive size={14} uniProps={foregroundMutedColorMapping} />;
+const renameLeadingIcon = <ThemedPencil size={14} uniProps={foregroundMutedColorMapping} />;
 const openInNewWindowLeadingIcon = (
   <ThemedExternalLink size={14} uniProps={foregroundMutedColorMapping} />
 );
@@ -546,6 +1089,417 @@ function ProjectKebabMenu({
   );
 }
 
+function WorkspaceRowRightGroup({
+  workspace,
+  badgeMode,
+  tabStatusSummary,
+  isHovered,
+  isTouchPlatform,
+  isCompactLayout,
+  isCreating,
+  showShortcutBadge,
+  shortcutNumber,
+  archiveLabel,
+  archiveStatus,
+  archivePendingLabel,
+  archiveShortcutKeys,
+  onArchive,
+  onCreateTab,
+  onMarkAsRead,
+  onCopyBranchName,
+  onCopyPath,
+  onRename,
+  expanded,
+  visibility: providedVisibility,
+}: {
+  workspace: SidebarWorkspaceEntry;
+  badgeMode: SidebarBadgeMode;
+  tabStatusSummary: SidebarTabStatusSummary;
+  isHovered: boolean;
+  isTouchPlatform: boolean;
+  isCompactLayout: boolean;
+  isCreating: boolean;
+  showShortcutBadge: boolean;
+  shortcutNumber: number | null;
+  archiveLabel?: string;
+  archiveStatus?: "idle" | "pending" | "success";
+  archivePendingLabel?: string;
+  archiveShortcutKeys?: ShortcutKey[][] | null;
+  onArchive?: () => void;
+  onCreateTab?: (event?: GestureResponderEvent) => void;
+  onMarkAsRead?: () => void;
+  onCopyBranchName?: () => void;
+  onCopyPath?: () => void;
+  onRename?: () => void;
+  expanded: boolean;
+  visibility?: WorkspaceRowRightVisibility;
+}) {
+  const { t } = useTranslation();
+  const visibility =
+    providedVisibility ??
+    getWorkspaceRowRightVisibility({
+      badgeMode,
+      expanded,
+      hasArchiveAction: Boolean(onArchive),
+      hasCreateTabAction: Boolean(onCreateTab),
+      hasDiffStat: Boolean(workspace.diffStat),
+      isCompactLayout,
+      isHovered,
+      isTouchPlatform,
+      showShortcutBadge,
+      shortcutNumber,
+      tabStatusSummary,
+    });
+
+  return (
+    <>
+      {isCreating ? (
+        <Text style={styles.workspaceCreatingText}>{t("sidebar.workspace.status.creating")}</Text>
+      ) : null}
+      {visibility.shouldRenderActionSlot ? (
+        <WorkspaceRowActionSlot
+          workspace={workspace}
+          statusSummary={tabStatusSummary}
+          showCreateTab={visibility.showCreateTab}
+          showCreateTabMenu={visibility.showCreateTab}
+          showKebab={visibility.showKebabInSlot}
+          showDiffStat={visibility.showDiffStat}
+          showStatusSummary={visibility.showStatusSummary}
+          archiveLabel={archiveLabel}
+          archiveStatus={archiveStatus}
+          archivePendingLabel={archivePendingLabel}
+          archiveShortcutKeys={archiveShortcutKeys}
+          onArchive={onArchive}
+          onCreateTab={onCreateTab}
+          onCopyBranchName={onCopyBranchName}
+          onCopyPath={onCopyPath}
+          onMarkAsRead={onMarkAsRead}
+          onRename={onRename}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function getWorkspaceRowRightVisibility(input: {
+  badgeMode: SidebarBadgeMode;
+  expanded: boolean;
+  hasArchiveAction: boolean;
+  hasCreateTabAction: boolean;
+  hasDiffStat: boolean;
+  isCompactLayout: boolean;
+  isHovered: boolean;
+  isTouchPlatform: boolean;
+  showShortcutBadge: boolean;
+  shortcutNumber: number | null;
+  tabStatusSummary: SidebarTabStatusSummary;
+}): WorkspaceRowRightVisibility {
+  const showShortcut = input.showShortcutBadge && input.shortcutNumber !== null;
+  const showActionControls = input.isHovered || input.isTouchPlatform || input.isCompactLayout;
+  const showCreateTab = input.hasCreateTabAction && showActionControls && !showShortcut;
+  return {
+    showCreateTab,
+    showKebabInSlot: input.hasArchiveAction && showActionControls && !showShortcut,
+    showDiffStat: shouldShowWorkspaceDiffStat({ ...input, showShortcut }),
+    showStatusSummary: shouldShowWorkspaceStatusSummary({
+      ...input,
+      showActionControls,
+      showShortcut,
+    }),
+    shouldRenderActionSlot: shouldRenderWorkspaceActionSlot(input),
+  };
+}
+
+interface WorkspaceRowRightVisibility {
+  showCreateTab: boolean;
+  showKebabInSlot: boolean;
+  showDiffStat: boolean;
+  showStatusSummary: boolean;
+  shouldRenderActionSlot: boolean;
+}
+
+function shouldRenderWorkspaceActionSlot(input: {
+  badgeMode: SidebarBadgeMode;
+  expanded: boolean;
+  hasArchiveAction: boolean;
+  hasCreateTabAction: boolean;
+  hasDiffStat: boolean;
+  tabStatusSummary: SidebarTabStatusSummary;
+}): boolean {
+  if (input.hasArchiveAction || input.hasCreateTabAction) {
+    return true;
+  }
+  if (input.badgeMode === "diff") {
+    return input.hasDiffStat;
+  }
+  return (
+    input.badgeMode === "status" &&
+    !input.expanded &&
+    getVisibleStatusSummaryCount(input.tabStatusSummary) > 0
+  );
+}
+
+function shouldShowWorkspaceDiffStat(input: {
+  badgeMode: SidebarBadgeMode;
+  hasDiffStat: boolean;
+  isHovered: boolean;
+  showShortcut: boolean;
+}): boolean {
+  return input.badgeMode === "diff" && input.hasDiffStat && !input.isHovered && !input.showShortcut;
+}
+
+function shouldShowWorkspaceStatusSummary(input: {
+  badgeMode: SidebarBadgeMode;
+  expanded: boolean;
+  showActionControls: boolean;
+  showShortcut: boolean;
+  tabStatusSummary: SidebarTabStatusSummary;
+}): boolean {
+  return (
+    input.badgeMode === "status" &&
+    !input.expanded &&
+    !input.showActionControls &&
+    !input.showShortcut &&
+    getVisibleStatusSummaryCount(input.tabStatusSummary) > 0
+  );
+}
+
+function WorkspaceRowActionSlot({
+  workspace,
+  statusSummary,
+  showCreateTab,
+  showCreateTabMenu,
+  showKebab,
+  showDiffStat,
+  showStatusSummary,
+  archiveLabel,
+  archiveStatus,
+  archivePendingLabel,
+  archiveShortcutKeys,
+  onArchive,
+  onCreateTab,
+  onCopyBranchName,
+  onCopyPath,
+  onMarkAsRead,
+  onRename,
+}: {
+  workspace: SidebarWorkspaceEntry;
+  statusSummary: SidebarTabStatusSummary;
+  showCreateTab: boolean;
+  showCreateTabMenu: boolean;
+  showKebab: boolean;
+  showDiffStat: boolean;
+  showStatusSummary: boolean;
+  archiveLabel?: string;
+  archiveStatus?: "idle" | "pending" | "success";
+  archivePendingLabel?: string;
+  archiveShortcutKeys?: ShortcutKey[][] | null;
+  onArchive?: () => void;
+  onCreateTab?: (event?: GestureResponderEvent) => void;
+  onCopyBranchName?: () => void;
+  onCopyPath?: () => void;
+  onMarkAsRead?: () => void;
+  onRename?: () => void;
+}) {
+  const { t } = useTranslation();
+  const showActionControls = showCreateTab || showCreateTabMenu || showKebab;
+  const actionControlCount = Number(showCreateTab) + Number(showCreateTabMenu) + Number(showKebab);
+  const handleCreateTabMenuSelect = useCallback(() => {
+    onCreateTab?.();
+  }, [onCreateTab]);
+  const showTrailingMeta = Boolean((showDiffStat || showStatusSummary) && !showActionControls);
+  const actionSlotStyle = useMemo(
+    () => [
+      styles.workspaceActionSlot,
+      showTrailingMeta && styles.workspaceActionSlotDiff,
+      actionControlCount === 2 && styles.workspaceActionSlotDouble,
+      actionControlCount >= 3 && styles.workspaceActionSlotTriple,
+    ],
+    [actionControlCount, showTrailingMeta],
+  );
+  const showPrHint = Boolean(showTrailingMeta && showDiffStat && workspace.prHint);
+
+  return (
+    <View style={actionSlotStyle}>
+      <View style={showTrailingMeta ? styles.workspaceDiffMetaRow : styles.workspaceActionHidden}>
+        {showStatusSummary ? <SidebarStatusSummaryBadges summary={statusSummary} /> : null}
+        {showDiffStat ? (
+          <>
+            {showPrHint && workspace.prHint ? (
+              <View style={styles.workspacePrMetaGroup}>
+                <PrBadge hint={workspace.prHint} />
+                <ChecksBadge checks={workspace.prHint.checks} />
+              </View>
+            ) : null}
+            {workspace.diffStat ? (
+              <DiffStat
+                additions={workspace.diffStat.additions}
+                deletions={workspace.diffStat.deletions}
+              />
+            ) : null}
+          </>
+        ) : null}
+      </View>
+      {showActionControls ? (
+        <View style={styles.workspaceActionOverlayRow}>
+          {showCreateTab ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("workspace.tabs.actions.newAgent")}
+              testID={`sidebar-workspace-new-tab-${workspace.workspaceKey}`}
+              onPress={onCreateTab}
+              style={newWorkspaceTabButtonStyle}
+              hitSlop={6}
+            >
+              {({ hovered, pressed }) => (
+                <ThemedPlus
+                  size={14}
+                  uniProps={
+                    hovered || pressed ? foregroundColorMapping : foregroundMutedColorMapping
+                  }
+                />
+              )}
+            </Pressable>
+          ) : null}
+          {showCreateTabMenu ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                accessibilityRole="button"
+                accessibilityLabel={t("workspace.tabs.actions.moreActions")}
+                testID={`sidebar-workspace-new-tab-menu-${workspace.workspaceKey}`}
+                style={newWorkspaceTabButtonStyle}
+                hitSlop={6}
+              >
+                {({ hovered, pressed }) => (
+                  <ThemedChevronDown
+                    size={14}
+                    uniProps={
+                      hovered || pressed ? foregroundColorMapping : foregroundMutedColorMapping
+                    }
+                  />
+                )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" width={180}>
+                <DropdownMenuItem
+                  testID={`sidebar-workspace-new-tab-menu-agent-${workspace.workspaceKey}`}
+                  onSelect={handleCreateTabMenuSelect}
+                >
+                  {t("workspace.tabs.actions.newAgent")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          {showKebab && onArchive ? (
+            <WorkspaceKebabMenu
+              workspaceKey={workspace.workspaceKey}
+              onCopyPath={onCopyPath}
+              onCopyBranchName={onCopyBranchName}
+              onRename={onRename}
+              onMarkAsRead={onMarkAsRead}
+              onArchive={onArchive}
+              archiveLabel={archiveLabel}
+              archiveStatus={archiveStatus}
+              archivePendingLabel={archivePendingLabel}
+              archiveShortcutKeys={archiveShortcutKeys}
+            />
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function WorkspaceKebabMenu({
+  workspaceKey,
+  onCopyPath,
+  onCopyBranchName,
+  onRename,
+  onMarkAsRead,
+  onArchive,
+  archiveLabel,
+  archiveStatus,
+  archivePendingLabel,
+  archiveShortcutKeys,
+}: {
+  workspaceKey: string;
+  onCopyPath?: () => void;
+  onCopyBranchName?: () => void;
+  onRename?: () => void;
+  onMarkAsRead?: () => void;
+  onArchive: () => void;
+  archiveLabel?: string;
+  archiveStatus?: "idle" | "pending" | "success";
+  archivePendingLabel?: string;
+  archiveShortcutKeys?: ShortcutKey[][] | null;
+}) {
+  const { t } = useTranslation();
+  const archiveTrailing = useMemo(
+    () => (archiveShortcutKeys ? <Shortcut chord={archiveShortcutKeys} /> : null),
+    [archiveShortcutKeys],
+  );
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        hitSlop={8}
+        style={workspaceKebabStyle}
+        accessibilityRole={platformIsWeb ? undefined : "button"}
+        accessibilityLabel={t("sidebar.workspace.actions.menu")}
+        testID={`sidebar-workspace-kebab-${workspaceKey}`}
+      >
+        {renderKebabTriggerIcon}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" width={260}>
+        {onCopyPath ? (
+          <DropdownMenuItem
+            testID={`sidebar-workspace-menu-copy-path-${workspaceKey}`}
+            leading={copyLeadingIcon}
+            onSelect={onCopyPath}
+          >
+            {t("sidebar.workspace.actions.copyPath")}
+          </DropdownMenuItem>
+        ) : null}
+        {onCopyBranchName ? (
+          <DropdownMenuItem
+            testID={`sidebar-workspace-menu-copy-branch-name-${workspaceKey}`}
+            leading={copyLeadingIcon}
+            onSelect={onCopyBranchName}
+          >
+            {t("sidebar.workspace.actions.copyBranchName")}
+          </DropdownMenuItem>
+        ) : null}
+        {onRename ? (
+          <DropdownMenuItem
+            testID={`sidebar-workspace-menu-rename-${workspaceKey}`}
+            leading={renameLeadingIcon}
+            onSelect={onRename}
+          >
+            {t("sidebar.workspace.actions.rename")}
+          </DropdownMenuItem>
+        ) : null}
+        {onMarkAsRead ? (
+          <DropdownMenuItem
+            testID={`sidebar-workspace-menu-mark-as-read-${workspaceKey}`}
+            leading={markAsReadLeadingIcon}
+            onSelect={onMarkAsRead}
+          >
+            Mark as read
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem
+          testID={`sidebar-workspace-menu-archive-${workspaceKey}`}
+          leading={archiveLeadingIcon}
+          trailing={archiveTrailing}
+          status={archiveStatus}
+          pendingLabel={archivePendingLabel}
+          onSelect={onArchive}
+        >
+          {archiveLabel ?? t("sidebar.workspace.actions.archive")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function ProjectIcon({
   iconDataUri,
   placeholderInitial,
@@ -574,6 +1528,8 @@ function ProjectLeadingVisualStatus({
   isArchiving,
   shouldShowSyncedLoader,
   activeWorkspace,
+  chevron,
+  isHovered,
 }: {
   iconDataUri: string | null;
   placeholderInitial: string;
@@ -581,28 +1537,30 @@ function ProjectLeadingVisualStatus({
   isArchiving: boolean;
   shouldShowSyncedLoader: boolean;
   activeWorkspace: SidebarWorkspaceEntry;
+  chevron: "expand" | "collapse" | null;
+  isHovered: boolean;
 }) {
   if (isArchiving) {
     return (
-      <View style={styles.projectLeadingVisualSlot}>
-        <ThemedActivityIndicator size={8} uniProps={foregroundMutedColorMapping} />
-      </View>
+      <ProjectLeadingVisualSlot chevron={chevron} isHovered={isHovered}>
+        <LoadingSpinner size={8} />
+      </ProjectLeadingVisualSlot>
     );
   }
 
   if (shouldShowSyncedLoader) {
     return (
-      <View style={styles.projectLeadingVisualSlot}>
+      <ProjectLeadingVisualSlot chevron={chevron} isHovered={isHovered}>
         <ThemedSyncedLoader size={11} uniProps={syncedLoaderColorMapping} />
-      </View>
+      </ProjectLeadingVisualSlot>
     );
   }
 
   if (activeWorkspace.statusBucket === "needs_input") {
     return (
-      <View style={styles.projectLeadingVisualSlot}>
+      <ProjectLeadingVisualSlot chevron={chevron} isHovered={isHovered}>
         <ThemedCircleAlert size={14} uniProps={amberColorMapping} />
-      </View>
+      </ProjectLeadingVisualSlot>
     );
   }
 
@@ -616,7 +1574,7 @@ function ProjectLeadingVisualStatus({
       : DEFAULT_STATUS_DOT_OFFSET;
 
   return (
-    <View style={styles.projectLeadingVisualSlot}>
+    <ProjectLeadingVisualSlot chevron={chevron} isHovered={isHovered}>
       <ProjectIcon
         iconDataUri={iconDataUri}
         placeholderInitial={placeholderInitial}
@@ -628,6 +1586,35 @@ function ProjectLeadingVisualStatus({
           size={statusDotSize}
           offset={statusDotOffset}
         />
+      ) : null}
+    </ProjectLeadingVisualSlot>
+  );
+}
+
+function ProjectLeadingVisualSlot({
+  chevron,
+  isHovered,
+  children,
+}: {
+  chevron: "expand" | "collapse" | null;
+  isHovered: boolean;
+  children: ReactNode;
+}) {
+  const showChevron = chevron !== null && isHovered;
+  const contentStyle = useMemo(
+    () => [styles.projectLeadingVisualContent, showChevron && styles.projectLeadingVisualHidden],
+    [showChevron],
+  );
+  return (
+    <View style={styles.projectLeadingVisualSlot}>
+      <View style={contentStyle}>{children}</View>
+      {chevron !== null ? (
+        <View
+          style={showChevron ? styles.projectChevronOverlay : styles.projectChevronOverlayHidden}
+          pointerEvents="none"
+        >
+          <ProjectInlineChevron chevron={chevron} />
+        </View>
       ) : null}
     </View>
   );
@@ -646,14 +1633,12 @@ function ProjectInlineChevron({ chevron }: { chevron: "expand" | "collapse" | nu
 function NewWorktreeButton({
   displayName,
   onPress,
-  visible,
   loading = false,
   testID,
   showShortcutHint = false,
 }: {
   displayName: string;
   onPress: () => void;
-  visible: boolean;
   loading?: boolean;
   testID: string;
   showShortcutHint?: boolean;
@@ -664,10 +1649,9 @@ function NewWorktreeButton({
   const pressableStyle = useCallback(
     ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.projectIconActionButton,
-      !visible && styles.projectIconActionButtonHidden,
       (Boolean(hovered) || pressed) && !loading && styles.projectIconActionButtonHovered,
     ],
-    [visible, loading],
+    [loading],
   );
 
   const handlePress = useCallback(
@@ -679,9 +1663,9 @@ function NewWorktreeButton({
   );
 
   return (
-    <View style={styles.projectTrailingControlSlot} pointerEvents={visible ? "auto" : "none"}>
+    <View style={styles.projectTrailingControlSlot}>
       <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
-        <TooltipTrigger asChild disabled={!visible}>
+        <TooltipTrigger asChild>
           <Pressable
             style={pressableStyle}
             onPress={handlePress}
@@ -694,7 +1678,7 @@ function NewWorktreeButton({
           >
             {({ hovered, pressed }) =>
               loading ? (
-                <ThemedActivityIndicator size={14} uniProps={foregroundMutedColorMapping} />
+                <LoadingSpinner size={14} />
               ) : (
                 <ThemedPlus
                   size={15}
@@ -721,11 +1705,229 @@ function NewWorktreeButton({
   );
 }
 
+function useLongPressDragInteraction(input: {
+  drag: () => void;
+  menuController: ReturnType<typeof useContextMenu> | null;
+}) {
+  const didLongPressRef = useRef(false);
+  const dragArmedRef = useRef(false);
+  const dragActivatedRef = useRef(false);
+  const didStartDragRef = useRef(false);
+  const scrollIntentRef = useRef(false);
+  const menuOpenedRef = useRef(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const touchCurrentRef = useRef<{ x: number; y: number } | null>(null);
+  const dragArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contextMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTimers = useCallback(() => {
+    if (dragArmTimerRef.current) {
+      clearTimeout(dragArmTimerRef.current);
+      dragArmTimerRef.current = null;
+    }
+    if (contextMenuTimerRef.current) {
+      clearTimeout(contextMenuTimerRef.current);
+      contextMenuTimerRef.current = null;
+    }
+  }, []);
+
+  const openContextMenuAtStartPoint = useCallback(() => {
+    if (!input.menuController || !touchStartRef.current) {
+      return;
+    }
+    const statusBarHeight = Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
+    input.menuController.setAnchorRect({
+      x: touchStartRef.current.x,
+      y: touchStartRef.current.y + statusBarHeight,
+      width: 0,
+      height: 0,
+    });
+    input.menuController.setOpen(true);
+    menuOpenedRef.current = true;
+    didLongPressRef.current = true;
+  }, [input.menuController]);
+
+  const handleLongPress = useCallback(() => {
+    // Manual timers own long-press behavior on mobile.
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearTimers();
+    };
+  }, [clearTimers]);
+
+  const armTimers = useCallback(() => {
+    clearTimers();
+
+    const DRAG_ARM_DELAY_MS = 180;
+    const DRAG_ARM_STATIONARY_SLOP_PX = 4;
+    const CONTEXT_MENU_DELAY_MS = 450;
+    const CONTEXT_MENU_STATIONARY_SLOP_PX = 6;
+
+    dragArmTimerRef.current = setTimeout(() => {
+      if (scrollIntentRef.current || didStartDragRef.current || menuOpenedRef.current) {
+        return;
+      }
+      const start = touchStartRef.current;
+      const current = touchCurrentRef.current ?? start;
+      if (!start || !current) {
+        return;
+      }
+      const dx = current.x - start.x;
+      const dy = current.y - start.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance > DRAG_ARM_STATIONARY_SLOP_PX) {
+        return;
+      }
+      dragArmedRef.current = true;
+      dragActivatedRef.current = true;
+      didLongPressRef.current = true;
+      void Haptics.selectionAsync().catch(() => {});
+      input.drag();
+    }, DRAG_ARM_DELAY_MS);
+
+    if (!input.menuController || platformIsWeb) {
+      return;
+    }
+
+    contextMenuTimerRef.current = setTimeout(() => {
+      if (scrollIntentRef.current || didStartDragRef.current || menuOpenedRef.current) {
+        return;
+      }
+      const start = touchStartRef.current;
+      const current = touchCurrentRef.current ?? start;
+      if (!start || !current) {
+        return;
+      }
+      const dx = current.x - start.x;
+      const dy = current.y - start.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance > CONTEXT_MENU_STATIONARY_SLOP_PX) {
+        return;
+      }
+      void Haptics.selectionAsync().catch(() => {});
+      openContextMenuAtStartPoint();
+    }, CONTEXT_MENU_DELAY_MS);
+  }, [clearTimers, input, openContextMenuAtStartPoint]);
+
+  const handleDragIntent = useCallback(
+    (_details: { dx: number; dy: number; distance: number }) => {
+      if (!dragActivatedRef.current) {
+        return;
+      }
+      didStartDragRef.current = true;
+      didLongPressRef.current = true;
+      clearTimers();
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    },
+    [clearTimers],
+  );
+
+  const handleScrollIntent = useCallback(
+    (_details: { dx: number; dy: number; distance: number }) => {
+      scrollIntentRef.current = true;
+      didLongPressRef.current = true;
+      clearTimers();
+    },
+    [clearTimers],
+  );
+
+  const handleSwipeIntent = useCallback(
+    (_details: { dx: number; dy: number; distance: number }) => {
+      didLongPressRef.current = true;
+      clearTimers();
+    },
+    [clearTimers],
+  );
+
+  const handlePressIn = useCallback(
+    (event: GestureResponderEvent) => {
+      didLongPressRef.current = false;
+      dragArmedRef.current = false;
+      dragActivatedRef.current = false;
+      didStartDragRef.current = false;
+      scrollIntentRef.current = false;
+      menuOpenedRef.current = false;
+      touchStartRef.current = {
+        x: event.nativeEvent.pageX,
+        y: event.nativeEvent.pageY,
+      };
+      touchCurrentRef.current = {
+        x: event.nativeEvent.pageX,
+        y: event.nativeEvent.pageY,
+      };
+      armTimers();
+    },
+    [armTimers],
+  );
+
+  const handleTouchMove = useCallback(
+    (event: GestureResponderEvent) => {
+      const start = touchStartRef.current;
+      if (!start || didStartDragRef.current || menuOpenedRef.current) {
+        return;
+      }
+
+      const touch = event?.nativeEvent?.touches?.[0] ?? event?.nativeEvent;
+      const x = touch?.pageX;
+      const y = touch?.pageY;
+      if (typeof x !== "number" || typeof y !== "number") {
+        return;
+      }
+
+      const current = { x, y };
+      touchCurrentRef.current = current;
+      const dx = current.x - start.x;
+      const dy = current.y - start.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const decision = decideLongPressMove({
+        dragArmed: dragArmedRef.current,
+        didStartDrag: didStartDragRef.current,
+        startPoint: start,
+        currentPoint: current,
+      });
+
+      if (decision === "vertical_scroll") {
+        handleScrollIntent({ dx, dy, distance });
+        return;
+      }
+
+      if (decision === "horizontal_swipe" || decision === "cancel_long_press") {
+        handleSwipeIntent({ dx, dy, distance });
+        return;
+      }
+
+      if (decision === "start_drag") {
+        handleDragIntent({ dx, dy, distance });
+      }
+    },
+    [handleDragIntent, handleScrollIntent, handleSwipeIntent],
+  );
+
+  const handlePressOut = useCallback(() => {
+    clearTimers();
+    dragArmedRef.current = false;
+    dragActivatedRef.current = false;
+    touchStartRef.current = null;
+    touchCurrentRef.current = null;
+  }, [clearTimers]);
+
+  return {
+    didLongPressRef,
+    handleLongPress,
+    handlePressIn,
+    handleTouchMove,
+    handlePressOut,
+  };
+}
+
 function ProjectHeaderRow({
   project,
   displayName,
   iconDataUri,
   workspace,
+  statusSummary = null,
   selected = false,
   chevron,
   onPress,
@@ -747,8 +1949,17 @@ function ProjectHeaderRow({
   const [isHovered, setIsHovered] = useState(false);
   const isMobileBreakpoint = useIsCompactFormFactor();
   const handleBeginWorkspaceSetup = useCallback(() => {
-    navigateToNewWorkspaceForProject({ serverId, project, displayName, onWorkspacePress });
-  }, [displayName, onWorkspacePress, project, serverId]);
+    if (!serverId) {
+      return;
+    }
+    onWorkspacePress?.();
+    router.navigate(
+      buildHostNewWorkspaceRoute(serverId, project.iconWorkingDir, {
+        displayName,
+        projectId: project.projectKey,
+      }) as Href,
+    );
+  }, [displayName, onWorkspacePress, project.iconWorkingDir, project.projectKey, serverId]);
   const interaction = useLongPressDragInteraction({
     drag,
     menuController,
@@ -760,13 +1971,16 @@ function ProjectHeaderRow({
     ...dragAttributes
   } = dragHandleProps?.attributes ?? {};
 
-  const handlePress = useCallback(() => {
-    if (interaction.didLongPressRef.current) {
-      interaction.didLongPressRef.current = false;
-      return;
-    }
-    onPress();
-  }, [interaction.didLongPressRef, onPress]);
+  const handlePress = useCallback(
+    (event: GestureResponderEvent) => {
+      if (interaction.didLongPressRef.current) {
+        interaction.didLongPressRef.current = false;
+        return;
+      }
+      onPress(event);
+    },
+    [interaction.didLongPressRef, onPress],
+  );
 
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
@@ -781,7 +1995,8 @@ function ProjectHeaderRow({
     ],
     [isDragging, selected, isHovered],
   );
-
+  const showShortcut = showShortcutBadge && shortcutNumber !== null;
+  const showStatusSummary = Boolean(statusSummary && !showShortcut);
   const rowChildren = (
     <>
       <View style={styles.projectRowLeft}>
@@ -790,9 +2005,10 @@ function ProjectHeaderRow({
           iconDataUri={iconDataUri}
           workspace={workspace}
           projectKey={project.projectKey}
-          chevron={chevron}
-          showChevron={isHovered && chevron !== null}
           isArchiving={isArchiving}
+          suppressWorkspaceStatusVisual={showStatusSummary}
+          chevron={chevron}
+          isHovered={isHovered}
         />
 
         <View style={styles.projectTitleGroup}>
@@ -801,22 +2017,20 @@ function ProjectHeaderRow({
           </Text>
         </View>
       </View>
-      <ProjectRowTrailingActions
+      <ProjectHeaderTrailingContent
         project={project}
         displayName={displayName}
         canCreateWorktree={canCreateWorktree}
         isHovered={isHovered}
         isMobileBreakpoint={isMobileBreakpoint}
         isProjectActive={isProjectActive}
+        statusSummary={statusSummary}
+        shortcutNumber={shortcutNumber}
+        showShortcutBadge={showShortcutBadge}
         onBeginWorkspaceSetup={handleBeginWorkspaceSetup}
         onRemoveProject={onRemoveProject}
         removeProjectStatus={removeProjectStatus}
       />
-      {showShortcutBadge && shortcutNumber !== null ? (
-        <View style={styles.projectShortcutBadgeOverlay} pointerEvents="none">
-          <SidebarWorkspaceShortcutBadge number={shortcutNumber} />
-        </View>
-      ) : null}
     </>
   );
 
@@ -868,8 +2082,990 @@ function ProjectHeaderRow({
   );
 }
 
+function WorkspaceRowInner({
+  workspace,
+  badgeMode,
+  tabStatusSummary,
+  selected,
+  shortcutNumber,
+  showShortcutBadge,
+  onPress,
+  drag,
+  isDragging,
+  isArchiving,
+  isCreating = false,
+  dragHandleProps,
+  menuController,
+  archiveLabel,
+  archiveStatus = "idle",
+  archivePendingLabel,
+  onArchive,
+  onCreateTab,
+  onCopyBranchName,
+  onCopyPath,
+  onRename,
+  expandable = false,
+  expanded = false,
+  onToggleExpanded,
+  archiveShortcutKeys,
+}: WorkspaceRowInnerProps) {
+  const embeddedTabsEnabled = expandable;
+  const isCompact = useIsCompactFormFactor();
+  const isTouchPlatform = platformIsNative;
+  const interaction = useLongPressDragInteraction({
+    drag,
+    menuController,
+  });
+  const {
+    role: _dragRole,
+    tabIndex: _dragTabIndex,
+    "aria-roledescription": _dragRoleDescription,
+    ...dragAttributes
+  } = dragHandleProps?.attributes ?? {};
+
+  const handlePress = useCallback(
+    (event: GestureResponderEvent) => {
+      if (interaction.didLongPressRef.current) {
+        interaction.didLongPressRef.current = false;
+        return;
+      }
+      onPress(event);
+    },
+    [interaction.didLongPressRef, onPress],
+  );
+
+  const accessibilityState = useMemo(() => ({ selected }), [selected]);
+
+  return (
+    <SidebarWorkspaceRowFrame workspace={workspace} isDragging={isDragging}>
+      {({ isHovered, hoverHandlers }) => {
+        const isDesktop = !isTouchPlatform;
+        const showScriptsIcon = isDesktop && workspace.hasRunningScripts;
+        const hasRunningService = workspace.scripts.some(
+          (s) => s.lifecycle === "running" && (s.type ?? "service") === "service",
+        );
+        let scriptIconKind: "service" | "command" | null = null;
+        if (showScriptsIcon) {
+          scriptIconKind = hasRunningService ? "service" : "command";
+        }
+        const workspaceRowStyle = getProjectWorkspaceRowStyle({
+          embeddedTabsEnabled,
+          isDragging,
+          selected,
+          isHovered,
+        });
+        const workspaceRightVisibility = getWorkspaceRowRightVisibility({
+          badgeMode,
+          expanded,
+          hasArchiveAction: Boolean(onArchive),
+          hasCreateTabAction: Boolean(onCreateTab),
+          hasDiffStat: Boolean(workspace.diffStat),
+          isCompactLayout: isCompact,
+          isHovered,
+          isTouchPlatform,
+          showShortcutBadge,
+          shortcutNumber,
+          tabStatusSummary,
+        });
+        const hasWorkspaceRightContent =
+          isCreating ||
+          workspaceRightVisibility.showCreateTab ||
+          workspaceRightVisibility.showKebabInSlot ||
+          workspaceRightVisibility.showDiffStat ||
+          workspaceRightVisibility.showStatusSummary;
+        return (
+          <View
+            {...dragAttributes}
+            {...dragHandleProps?.listeners}
+            ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
+            style={styles.workspaceRowContainer}
+            {...hoverHandlers}
+          >
+            <Pressable
+              disabled={isArchiving}
+              aria-selected={selected}
+              accessibilityRole="button"
+              accessibilityState={accessibilityState}
+              style={workspaceRowStyle}
+              onPressIn={interaction.handlePressIn}
+              onTouchMove={interaction.handleTouchMove}
+              onPressOut={interaction.handlePressOut}
+              onPress={handlePress}
+              testID={`sidebar-workspace-row-${workspace.workspaceKey}`}
+            >
+              <SidebarWorkspaceRowContent
+                workspace={workspace}
+                scriptIconKind={scriptIconKind}
+                isHovered={isHovered}
+                isLoading={isArchiving || isCreating}
+                isCreating={isCreating}
+                suppressStatusLoader={badgeMode === "status"}
+                suppressStatusVisual={workspaceRightVisibility.showStatusSummary}
+                shortcutNumber={shortcutNumber}
+                showShortcutBadge={showShortcutBadge}
+                hasTrailingContent={hasWorkspaceRightContent}
+                expandable={expandable}
+                expanded={expanded}
+                onToggleExpanded={onToggleExpanded}
+              >
+                <WorkspaceRowRightGroup
+                  workspace={workspace}
+                  badgeMode={badgeMode}
+                  tabStatusSummary={tabStatusSummary}
+                  isHovered={isHovered}
+                  isTouchPlatform={isTouchPlatform}
+                  isCompactLayout={isCompact}
+                  isCreating={isCreating}
+                  showShortcutBadge={showShortcutBadge}
+                  shortcutNumber={shortcutNumber}
+                  archiveLabel={archiveLabel}
+                  archiveStatus={archiveStatus}
+                  archivePendingLabel={archivePendingLabel}
+                  archiveShortcutKeys={archiveShortcutKeys}
+                  onArchive={onArchive}
+                  onCreateTab={onCreateTab}
+                  onCopyBranchName={onCopyBranchName}
+                  onCopyPath={onCopyPath}
+                  onRename={onRename}
+                  expanded={expanded}
+                  visibility={workspaceRightVisibility}
+                />
+              </SidebarWorkspaceRowContent>
+            </Pressable>
+          </View>
+        );
+      }}
+    </SidebarWorkspaceRowFrame>
+  );
+}
+
+function WorkspaceRowWithMenu({
+  workspace,
+  badgeMode,
+  tabStatusSummary,
+  selected,
+  shortcutNumber,
+  showShortcutBadge,
+  onPress,
+  onWorkspacePress,
+  drag,
+  isDragging,
+  dragHandleProps,
+  canCopyBranchName,
+  workspaceKeysForAutoCollapse,
+  isCreating = false,
+}: {
+  workspace: SidebarWorkspaceEntry;
+  badgeMode: SidebarBadgeMode;
+  tabStatusSummary: SidebarTabStatusSummary;
+  selected: boolean;
+  shortcutNumber: number | null;
+  showShortcutBadge: boolean;
+  onPress: () => void;
+  onWorkspacePress?: () => void;
+  drag: () => void;
+  isDragging: boolean;
+  dragHandleProps?: DraggableListDragHandleProps;
+  canCopyBranchName: boolean;
+  workspaceKeysForAutoCollapse: readonly string[];
+  isCreating?: boolean;
+}) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const { settings: appSettings } = useAppSettings();
+  const isCompact = useIsCompactFormFactor();
+  const embeddedTabsEnabled = appSettings.tabLayoutMode === "sidebar" && !isCompact;
+  const [isHidingWorkspace, setIsHidingWorkspace] = useState(false);
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const persistenceKey = useMemo(
+    () =>
+      buildWorkspaceTabPersistenceKey({
+        serverId: workspace.serverId,
+        workspaceId: workspace.workspaceId,
+      }),
+    [workspace.serverId, workspace.workspaceId],
+  );
+  const workspaceLayout = useWorkspaceLayoutStore((state) =>
+    persistenceKey ? (state.layoutByWorkspace[persistenceKey] ?? null) : null,
+  );
+  const openWorkspaceTabFocused = useWorkspaceLayoutStore((state) => state.openTabFocused);
+  const focusWorkspacePane = useWorkspaceLayoutStore((state) => state.focusPane);
+  const collapsedWorkspaceKeys = useSidebarCollapsedSectionsStore(
+    (state) => state.collapsedWorkspaceKeys,
+  );
+  const setWorkspaceCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.setWorkspaceCollapsed,
+  );
+  const setOnlyWorkspaceExpanded = useSidebarCollapsedSectionsStore(
+    (state) => state.setOnlyWorkspaceExpanded,
+  );
+  const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
+  const [showAllEmbeddedTabs, setShowAllEmbeddedTabs] = useState(false);
+  const isWorkspaceExpanded = !collapsedWorkspaceKeys.has(workspace.workspaceKey);
+  const mainPaneId = useMemo(
+    () => (workspaceLayout ? (findMainPane(workspaceLayout.root)?.id ?? null) : null),
+    [workspaceLayout],
+  );
+  const workspaceDirectory = resolveWorkspaceDirectory({
+    workspaceDirectory: workspace.workspaceDirectory,
+  });
+  const worktreeArchiveStatus = useCheckoutGitActionsStore((state) =>
+    workspaceDirectory
+      ? state.getStatus({
+          serverId: workspace.serverId,
+          cwd: workspaceDirectory,
+          actionId: "archive-worktree",
+        })
+      : "idle",
+  );
+  const isWorktree = workspace.workspaceKind === "worktree";
+  const isArchiving = isWorktree ? workspace.archivingAt !== null : isHidingWorkspace;
+  const redirectAfterArchive = useCallback(() => {
+    redirectIfArchivingActiveWorkspace({
+      serverId: workspace.serverId,
+      workspaceId: workspace.workspaceId,
+      activeWorkspaceSelection: selectionForSelectedWorkspace(selected, workspace),
+    });
+  }, [selected, workspace]);
+
+  const archiveController = useWorkspaceArchive({
+    serverId: workspace.serverId,
+    workspaceId: workspace.workspaceId,
+    workspaceDirectory: workspace.workspaceDirectory,
+    workspaceKind: workspace.workspaceKind,
+    name: workspace.name,
+    ...toWorktreeArchiveRisk(workspace),
+    onArchiveStarted: redirectAfterArchive,
+    onSetHiding: setIsHidingWorkspace,
+  });
+
+  const handleArchive = useCallback(() => {
+    if (isArchiving) {
+      return;
+    }
+    archiveController.archive();
+  }, [archiveController, isArchiving]);
+
+  const handleCopyPath = useCallback(() => {
+    let copyTargetDirectory: string;
+    try {
+      copyTargetDirectory = requireWorkspaceDirectory({
+        workspaceId: workspace.workspaceId,
+        workspaceDirectory: workspace.workspaceDirectory,
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("sidebar.workspace.toasts.workspacePathUnavailable"),
+      );
+      return;
+    }
+    void Clipboard.setStringAsync(copyTargetDirectory);
+    toast.copied(t("sidebar.workspace.toasts.pathCopied"));
+  }, [t, toast, workspace.workspaceDirectory, workspace.workspaceId]);
+
+  const handleCopyBranchName = useCallback(() => {
+    if (!workspace.currentBranch) {
+      return;
+    }
+    void Clipboard.setStringAsync(workspace.currentBranch);
+    toast.copied(t("sidebar.workspace.toasts.branchNameCopied"));
+  }, [t, toast, workspace.currentBranch]);
+
+  const renameMutation = useMutation({
+    mutationFn: async (title: string) => {
+      const client = getHostRuntimeStore().getClient(workspace.serverId);
+      if (!client) {
+        throw new Error(t("sidebar.workspace.toasts.hostDisconnected"));
+      }
+      await client.setWorkspaceTitle(workspace.workspaceId, title.length === 0 ? null : title);
+    },
+  });
+
+  const handleOpenRename = useCallback(() => {
+    setIsRenameOpen(true);
+  }, []);
+
+  const handleCloseRename = useCallback(() => {
+    setIsRenameOpen(false);
+  }, []);
+
+  const handleSubmitRename = useCallback(
+    async (value: string) => {
+      await renameMutation.mutateAsync(value.trim());
+    },
+    [renameMutation],
+  );
+
+  const archiveShortcutKeys = useShortcutKeys("archive-worktree");
+  const { hasClearableAttention, clearAttention } = useClearWorkspaceAttention({
+    serverId: workspace.serverId,
+    workspaceId: workspace.workspaceId,
+  });
+  const handleMarkAsRead = useCallback(() => {
+    void clearAttention().catch((error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to mark workspace as read");
+    });
+  }, [clearAttention, toast]);
+
+  const setWorkspaceExpanded = useCallback(
+    (expanded: boolean) => {
+      if (expanded && autoCollapseWorkspaces) {
+        setOnlyWorkspaceExpanded(workspace.workspaceKey, workspaceKeysForAutoCollapse);
+        return;
+      }
+      setWorkspaceCollapsed(workspace.workspaceKey, !expanded);
+    },
+    [
+      autoCollapseWorkspaces,
+      setOnlyWorkspaceExpanded,
+      setWorkspaceCollapsed,
+      workspace.workspaceKey,
+      workspaceKeysForAutoCollapse,
+    ],
+  );
+
+  const handleToggleWorkspaceExpanded = useCallback(
+    (event: GestureResponderEvent) => {
+      event.stopPropagation();
+      const targetExpanded = !isWorkspaceExpanded;
+      if (isShiftPressed(event)) {
+        setShowAllEmbeddedTabs(targetExpanded);
+        setWorkspaceExpanded(targetExpanded);
+        return;
+      }
+      setWorkspaceExpanded(targetExpanded);
+    },
+    [isWorkspaceExpanded, setWorkspaceExpanded],
+  );
+  const handleWorkspaceRowPress = useCallback(
+    (event: GestureResponderEvent) => {
+      if (embeddedTabsEnabled) {
+        const targetExpanded = !isWorkspaceExpanded;
+        if (targetExpanded && persistenceKey && mainPaneId) {
+          focusWorkspacePane(persistenceKey, mainPaneId);
+        }
+        if (isShiftPressed(event)) {
+          setShowAllEmbeddedTabs(targetExpanded);
+          setWorkspaceExpanded(targetExpanded);
+        } else {
+          setWorkspaceExpanded(targetExpanded);
+        }
+      }
+      onPress();
+    },
+    [
+      embeddedTabsEnabled,
+      focusWorkspacePane,
+      isWorkspaceExpanded,
+      mainPaneId,
+      onPress,
+      persistenceKey,
+      setWorkspaceExpanded,
+    ],
+  );
+
+  const handleCreateEmbeddedTab = useCallback(
+    (event?: GestureResponderEvent) => {
+      event?.stopPropagation();
+      if (!persistenceKey) {
+        return;
+      }
+      if (mainPaneId) {
+        focusWorkspacePane(persistenceKey, mainPaneId);
+      }
+      openWorkspaceTabFocused(persistenceKey, {
+        kind: "draft",
+        draftId: generateDraftId(),
+      });
+      if (!isWorkspaceExpanded) {
+        setWorkspaceExpanded(true);
+      }
+      onWorkspacePress?.();
+      navigateToWorkspace(workspace.serverId, workspace.workspaceId, {
+        openAttentionAgent: false,
+      });
+    },
+    [
+      focusWorkspacePane,
+      isWorkspaceExpanded,
+      mainPaneId,
+      onWorkspacePress,
+      openWorkspaceTabFocused,
+      persistenceKey,
+      setWorkspaceExpanded,
+      workspace.serverId,
+      workspace.workspaceId,
+    ],
+  );
+
+  useKeyboardActionHandler({
+    handlerId: `worktree-archive-${workspace.workspaceKey}`,
+    actions: ["worktree.archive"],
+    enabled: selected && !isArchiving,
+    priority: 0,
+    handle: () => {
+      handleArchive();
+      return true;
+    },
+  });
+
+  return (
+    <>
+      <WorkspaceRowInner
+        workspace={workspace}
+        badgeMode={badgeMode}
+        tabStatusSummary={tabStatusSummary}
+        selected={embeddedTabsEnabled ? false : selected}
+        shortcutNumber={shortcutNumber}
+        showShortcutBadge={showShortcutBadge}
+        onPress={handleWorkspaceRowPress}
+        drag={drag}
+        isDragging={isDragging}
+        isArchiving={isArchiving}
+        isCreating={isCreating}
+        dragHandleProps={dragHandleProps}
+        menuController={null}
+        archiveLabel={t("sidebar.workspace.actions.archive")}
+        archiveStatus={getWorkspaceArchiveStatus(
+          isWorktree,
+          worktreeArchiveStatus,
+          isHidingWorkspace,
+        )}
+        archivePendingLabel={t("sidebar.workspace.actions.archiving")}
+        expandable={embeddedTabsEnabled}
+        expanded={isWorkspaceExpanded}
+        onToggleExpanded={handleToggleWorkspaceExpanded}
+        onArchive={handleArchive}
+        onCreateTab={embeddedTabsEnabled ? handleCreateEmbeddedTab : undefined}
+        onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
+        onCopyPath={handleCopyPath}
+        onRename={handleOpenRename}
+        onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
+        archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+      />
+      {embeddedTabsEnabled ? (
+        <EmbeddedWorkspaceTabs
+          workspace={workspace}
+          badgeMode={badgeMode}
+          expanded={isWorkspaceExpanded}
+          showAllTabs={showAllEmbeddedTabs}
+          onShowAllTabsChange={setShowAllEmbeddedTabs}
+          onWorkspacePress={onWorkspacePress}
+        />
+      ) : null}
+      <AdaptiveRenameModal
+        visible={isRenameOpen}
+        title={t("sidebar.workspace.rename.title")}
+        initialValue={workspace.title ?? workspace.name}
+        placeholder={workspace.name}
+        submitLabel={t("sidebar.workspace.rename.submit")}
+        onClose={handleCloseRename}
+        onSubmit={handleSubmitRename}
+        testID={`sidebar-workspace-rename-modal-${workspace.workspaceKey}`}
+      />
+    </>
+  );
+}
+
+function embeddedTabKeyExtractor(item: EmbeddedSidebarTabItem): string {
+  return `${item.paneId}:${item.tab.tabId}`;
+}
+
+function EmbeddedWorkspaceTabRow({
+  item,
+  serverId,
+  workspaceId,
+  badgeMode,
+  active,
+  manualSort,
+  isDragging,
+  drag,
+  dragHandleProps,
+  onPress,
+  onClose,
+}: {
+  item: EmbeddedSidebarTabItem;
+  serverId: string;
+  workspaceId: string;
+  badgeMode: SidebarBadgeMode;
+  active: boolean;
+  manualSort: boolean;
+  isDragging: boolean;
+  drag: () => void;
+  dragHandleProps?: DraggableListDragHandleProps;
+  onPress: (item: EmbeddedSidebarTabItem) => void;
+  onClose: (item: EmbeddedSidebarTabItem) => void;
+}) {
+  const { t } = useTranslation();
+  const isCompact = useIsCompactFormFactor();
+  const [isHovered, setIsHovered] = useState(false);
+  const handlePointerEnter = useCallback(() => setIsHovered(true), []);
+  const handlePointerLeave = useCallback(() => setIsHovered(false), []);
+  const handlePress = useCallback(() => {
+    onPress(item);
+  }, [item, onPress]);
+  const handleClose = useCallback(
+    (event: GestureResponderEvent) => {
+      event.stopPropagation();
+      onClose(item);
+    },
+    [item, onClose],
+  );
+  const dragListeners = manualSort ? dragHandleProps?.listeners : undefined;
+  const handleLongPress = useCallback(() => {
+    if (manualSort) {
+      drag();
+    }
+  }, [drag, manualSort]);
+  const handleDragPointerDown = useCallback(
+    (event: RNPointerEvent) => {
+      event.stopPropagation();
+      const listener = dragListeners?.onPointerDown;
+      if (typeof listener === "function") {
+        listener(event);
+      }
+    },
+    [dragListeners],
+  );
+  const showCloseButton = isHovered || platformIsNative || isCompact;
+  const rowStyle = useCallback(
+    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.embeddedTabRow,
+      active && styles.embeddedTabRowActive,
+      isDragging && styles.embeddedTabRowDragging,
+      (hovered || pressed) && styles.embeddedTabRowHovered,
+    ],
+    [active, isDragging],
+  );
+  const accessibilityState = useMemo(() => ({ selected: active }), [active]);
+  const showStatusSymbol = badgeMode === "status" && !showCloseButton;
+  const showTrailingSlot = showCloseButton || showStatusSymbol;
+  const labelStyle = useMemo(
+    () => [
+      active ? styles.embeddedTabLabelActive : styles.embeddedTabLabel,
+      showTrailingSlot && styles.embeddedTabLabelWithTrailingSlot,
+    ],
+    [active, showTrailingSlot],
+  );
+
+  return (
+    <WorkspaceTabPresentationResolver
+      tab={item.descriptor}
+      serverId={serverId}
+      workspaceId={workspaceId}
+    >
+      {(presentation) => {
+        const label =
+          presentation.titleState === "loading" ? t("workspace.tabs.loading") : presentation.label;
+        const statusBucket = presentation.statusBucket ?? "done";
+        return (
+          <View
+            {...(manualSort ? (dragHandleProps?.attributes as object | undefined) : undefined)}
+            {...(manualSort ? (dragListeners as object | undefined) : undefined)}
+            style={styles.embeddedTabWrapper}
+            onPointerDown={manualSort ? handleDragPointerDown : undefined}
+            onPointerEnter={handlePointerEnter}
+            onPointerLeave={handlePointerLeave}
+            ref={
+              manualSort
+                ? (dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>)
+                : undefined
+            }
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={label}
+              accessibilityState={accessibilityState}
+              onPress={handlePress}
+              onLongPress={handleLongPress}
+              style={rowStyle}
+              testID={`sidebar-embedded-tab-${item.tab.tabId}`}
+            >
+              <WorkspaceTabIcon
+                presentation={presentation}
+                active={active}
+                size={14}
+                showStatusBadge={badgeMode !== "status"}
+              />
+              <Text style={labelStyle} numberOfLines={1}>
+                {label}
+              </Text>
+              {showTrailingSlot ? (
+                <View
+                  style={styles.embeddedTabCloseSlot}
+                  pointerEvents={showCloseButton ? "auto" : "none"}
+                >
+                  {showCloseButton ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={t("common.actions.close")}
+                      onPress={handleClose}
+                      style={embeddedTabCloseButtonStyle}
+                      hitSlop={6}
+                      testID={`sidebar-embedded-tab-close-${item.tab.tabId}`}
+                    >
+                      {({ hovered, pressed }) => (
+                        <ThemedX
+                          size={13}
+                          uniProps={
+                            hovered || pressed
+                              ? foregroundColorMapping
+                              : foregroundMutedColorMapping
+                          }
+                        />
+                      )}
+                    </Pressable>
+                  ) : null}
+                  {showStatusSymbol ? <SidebarTabStatusSymbol bucket={statusBucket} /> : null}
+                </View>
+              ) : null}
+            </Pressable>
+          </View>
+        );
+      }}
+    </WorkspaceTabPresentationResolver>
+  );
+}
+
+function EmbeddedWorkspaceTabs({
+  workspace,
+  badgeMode,
+  expanded,
+  showAllTabs,
+  onShowAllTabsChange,
+  onWorkspacePress,
+}: {
+  workspace: SidebarWorkspaceEntry;
+  badgeMode: SidebarBadgeMode;
+  expanded: boolean;
+  showAllTabs: boolean;
+  onShowAllTabsChange: (showAllTabs: boolean) => void;
+  onWorkspacePress?: () => void;
+}) {
+  const persistenceKey = useMemo(
+    () =>
+      buildWorkspaceTabPersistenceKey({
+        serverId: workspace.serverId,
+        workspaceId: workspace.workspaceId,
+      }),
+    [workspace.serverId, workspace.workspaceId],
+  );
+  const workspaceLayout = useWorkspaceLayoutStore((state) =>
+    persistenceKey ? (state.layoutByWorkspace[persistenceKey] ?? null) : null,
+  );
+  const focusWorkspaceTab = useWorkspaceLayoutStore((state) => state.focusTab);
+  const focusWorkspacePane = useWorkspaceLayoutStore((state) => state.focusPane);
+  const reorderTabsInPane = useWorkspaceLayoutStore((state) => state.reorderTabsInPane);
+  const agents = useSessionStore((state) => state.sessions[workspace.serverId]?.agents ?? null);
+  const tabSortMode = useSidebarViewStore((state) =>
+    state.getEmbeddedTabSortMode(workspace.serverId),
+  );
+  const recentTabCount = useSidebarViewStore((state) =>
+    state.getEmbeddedRecentTabCount(workspace.serverId),
+  );
+  const mainPane = useMemo(
+    () => (workspaceLayout ? findMainPane(workspaceLayout.root) : null),
+    [workspaceLayout],
+  );
+  const panes = useMemo(
+    () => (workspaceLayout ? collectAllPanes(workspaceLayout.root) : []),
+    [workspaceLayout],
+  );
+  const uiTabs = useMemo(
+    () => (workspaceLayout ? collectAllTabs(workspaceLayout.root) : []),
+    [workspaceLayout],
+  );
+  const { handleCloseTabById } = useWorkspaceTabClose({
+    serverId: workspace.serverId,
+    workspaceId: workspace.workspaceId,
+    workspaceDirectory: workspace.workspaceDirectory ?? null,
+    tabs: uiTabs,
+  });
+  const paneState = useMemo(
+    () =>
+      deriveWorkspacePaneState({
+        pane: mainPane,
+        tabs: uiTabs,
+      }),
+    [mainPane, uiTabs],
+  );
+  const tabById = useMemo(() => new Map(uiTabs.map((tab) => [tab.tabId, tab])), [uiTabs]);
+  const agentMap = agents ?? EMPTY_AGENT_MAP;
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const isActiveWorkspace = isWorkspaceSelected({
+    selection: activeWorkspaceSelection,
+    serverId: workspace.serverId,
+    workspaceId: workspace.workspaceId,
+    enabled: true,
+  });
+  const allItems = useMemo<EmbeddedSidebarTabItem[]>(() => {
+    const mainPaneItems = paneState.tabs.flatMap((entry) => {
+      const tab = tabById.get(entry.descriptor.tabId);
+      if (!tab) {
+        return [];
+      }
+      return [
+        {
+          descriptor: entry.descriptor,
+          tab,
+          paneId: mainPane?.id ?? "",
+          mainPane: true,
+          forceShown: isTabForceShown({
+            tab,
+            activeTabId: paneState.activeTabId,
+            agents: agentMap,
+          }),
+        },
+      ];
+    });
+    const secondaryPaneItems = panes.flatMap((pane) => {
+      if (!mainPane || pane.id === mainPane.id) {
+        return [];
+      }
+      const secondaryPaneState = deriveWorkspacePaneState({
+        pane,
+        tabs: uiTabs,
+      });
+      const activeTab = secondaryPaneState.activeTab;
+      if (!activeTab) {
+        return [];
+      }
+      const tab = tabById.get(activeTab.descriptor.tabId);
+      if (!tab) {
+        return [];
+      }
+      return [
+        {
+          descriptor: activeTab.descriptor,
+          tab,
+          paneId: pane.id,
+          mainPane: false,
+          forceShown: true,
+        },
+      ];
+    });
+    return [...mainPaneItems, ...secondaryPaneItems];
+  }, [agentMap, mainPane, paneState.activeTabId, paneState.tabs, panes, tabById, uiTabs]);
+  const sortedItems = useMemo(
+    () => sortEmbeddedTabs({ tabs: allItems, sortMode: tabSortMode, agents: agentMap }),
+    [agentMap, allItems, tabSortMode],
+  );
+  const recentVisibleItems = useMemo(
+    () =>
+      applyRecentTabCount({
+        tabs: sortedItems,
+        recentCount: recentTabCount,
+      }),
+    [recentTabCount, sortedItems],
+  );
+  const hiddenTabCount = Math.max(0, sortedItems.length - recentVisibleItems.length);
+  const shouldShowVisibilityToggle = recentTabCount !== "all" && hiddenTabCount > 0;
+  const visibleItems = showAllTabs ? sortedItems : recentVisibleItems;
+  const handleToggleShowAllTabs = useCallback(() => {
+    onShowAllTabsChange(!showAllTabs);
+  }, [onShowAllTabsChange, showAllTabs]);
+  const visibilityToggleFooter = useMemo(
+    () =>
+      shouldShowVisibilityToggle ? (
+        <EmbeddedTabsVisibilityToggle expanded={showAllTabs} onPress={handleToggleShowAllTabs} />
+      ) : null,
+    [handleToggleShowAllTabs, shouldShowVisibilityToggle, showAllTabs],
+  );
+
+  const handlePressTab = useCallback(
+    (item: EmbeddedSidebarTabItem) => {
+      if (persistenceKey) {
+        if (item.mainPane) {
+          focusWorkspaceTab(persistenceKey, item.tab.tabId);
+        } else {
+          focusWorkspacePane(persistenceKey, item.paneId);
+        }
+      }
+      onWorkspacePress?.();
+      navigateToWorkspace(workspace.serverId, workspace.workspaceId, {
+        openAttentionAgent: false,
+      });
+    },
+    [
+      focusWorkspacePane,
+      focusWorkspaceTab,
+      onWorkspacePress,
+      persistenceKey,
+      workspace.serverId,
+      workspace.workspaceId,
+    ],
+  );
+  const handleCloseTab = useCallback(
+    (item: EmbeddedSidebarTabItem) => {
+      void handleCloseTabById(item.tab.tabId);
+    },
+    [handleCloseTabById],
+  );
+
+  const handleManualDragEnd = useCallback(
+    (nextVisibleItems: EmbeddedSidebarTabItem[]) => {
+      if (!persistenceKey || !mainPane || tabSortMode !== "manual") {
+        return;
+      }
+      const mainPaneItems = allItems.filter((item) => item.mainPane);
+      const nextTabIds = mergeEmbeddedVisibleTabOrder({
+        mainPaneItems,
+        nextVisibleItems,
+      });
+      reorderTabsInPane(persistenceKey, mainPane.id, nextTabIds);
+    },
+    [allItems, mainPane, persistenceKey, reorderTabsInPane, tabSortMode],
+  );
+
+  const renderEmbeddedTab = useCallback(
+    ({
+      item,
+      drag,
+      isActive,
+      dragHandleProps,
+    }: DraggableRenderItemInfo<EmbeddedSidebarTabItem>) => (
+      <EmbeddedWorkspaceTabRow
+        item={item}
+        serverId={workspace.serverId}
+        workspaceId={workspace.workspaceId}
+        badgeMode={badgeMode}
+        active={
+          isActiveWorkspace &&
+          (item.mainPane
+            ? item.tab.tabId === paneState.activeTabId
+            : workspaceLayout?.focusedPaneId === item.paneId)
+        }
+        manualSort={tabSortMode === "manual" && item.mainPane}
+        isDragging={isActive}
+        drag={drag}
+        dragHandleProps={dragHandleProps}
+        onPress={handlePressTab}
+        onClose={handleCloseTab}
+      />
+    ),
+    [
+      badgeMode,
+      handlePressTab,
+      handleCloseTab,
+      isActiveWorkspace,
+      paneState.activeTabId,
+      tabSortMode,
+      workspace.serverId,
+      workspace.workspaceId,
+      workspaceLayout?.focusedPaneId,
+    ],
+  );
+
+  if (!expanded || !mainPane || visibleItems.length === 0) {
+    return null;
+  }
+
+  return tabSortMode === "manual" ? (
+    <DraggableList
+      testID={`sidebar-embedded-tabs-${workspace.workspaceKey}`}
+      data={visibleItems}
+      keyExtractor={embeddedTabKeyExtractor}
+      renderItem={renderEmbeddedTab}
+      onDragEnd={handleManualDragEnd}
+      scrollEnabled={false}
+      useDragHandle
+      containerStyle={styles.embeddedTabsContainer}
+      ListFooterComponent={visibilityToggleFooter}
+    />
+  ) : (
+    <View
+      style={styles.embeddedTabsContainer}
+      testID={`sidebar-embedded-tabs-${workspace.workspaceKey}`}
+    >
+      {visibleItems.map((item) => (
+        <EmbeddedWorkspaceTabRow
+          key={item.tab.tabId}
+          item={item}
+          serverId={workspace.serverId}
+          workspaceId={workspace.workspaceId}
+          badgeMode={badgeMode}
+          active={
+            isActiveWorkspace &&
+            (item.mainPane
+              ? item.tab.tabId === paneState.activeTabId
+              : workspaceLayout?.focusedPaneId === item.paneId)
+          }
+          manualSort={false}
+          isDragging={false}
+          drag={noop}
+          onPress={handlePressTab}
+          onClose={handleCloseTab}
+        />
+      ))}
+      {shouldShowVisibilityToggle ? (
+        <EmbeddedTabsVisibilityToggle expanded={showAllTabs} onPress={handleToggleShowAllTabs} />
+      ) : null}
+    </View>
+  );
+}
+
+export function SidebarVerticalWorkspaceTabs({
+  workspace,
+  badgeMode,
+  onWorkspacePress,
+}: {
+  workspace: SidebarWorkspaceEntry;
+  badgeMode: SidebarBadgeMode;
+  onWorkspacePress?: () => void;
+}) {
+  const [showAllTabs, setShowAllTabs] = useState(false);
+
+  useEffect(() => {
+    setShowAllTabs(false);
+  }, [workspace.workspaceKey]);
+
+  return (
+    <EmbeddedWorkspaceTabs
+      workspace={workspace}
+      badgeMode={badgeMode}
+      expanded
+      showAllTabs={showAllTabs}
+      onShowAllTabsChange={setShowAllTabs}
+      onWorkspacePress={onWorkspacePress}
+    />
+  );
+}
+
+function EmbeddedTabsVisibilityToggle({
+  expanded,
+  onPress,
+}: {
+  expanded: boolean;
+  onPress: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={
+        expanded
+          ? t("sidebar.workspace.embeddedTabs.showLessLabel")
+          : t("sidebar.workspace.embeddedTabs.showAllLabel")
+      }
+      onPress={onPress}
+      style={embeddedTabsVisibilityToggleStyle}
+      testID="sidebar-embedded-tabs-visibility-toggle"
+    >
+      <Text style={styles.embeddedTabsVisibilityToggleText}>
+        {expanded
+          ? t("sidebar.workspace.embeddedTabs.showLess")
+          : t("sidebar.workspace.embeddedTabs.showAll")}
+      </Text>
+    </Pressable>
+  );
+}
+
 interface WorkspaceRowItemProps {
   workspace: SidebarWorkspaceEntry;
+  badgeMode: SidebarBadgeMode;
+  tabStatusSummary: SidebarTabStatusSummary;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
   canCopyBranchName: boolean;
@@ -881,10 +3077,13 @@ interface WorkspaceRowItemProps {
   drag?: () => void;
   isDragging?: boolean;
   dragHandleProps?: DraggableListDragHandleProps;
+  workspaceKeysForAutoCollapse: readonly string[];
 }
 
 function WorkspaceRowItem({
   workspace,
+  badgeMode,
+  tabStatusSummary,
   shortcutNumber,
   showShortcutBadge,
   canCopyBranchName,
@@ -896,6 +3095,7 @@ function WorkspaceRowItem({
   drag,
   isDragging = false,
   dragHandleProps,
+  workspaceKeysForAutoCollapse,
 }: WorkspaceRowItemProps) {
   const handlePress = useCallback(() => {
     if (!serverId) {
@@ -908,6 +3108,8 @@ function WorkspaceRowItem({
   return (
     <WorkspaceRow
       workspace={workspace}
+      badgeMode={badgeMode}
+      tabStatusSummary={tabStatusSummary}
       shortcutNumber={shortcutNumber}
       showShortcutBadge={showShortcutBadge}
       canCopyBranchName={canCopyBranchName}
@@ -919,9 +3121,11 @@ function WorkspaceRowItem({
         enabled: selectionEnabled,
       })}
       onPress={handlePress}
+      onWorkspacePress={onWorkspacePress}
       drag={drag ?? noop}
       isDragging={isDragging}
       dragHandleProps={dragHandleProps}
+      workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
     />
   );
 }
@@ -944,6 +3148,8 @@ function areWorkspaceRowItemPropsEqual(
   });
   return (
     previous.workspace === next.workspace &&
+    previous.badgeMode === next.badgeMode &&
+    previous.tabStatusSummary === next.tabStatusSummary &&
     previous.shortcutNumber === next.shortcutNumber &&
     previous.showShortcutBadge === next.showShortcutBadge &&
     previous.canCopyBranchName === next.canCopyBranchName &&
@@ -953,6 +3159,7 @@ function areWorkspaceRowItemPropsEqual(
     previous.drag === next.drag &&
     previous.isDragging === next.isDragging &&
     previous.dragHandleProps === next.dragHandleProps &&
+    previous.workspaceKeysForAutoCollapse === next.workspaceKeysForAutoCollapse &&
     previousSelected === nextSelected
   );
 }
@@ -961,26 +3168,34 @@ const MemoWorkspaceRowItem = memo(WorkspaceRowItem, areWorkspaceRowItemPropsEqua
 
 function WorkspaceRow({
   workspace,
+  badgeMode,
+  tabStatusSummary,
   shortcutNumber,
   showShortcutBadge,
   onPress,
+  onWorkspacePress,
   drag,
   isDragging,
   dragHandleProps,
   canCopyBranchName,
   isCreating = false,
   selected,
+  workspaceKeysForAutoCollapse,
 }: {
   workspace: SidebarWorkspaceEntry;
+  badgeMode: SidebarBadgeMode;
+  tabStatusSummary: SidebarTabStatusSummary;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
   onPress: () => void;
+  onWorkspacePress?: () => void;
   drag: () => void;
   isDragging: boolean;
   dragHandleProps?: DraggableListDragHandleProps;
   canCopyBranchName: boolean;
   isCreating?: boolean;
   selected: boolean;
+  workspaceKeysForAutoCollapse: readonly string[];
 }) {
   const hydratedWorkspace = useSidebarWorkspaceEntry(workspace.serverId, workspace.workspaceId);
 
@@ -989,75 +3204,22 @@ function WorkspaceRow({
   }
 
   return (
-    <SidebarWorkspaceRow
+    <WorkspaceRowWithMenu
       workspace={hydratedWorkspace}
+      badgeMode={badgeMode}
+      tabStatusSummary={tabStatusSummary}
       selected={selected}
       shortcutNumber={shortcutNumber}
       showShortcutBadge={showShortcutBadge}
       onPress={onPress}
+      onWorkspacePress={onWorkspacePress}
       drag={drag}
       isDragging={isDragging}
       dragHandleProps={dragHandleProps}
       canCopyBranchName={canCopyBranchName}
+      workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
       isCreating={isCreating}
     />
-  );
-}
-
-function NewWorkspaceGhostRow({
-  project,
-  displayName,
-  serverId,
-  onWorkspacePress,
-}: {
-  project: SidebarProjectEntry;
-  displayName: string;
-  serverId: string | null;
-  onWorkspacePress?: () => void;
-}) {
-  const { t } = useTranslation();
-  const handlePress = useCallback(() => {
-    navigateToNewWorkspaceForProject({ serverId, project, displayName, onWorkspacePress });
-  }, [displayName, onWorkspacePress, project, serverId]);
-  const rowStyle = useCallback(
-    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
-      styles.newWorkspaceGhostRow,
-      (Boolean(hovered) || pressed) && styles.newWorkspaceGhostRowHovered,
-    ],
-    [],
-  );
-
-  return (
-    <Pressable
-      accessibilityRole={platformIsWeb ? undefined : "button"}
-      accessibilityLabel={t("sidebar.workspace.actions.createWorkspaceFor", {
-        projectName: displayName,
-      })}
-      onPress={handlePress}
-      style={rowStyle}
-      testID={`sidebar-project-new-workspace-row-${project.projectKey}`}
-    >
-      {({ hovered, pressed }) => (
-        <>
-          <View style={styles.newWorkspaceGhostIconSlot}>
-            <ThemedPlus
-              size={14}
-              uniProps={hovered || pressed ? foregroundColorMapping : foregroundMutedColorMapping}
-            />
-          </View>
-          <Text
-            style={
-              hovered || pressed
-                ? styles.newWorkspaceGhostTextHovered
-                : styles.newWorkspaceGhostText
-            }
-            numberOfLines={1}
-          >
-            {t("sidebar.workspace.actions.newWorkspace")}
-          </Text>
-        </>
-      )}
-    </Pressable>
   );
 }
 
@@ -1069,6 +3231,7 @@ function ProjectBlock({
   serverId,
   canRemoveProject,
   selectionEnabled,
+  badgeMode,
   showShortcutBadges,
   shortcutIndexByWorkspaceKey,
   parentGestureRef,
@@ -1082,6 +3245,7 @@ function ProjectBlock({
   useNestable,
   creatingWorkspaceIds,
   activeWorkspaceSelection,
+  workspaceKeysForAutoCollapse,
 }: {
   project: SidebarProjectEntry;
   collapsed: boolean;
@@ -1090,6 +3254,7 @@ function ProjectBlock({
   serverId: string | null;
   canRemoveProject: boolean;
   selectionEnabled: boolean;
+  badgeMode: SidebarBadgeMode;
   showShortcutBadges: boolean;
   shortcutIndexByWorkspaceKey: Map<string, number>;
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
@@ -1103,6 +3268,7 @@ function ProjectBlock({
   useNestable: boolean;
   creatingWorkspaceIds: ReadonlySet<string>;
   activeWorkspaceSelection: ActiveWorkspaceSelection | null;
+  workspaceKeysForAutoCollapse: readonly string[];
 }) {
   const rowModel = useMemo(
     () =>
@@ -1119,6 +3285,20 @@ function ProjectBlock({
     project,
     enabled: selectionEnabled,
   });
+  const tabStatusSummaries = useSidebarTabStatusSummaries({
+    workspaces: project.workspaces,
+    enabled: badgeMode === "status",
+  });
+  const projectStatusSummary = useMemo(() => {
+    if (badgeMode !== "status" || !collapsed) {
+      return null;
+    }
+    return combineSidebarTabStatusSummaries(
+      project.workspaces.map(
+        (workspace) => tabStatusSummaries.get(workspace.workspaceKey) ?? EMPTY_TAB_STATUS_SUMMARY,
+      ),
+    );
+  }, [badgeMode, collapsed, project.workspaces, tabStatusSummaries]);
 
   const renderWorkspaceRow = useCallback(
     (
@@ -1132,6 +3312,8 @@ function ProjectBlock({
       return (
         <MemoWorkspaceRowItem
           workspace={item}
+          badgeMode={badgeMode}
+          tabStatusSummary={tabStatusSummaries.get(item.workspaceKey) ?? EMPTY_TAB_STATUS_SUMMARY}
           shortcutNumber={shortcutIndexByWorkspaceKey.get(item.workspaceKey) ?? null}
           showShortcutBadge={showShortcutBadges}
           canCopyBranchName={project.projectKind === "git"}
@@ -1143,18 +3325,22 @@ function ProjectBlock({
           drag={input?.drag}
           isDragging={input?.isDragging}
           dragHandleProps={input?.dragHandleProps}
+          workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
         />
       );
     },
     [
       project.projectKind,
       activeWorkspaceSelection,
+      badgeMode,
       creatingWorkspaceIds,
       onWorkspacePress,
       serverId,
       selectionEnabled,
       shortcutIndexByWorkspaceKey,
       showShortcutBadges,
+      tabStatusSummaries,
+      workspaceKeysForAutoCollapse,
     ],
   );
 
@@ -1179,6 +3365,9 @@ function ProjectBlock({
       onWorkspaceReorder(project.projectKey, workspaces);
     },
     [onWorkspaceReorder, project.projectKey],
+  );
+  const setWorkspacesCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.setWorkspacesCollapsed,
   );
 
   const toast = useToast();
@@ -1226,39 +3415,18 @@ function ProjectBlock({
     })();
   }, [isRemovingProject, serverId, displayName, t, toast, project.projectKey, canRemoveProject]);
 
-  const handleToggleCollapsed = useCallback(() => {
-    onToggleCollapsed(project.projectKey);
-  }, [onToggleCollapsed, project.projectKey]);
-
-  let projectChildren = null;
-  if (!collapsed) {
-    if (project.workspaces.length > 0) {
-      projectChildren = (
-        <DraggableList
-          testID={`sidebar-workspace-list-${project.projectKey}`}
-          data={project.workspaces}
-          keyExtractor={workspaceKeyExtractor}
-          renderItem={renderWorkspace}
-          onDragEnd={handleWorkspaceDragEnd}
-          extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
-          scrollEnabled={false}
-          useDragHandle
-          nestable={useNestable}
-          simultaneousGestureRef={parentGestureRef}
-          containerStyle={styles.workspaceListContainer}
-        />
-      );
-    } else {
-      projectChildren = (
-        <NewWorkspaceGhostRow
-          project={project}
-          displayName={displayName}
-          serverId={serverId}
-          onWorkspacePress={onWorkspacePress}
-        />
-      );
-    }
-  }
+  const handleToggleCollapsed = useCallback(
+    (event: GestureResponderEvent) => {
+      if (isShiftPressed(event)) {
+        setWorkspacesCollapsed(
+          project.workspaces.map((workspace) => workspace.workspaceKey),
+          !collapsed,
+        );
+      }
+      onToggleCollapsed(project.projectKey);
+    },
+    [collapsed, onToggleCollapsed, project.projectKey, project.workspaces, setWorkspacesCollapsed],
+  );
 
   return (
     <View style={styles.projectBlock}>
@@ -1267,6 +3435,7 @@ function ProjectBlock({
         displayName={displayName}
         iconDataUri={iconDataUri}
         workspace={null}
+        statusSummary={projectStatusSummary}
         selected={false}
         chevron={rowModel.chevron}
         onPress={handleToggleCollapsed}
@@ -1284,7 +3453,21 @@ function ProjectBlock({
         dragHandleProps={dragHandleProps}
       />
 
-      {projectChildren}
+      {!collapsed && project.workspaces.length > 0 ? (
+        <DraggableList
+          testID={`sidebar-workspace-list-${project.projectKey}`}
+          data={project.workspaces}
+          keyExtractor={workspaceKeyExtractor}
+          renderItem={renderWorkspace}
+          onDragEnd={handleWorkspaceDragEnd}
+          extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+          scrollEnabled={false}
+          useDragHandle
+          nestable={useNestable}
+          simultaneousGestureRef={parentGestureRef}
+          containerStyle={styles.workspaceListContainer}
+        />
+      ) : null}
     </View>
   );
 }
@@ -1293,6 +3476,27 @@ type ProjectBlockProps = Parameters<typeof ProjectBlock>[0];
 
 function areProjectBlockPropsEqual(previous: ProjectBlockProps, next: ProjectBlockProps): boolean {
   return (
+    areProjectBlockStablePropsEqual(previous, next) &&
+    areProjectBlockSelectionsEqual(previous, next)
+  );
+}
+
+function areProjectBlockStablePropsEqual(
+  previous: ProjectBlockProps,
+  next: ProjectBlockProps,
+): boolean {
+  return (
+    areProjectBlockDataPropsEqual(previous, next) &&
+    areProjectBlockActionPropsEqual(previous, next) &&
+    areProjectBlockDragPropsEqual(previous, next)
+  );
+}
+
+function areProjectBlockDataPropsEqual(
+  previous: ProjectBlockProps,
+  next: ProjectBlockProps,
+): boolean {
+  return (
     previous.project === next.project &&
     previous.collapsed === next.collapsed &&
     previous.displayName === next.displayName &&
@@ -1300,19 +3504,36 @@ function areProjectBlockPropsEqual(previous: ProjectBlockProps, next: ProjectBlo
     previous.serverId === next.serverId &&
     previous.canRemoveProject === next.canRemoveProject &&
     previous.selectionEnabled === next.selectionEnabled &&
+    previous.badgeMode === next.badgeMode &&
     previous.showShortcutBadges === next.showShortcutBadges &&
     previous.shortcutIndexByWorkspaceKey === next.shortcutIndexByWorkspaceKey &&
+    previous.creatingWorkspaceIds === next.creatingWorkspaceIds &&
+    previous.workspaceKeysForAutoCollapse === next.workspaceKeysForAutoCollapse
+  );
+}
+
+function areProjectBlockActionPropsEqual(
+  previous: ProjectBlockProps,
+  next: ProjectBlockProps,
+): boolean {
+  return (
     previous.parentGestureRef === next.parentGestureRef &&
     previous.onToggleCollapsed === next.onToggleCollapsed &&
     previous.onWorkspacePress === next.onWorkspacePress &&
     previous.onWorkspaceReorder === next.onWorkspaceReorder &&
-    previous.onWorktreeCreated === next.onWorktreeCreated &&
+    previous.onWorktreeCreated === next.onWorktreeCreated
+  );
+}
+
+function areProjectBlockDragPropsEqual(
+  previous: ProjectBlockProps,
+  next: ProjectBlockProps,
+): boolean {
+  return (
     previous.drag === next.drag &&
     previous.isDragging === next.isDragging &&
     previous.dragHandleProps === next.dragHandleProps &&
-    previous.useNestable === next.useNestable &&
-    previous.creatingWorkspaceIds === next.creatingWorkspaceIds &&
-    areProjectBlockSelectionsEqual(previous, next)
+    previous.useNestable === next.useNestable
   );
 }
 
@@ -1444,6 +3665,16 @@ function ProjectModeList({
   const setProjectOrder = useSidebarOrderStore((state) => state.setProjectOrder);
   const getWorkspaceOrder = useSidebarOrderStore((state) => state.getWorkspaceOrder);
   const setWorkspaceOrder = useSidebarOrderStore((state) => state.setWorkspaceOrder);
+  const badgeMode = useSidebarViewStore((state) =>
+    serverId ? state.getBadgeMode(serverId) : "diff",
+  );
+  const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
+  const collapsedWorkspaceKeys = useSidebarCollapsedSectionsStore(
+    (state) => state.collapsedWorkspaceKeys,
+  );
+  const setOnlyWorkspaceExpanded = useSidebarCollapsedSectionsStore(
+    (state) => state.setOnlyWorkspaceExpanded,
+  );
   const canRemoveProject = useSessionStore((state) =>
     serverId ? state.sessions[serverId]?.serverInfo?.features?.projectRemove === true : false,
   );
@@ -1454,6 +3685,11 @@ function ProjectModeList({
   );
   const selectionEnabled = isWorkspaceRoute;
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const workspaceKeysForAutoCollapse = useMemo(
+    () =>
+      projects.flatMap((project) => project.workspaces.map((workspace) => workspace.workspaceKey)),
+    [projects],
+  );
   const nativeScrollGestureProps = useMemo(
     () =>
       parentGestureRef
@@ -1518,6 +3754,32 @@ function ProjectModeList({
       return next;
     });
   }, [creatingWorkspaceIds, projects]);
+
+  useEffect(() => {
+    if (!autoCollapseWorkspaces) {
+      return;
+    }
+    const expandedWorkspaceKeys = workspaceKeysForAutoCollapse.filter(
+      (workspaceKey) => !collapsedWorkspaceKeys.has(workspaceKey),
+    );
+    if (expandedWorkspaceKeys.length <= 1) {
+      return;
+    }
+    const activeWorkspaceKey = activeWorkspaceSelectionKey(activeWorkspaceSelection);
+    const workspaceKeyToKeep = expandedWorkspaceKeys.includes(activeWorkspaceKey)
+      ? activeWorkspaceKey
+      : expandedWorkspaceKeys[0];
+    if (!workspaceKeyToKeep) {
+      return;
+    }
+    setOnlyWorkspaceExpanded(workspaceKeyToKeep, workspaceKeysForAutoCollapse);
+  }, [
+    activeWorkspaceSelection,
+    autoCollapseWorkspaces,
+    collapsedWorkspaceKeys,
+    setOnlyWorkspaceExpanded,
+    workspaceKeysForAutoCollapse,
+  ]);
 
   const handleProjectDragEnd = useCallback(
     (reorderedProjects: SidebarProjectEntry[]) => {
@@ -1613,6 +3875,7 @@ function ProjectModeList({
           serverId={serverId}
           canRemoveProject={canRemoveProject}
           selectionEnabled={selectionEnabled}
+          badgeMode={badgeMode}
           showShortcutBadges={showShortcutBadges}
           shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
           parentGestureRef={parentGestureRef}
@@ -1626,6 +3889,7 @@ function ProjectModeList({
           useNestable={platformIsNative}
           creatingWorkspaceIds={creatingWorkspaceIds}
           activeWorkspaceSelection={activeWorkspaceSelection}
+          workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
         />
       );
     },
@@ -1638,19 +3902,21 @@ function ProjectModeList({
       onToggleProjectCollapsed,
       parentGestureRef,
       projectIconByProjectKey,
+      badgeMode,
       canRemoveProject,
       selectionEnabled,
       serverId,
       shortcutIndexByWorkspaceKey,
       showShortcutBadges,
       creatingWorkspaceIds,
+      workspaceKeysForAutoCollapse,
     ],
   );
 
   const content = (
     <>
       {projects.length === 0 ? (
-        <View style={styles.emptyContainer} testID="sidebar-project-empty-state">
+        <View style={styles.emptyContainer}>
           <Text style={styles.emptyTitle}>{t("sidebar.project.empty.title")}</Text>
           <Text style={styles.emptyText}>{t("sidebar.project.empty.description")}</Text>
           <Button variant="ghost" size="sm" leftIcon={Plus} onPress={onAddProject}>
@@ -1721,40 +3987,6 @@ const styles = StyleSheet.create((theme) => ({
     marginBottom: theme.spacing[1],
   },
   workspaceListContainer: {},
-  newWorkspaceGhostRow: {
-    minHeight: 32,
-    marginLeft: theme.spacing[6],
-    marginRight: theme.spacing[1],
-    paddingVertical: theme.spacing[1],
-    paddingHorizontal: theme.spacing[2],
-    borderRadius: theme.borderRadius.md,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    userSelect: "none",
-  },
-  newWorkspaceGhostRowHovered: {
-    backgroundColor: theme.colors.surfaceSidebarHover,
-  },
-  newWorkspaceGhostIconSlot: {
-    width: theme.iconSize.sm,
-    height: theme.iconSize.sm,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  newWorkspaceGhostText: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-    minWidth: 0,
-    flexShrink: 1,
-  },
-  newWorkspaceGhostTextHovered: {
-    fontSize: theme.fontSize.sm,
-    minWidth: 0,
-    flexShrink: 1,
-    color: theme.colors.foreground,
-  },
   emptyContainer: {
     marginHorizontal: theme.spacing[2],
     marginTop: theme.spacing[4],
@@ -1831,6 +4063,29 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
   },
+  projectLeadingVisualContent: {
+    position: "relative",
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  projectLeadingVisualHidden: {
+    opacity: 0,
+  },
+  projectChevronOverlay: {
+    position: "absolute",
+    inset: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  projectChevronOverlayHidden: {
+    position: "absolute",
+    inset: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    opacity: 0,
+  },
   projectIconFallback: {
     width: "100%",
     height: "100%",
@@ -1844,7 +4099,7 @@ const styles = StyleSheet.create((theme) => ({
   projectTitle: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
-    fontWeight: "400",
+    fontWeight: theme.fontWeight.bold,
     minWidth: 0,
     flexShrink: 1,
   },
@@ -1875,8 +4130,55 @@ const styles = StyleSheet.create((theme) => ({
   projectIconActionButtonHovered: {
     backgroundColor: theme.colors.surfaceSidebarHover,
   },
-  projectIconActionButtonHidden: {
+  workspaceIconButton: {
+    width: 24,
+    height: 24,
+    borderRadius: theme.borderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  workspaceIconButtonHovered: {
+    backgroundColor: theme.colors.surface2,
+  },
+  workspaceActionSlot: {
+    position: "relative",
+    width: 24,
+    minHeight: 24,
+    flexShrink: 0,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  workspaceActionSlotDiff: {
+    width: "auto",
+  },
+  workspaceActionSlotDouble: {
+    width: 50,
+  },
+  workspaceActionSlotTriple: {
+    width: 76,
+  },
+  workspaceActionHidden: {
     opacity: 0,
+  },
+  workspaceActionOverlayRow: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  workspaceDiffMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  workspacePrMetaGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    flexShrink: 0,
   },
   projectTrailingActions: {
     flexDirection: "row",
@@ -1891,9 +4193,6 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-  },
-  projectKebabButtonHidden: {
-    opacity: 0,
   },
   projectKebabButtonHovered: {
     backgroundColor: theme.colors.surface2,
@@ -1920,8 +4219,168 @@ const styles = StyleSheet.create((theme) => ({
     top: theme.spacing[2] + 1,
     right: theme.spacing[2],
   },
+  workspaceRow: {
+    minHeight: 36,
+    marginBottom: theme.spacing[1],
+    paddingVertical: theme.spacing[2],
+    paddingLeft: theme.spacing[3] + theme.spacing[3],
+    paddingRight: theme.spacing[3],
+    borderRadius: theme.borderRadius.lg,
+    flexDirection: "column",
+    alignItems: "stretch",
+    justifyContent: "center",
+    gap: theme.spacing[1],
+    userSelect: "none",
+  },
+  workspaceRowEmbeddedTabs: {
+    marginBottom: theme.spacing[0],
+    paddingLeft: theme.spacing[3],
+  },
+  workspaceRowMain: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+    width: "100%",
+  },
+  workspaceRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    flex: 1,
+    minWidth: 0,
+  },
+  workspaceRowRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    flexShrink: 0,
+  },
+  workspaceRowHovered: {
+    backgroundColor: theme.colors.surfaceSidebarHover,
+  },
+  workspaceRowPressed: {
+    backgroundColor: theme.colors.surface2,
+  },
+  workspaceRowDragging: {
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    transform: [{ scale: 1.02 }],
+    zIndex: 3,
+    ...theme.shadow.md,
+  },
   sidebarRowSelected: {
     backgroundColor: theme.colors.surfaceSidebarHover,
+  },
+  workspaceRowContainer: {
+    position: "relative",
+  },
+  embeddedTabsContainer: {
+    width: "100%",
+    marginBottom: theme.spacing[1],
+    gap: theme.spacing[0],
+  },
+  embeddedTabWrapper: {
+    width: "100%",
+  },
+  embeddedTabsVisibilityToggle: {
+    minHeight: 30,
+    paddingVertical: theme.spacing[1],
+    paddingHorizontal: theme.spacing[3],
+    borderRadius: theme.borderRadius.lg,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    width: "100%",
+    userSelect: "none",
+  },
+  embeddedTabsVisibilityToggleHovered: {
+    backgroundColor: theme.colors.surfaceSidebarHover,
+  },
+  embeddedTabsVisibilityToggleText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.normal,
+  },
+  embeddedTabRow: {
+    position: "relative",
+    minHeight: 36,
+    paddingVertical: theme.spacing[2],
+    paddingLeft: theme.spacing[3],
+    paddingRight: theme.spacing[3],
+    borderRadius: theme.borderRadius.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    width: "100%",
+    userSelect: "none",
+  },
+  embeddedTabRowHovered: {
+    backgroundColor: theme.colors.surfaceSidebarHover,
+  },
+  embeddedTabRowActive: {
+    backgroundColor: theme.colors.surface2,
+  },
+  embeddedTabRowDragging: {
+    transform: [{ scale: 1.01 }],
+    zIndex: 2,
+    ...theme.shadow.sm,
+  },
+  embeddedTabLabel: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    flex: 1,
+    minWidth: 0,
+  },
+  embeddedTabLabelActive: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.xs,
+    flex: 1,
+    minWidth: 0,
+  },
+  embeddedTabLabelWithTrailingSlot: {
+    marginRight: 22 + theme.spacing[2],
+  },
+  embeddedTabStatusSlot: {
+    width: 16,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  embeddedTabStatusAttentionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.palette.green[500],
+  },
+  embeddedTabCloseSlot: {
+    position: "absolute",
+    top: 0,
+    right: theme.spacing[3],
+    bottom: 0,
+    width: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  embeddedTabCloseButton: {
+    width: 22,
+    height: 22,
+    borderRadius: theme.borderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  embeddedTabCloseButtonHovered: {
+    backgroundColor: theme.colors.surface2,
+  },
+  workspaceStatusDot: {
+    position: "relative",
+    width: WORKSPACE_STATUS_DOT_WIDTH,
+    height: 16,
+    borderRadius: theme.borderRadius.full,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
   statusDotOverlay: {
     position: "absolute",
@@ -1931,6 +4390,49 @@ const styles = StyleSheet.create((theme) => ({
     height: DEFAULT_STATUS_DOT_SIZE,
     borderRadius: theme.borderRadius.full,
     borderWidth: 1,
+  },
+  workspaceArchivingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: `${theme.colors.surface0}cc`,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: theme.spacing[2],
+    zIndex: 1,
+  },
+  workspaceArchivingText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: "600",
+  },
+  workspaceBranchText: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: "400",
+    lineHeight: 20,
+    opacity: 0.76,
+    flex: 1,
+    minWidth: 0,
+  },
+  workspaceBranchTextCreating: {
+    opacity: 0.92,
+  },
+  workspaceBranchTextHovered: {
+    opacity: 1,
+  },
+  workspaceCreatingText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    flexShrink: 0,
+  },
+  kebabButton: {
+    padding: 2,
+    borderRadius: 4,
+    marginLeft: 2,
+  },
+  kebabButtonHovered: {
+    backgroundColor: theme.colors.surface2,
   },
   statusDotNeedsInput: {
     backgroundColor: theme.colors.palette.amber[500],
@@ -1948,6 +4450,57 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.palette.green[500],
     borderColor: theme.colors.surface0,
   },
+  statusDotDone: {
+    backgroundColor: theme.colors.statusSuccess,
+    borderColor: theme.colors.surface0,
+  },
+  statusSummaryBadges: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    flexShrink: 0,
+  },
+  statusSummaryCountBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: theme.borderRadius.full,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusSummarySpinnerCountBadge: {
+    position: "relative",
+    width: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusSummaryCountText: {
+    position: "absolute",
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.medium,
+    lineHeight: 14,
+  },
+  statusSummaryCountNeedsInput: {
+    borderColor: theme.colors.palette.amber[500],
+    color: theme.colors.palette.amber[500],
+  },
+  statusSummaryCountFailed: {
+    borderColor: theme.colors.palette.red[500],
+    color: theme.colors.palette.red[500],
+  },
+  statusSummaryCountRunning: {
+    borderColor: theme.colors.palette.blue[500],
+    color: theme.colors.palette.blue[500],
+  },
+  statusSummaryCountAttention: {
+    borderColor: theme.colors.palette.green[500],
+    color: theme.colors.palette.green[500],
+  },
+  statusSummaryCountDone: {
+    borderColor: theme.colors.statusSuccess,
+    color: theme.colors.statusSuccess,
+  },
 }));
 
 function getStatusDotColorStyle(bucket: SidebarStateBucket): ViewStyle | null {
@@ -1962,5 +4515,20 @@ function getStatusDotColorStyle(bucket: SidebarStateBucket): ViewStyle | null {
       return styles.statusDotAttention;
     case "done":
       return null;
+  }
+}
+
+function getStatusSummaryCountColorStyle(bucket: SidebarTabStatusBucket) {
+  switch (bucket) {
+    case "needs_input":
+      return styles.statusSummaryCountNeedsInput;
+    case "failed":
+      return styles.statusSummaryCountFailed;
+    case "running":
+      return styles.statusSummaryCountRunning;
+    case "attention":
+      return styles.statusSummaryCountAttention;
+    case "done":
+      return styles.statusSummaryCountDone;
   }
 }

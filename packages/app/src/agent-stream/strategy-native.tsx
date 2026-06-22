@@ -9,7 +9,6 @@ import {
 } from "react";
 import {
   FlatList,
-  ActivityIndicator,
   Keyboard,
   View,
   type LayoutChangeEvent,
@@ -17,6 +16,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { StreamItem } from "@/types/stream";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { useBottomAnchorController } from "./bottom-anchor-controller";
@@ -339,7 +339,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
     }
     return (
       <View testID="load-older-history-spinner">
-        <ActivityIndicator size="small" />
+        <LoadingSpinner size="small" />
       </View>
     );
   }, [isLoadingOlderHistory]);

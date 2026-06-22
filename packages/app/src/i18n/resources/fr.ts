@@ -821,6 +821,16 @@ export const fr: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "Réduire l’espace de travail",
+        expand: "Développer l’espace de travail",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "Tout afficher",
+        showAllLabel: "Afficher tous les onglets",
+        showLess: "Afficher moins",
+        showLessLabel: "Afficher moins d’onglets",
+      },
       status: {
         scriptsAvailable: "Scripts disponibles",
         creating: "Création...",
@@ -1528,6 +1538,16 @@ export const fr: TranslationResources = {
           claude: "Claude",
           ghostty: "Fantôme",
           auto: "Système",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

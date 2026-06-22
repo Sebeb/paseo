@@ -1,59 +1,43 @@
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  Text,
-  View,
-  type GestureResponderEvent,
-  type ViewStyle,
-} from "react-native";
+import { Pressable, Text, View, type GestureResponderEvent, type ViewStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   CircleAlert,
-  ExternalLink,
+  ChevronDown,
+  ChevronRight,
   Folder,
   FolderGit2,
-  GitPullRequest,
   Globe,
   Monitor,
   SquareTerminal,
 } from "lucide-react-native";
-import { GitHubIcon } from "@/components/icons/github-icon";
 import { WorkspaceHoverCard } from "@/components/workspace-hover-card";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SyncedLoader } from "@/components/synced-loader";
+import { useIsCompactFormFactor } from "@/constants/layout";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
-import { useAppSettings } from "@/hooks/use-settings";
 import type { Theme } from "@/styles/theme";
-import type { PrHint } from "@/git/use-pr-status-query";
 import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import { isEmphasizedStatusDotBucket } from "@/utils/status-dot-color";
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
-import { openExternalUrl } from "@/utils/open-external-url";
-import { resolveSidebarWorkspacePrimaryLabel } from "@/components/sidebar/sidebar-workspace-title";
+import { isNative as platformIsNative } from "@/constants/platform";
+import { useTranslation } from "react-i18next";
 
+const WORKSPACE_STATUS_DOT_WIDTH = 14;
 const DEFAULT_STATUS_DOT_SIZE = 7;
 const EMPHASIZED_STATUS_DOT_SIZE = 9;
 const DEFAULT_STATUS_DOT_OFFSET = 0;
 const EMPHASIZED_STATUS_DOT_OFFSET = -1;
 
-const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const amberColorMapping = (theme: Theme) => ({ color: theme.colors.palette.amber[500] });
 const syncedLoaderColorMapping = (theme: Theme) => ({
-  color:
-    theme.colorScheme === "light"
-      ? theme.colors.palette.amber[700]
-      : theme.colors.palette.amber[500],
+  color: theme.colors.palette.blue[500],
 });
 const blueColorMapping = (theme: Theme) => ({ color: theme.colors.palette.blue[500] });
-const greenColorMapping = (theme: Theme) => ({ color: theme.colors.palette.green[500] });
-const redColorMapping = (theme: Theme) => ({ color: theme.colors.palette.red[500] });
-const purpleColorMapping = (theme: Theme) => ({ color: theme.colors.palette.purple[500] });
 
-const ThemedExternalLink = withUnistyles(ExternalLink);
-const ThemedGitPullRequest = withUnistyles(GitPullRequest);
-const ThemedGitHubIcon = withUnistyles(GitHubIcon);
-const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
+const ThemedChevronDown = withUnistyles(ChevronDown);
+const ThemedChevronRight = withUnistyles(ChevronRight);
 const ThemedCircleAlert = withUnistyles(CircleAlert);
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 const ThemedMonitor = withUnistyles(Monitor);
@@ -98,8 +82,14 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   isHovered,
   isLoading,
   isCreating = false,
+  suppressStatusLoader = false,
+  suppressStatusVisual = false,
   shortcutNumber = null,
   showShortcutBadge = false,
+  hasTrailingContent,
+  expandable = false,
+  expanded = false,
+  onToggleExpanded,
   children,
 }: {
   workspace: SidebarWorkspaceEntry;
@@ -108,14 +98,16 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   isHovered: boolean;
   isLoading: boolean;
   isCreating?: boolean;
+  suppressStatusLoader?: boolean;
+  suppressStatusVisual?: boolean;
   shortcutNumber?: number | null;
   showShortcutBadge?: boolean;
+  hasTrailingContent?: boolean;
+  expandable?: boolean;
+  expanded?: boolean;
+  onToggleExpanded?: (event: GestureResponderEvent) => void;
   children?: ReactNode;
 }) {
-  const {
-    settings: { workspaceTitleSource },
-  } = useAppSettings();
-  const workspaceLabel = resolveSidebarWorkspacePrimaryLabel({ workspace, workspaceTitleSource });
   const workspaceBranchTextStyle = useMemo(
     () => [
       styles.workspaceBranchText,
@@ -125,35 +117,39 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
     ],
     [scriptIconKind, isHovered, isCreating],
   );
+  const shouldRenderTrailingContent = hasTrailingContent ?? children != null;
 
   return (
     <View style={styles.workspaceRowContent}>
       <View style={styles.workspaceRowMain}>
-        <WorkspaceStatusIndicator
-          bucket={workspace.statusBucket}
-          workspaceKind={workspace.workspaceKind}
-          loading={isLoading}
+        <WorkspaceLeadingVisual
+          workspace={workspace}
+          isLoading={isLoading}
+          suppressStatusLoader={suppressStatusLoader}
+          suppressStatusVisual={suppressStatusVisual}
+          isHovered={isHovered}
+          expandable={expandable}
+          expanded={expanded}
+          onToggleExpanded={onToggleExpanded}
         />
         <View style={styles.workspaceContentColumn}>
           <View style={styles.workspaceTitleRow}>
             <View style={styles.workspaceTitleLeft}>
               <Text style={workspaceBranchTextStyle} numberOfLines={1}>
-                {workspaceLabel}
+                {workspace.name}
               </Text>
               {scriptIconKind ? <WorkspaceScriptIcon kind={scriptIconKind} /> : null}
             </View>
-            <View style={styles.workspaceRowRight}>{children}</View>
+            {shouldRenderTrailingContent ? (
+              <View style={styles.workspaceRowRight} testID="workspace-row-right">
+                {children}
+              </View>
+            ) : null}
           </View>
           {subtitle ? (
             <Text style={styles.workspaceSubtitle} numberOfLines={1}>
               {subtitle}
             </Text>
-          ) : null}
-          {workspace.prHint ? (
-            <View style={styles.workspacePrBadgeRow}>
-              <PrBadge hint={workspace.prHint} />
-              <ChecksBadge checks={workspace.prHint.checks} />
-            </View>
           ) : null}
         </View>
       </View>
@@ -165,6 +161,76 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
     </View>
   );
 });
+
+function WorkspaceLeadingVisual({
+  workspace,
+  isLoading,
+  suppressStatusLoader,
+  suppressStatusVisual,
+  isHovered,
+  expandable,
+  expanded,
+  onToggleExpanded,
+}: {
+  workspace: SidebarWorkspaceEntry;
+  isLoading: boolean;
+  suppressStatusLoader: boolean;
+  suppressStatusVisual: boolean;
+  isHovered: boolean;
+  expandable: boolean;
+  expanded: boolean;
+  onToggleExpanded?: (event: GestureResponderEvent) => void;
+}) {
+  const { t } = useTranslation();
+  const isCompact = useIsCompactFormFactor();
+  const showExpandToggle = expandable && (isHovered || platformIsNative || isCompact);
+
+  return (
+    <View
+      testID="workspace-leading-visual"
+      style={expandable ? styles.workspaceLeadingExpandableSlot : styles.workspaceLeadingIconSlot}
+    >
+      <View style={showExpandToggle ? styles.workspaceLeadingIconHidden : undefined}>
+        <WorkspaceStatusIndicator
+          bucket={workspace.statusBucket}
+          workspaceKind={workspace.workspaceKind}
+          loading={isLoading}
+          suppressLoader={suppressStatusLoader}
+          suppressStatusVisual={suppressStatusVisual}
+          showStatus={!expandable || !expanded}
+        />
+      </View>
+      {expandable ? (
+        <View
+          style={
+            showExpandToggle
+              ? styles.workspaceExpandControlSlot
+              : styles.workspaceExpandControlSlotHidden
+          }
+          pointerEvents={showExpandToggle ? "auto" : "none"}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              expanded
+                ? t("sidebar.workspace.embeddedTabs.collapse")
+                : t("sidebar.workspace.embeddedTabs.expand")
+            }
+            onPress={onToggleExpanded}
+            style={styles.workspaceExpandButton}
+            hitSlop={6}
+          >
+            {expanded ? (
+              <ThemedChevronDown size={14} uniProps={foregroundMutedColorMapping} />
+            ) : (
+              <ThemedChevronRight size={14} uniProps={foregroundMutedColorMapping} />
+            )}
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 function WorkspaceScriptIcon({ kind }: { kind: SidebarWorkspaceScriptIconKind }) {
   return (
@@ -186,22 +252,39 @@ function WorkspaceStatusIndicator({
   bucket,
   workspaceKind,
   loading = false,
+  suppressLoader = false,
+  suppressStatusVisual = false,
+  showStatus = true,
 }: {
   bucket: SidebarWorkspaceEntry["statusBucket"];
   workspaceKind: SidebarWorkspaceEntry["workspaceKind"];
   loading?: boolean;
+  suppressLoader?: boolean;
+  suppressStatusVisual?: boolean;
+  showStatus?: boolean;
 }) {
+  if (!showStatus) {
+    return <WorkspaceKindIcon workspaceKind={workspaceKind} />;
+  }
+
+  if (suppressStatusVisual) {
+    return <WorkspaceKindIcon workspaceKind={workspaceKind} />;
+  }
+
   const shouldShowSyncedLoader = shouldRenderSyncedStatusLoader({ bucket });
 
   if (loading) {
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-loading">
-        <ThemedActivityIndicator size={8} uniProps={foregroundMutedColorMapping} />
+        <LoadingSpinner size={8} />
       </View>
     );
   }
 
   if (shouldShowSyncedLoader) {
+    if (suppressLoader) {
+      return <WorkspaceKindIcon workspaceKind={workspaceKind} />;
+    }
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-running">
         <ThemedSyncedLoader size={11} uniProps={syncedLoaderColorMapping} />
@@ -226,13 +309,8 @@ function WorkspaceStatusIndicator({
   }
 
   if (bucket === "done") {
-    return <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-done" />;
+    return <WorkspaceKindIcon workspaceKind={workspaceKind} />;
   }
-
-  let KindIcon: typeof ThemedMonitor;
-  if (workspaceKind === "local_checkout") KindIcon = ThemedMonitor;
-  else if (workspaceKind === "worktree") KindIcon = ThemedFolderGit2;
-  else KindIcon = ThemedFolder;
 
   const dotColorStyle = getStatusDotColorStyle(bucket);
   const statusDotSize = isEmphasizedStatusDotBucket(bucket)
@@ -244,7 +322,7 @@ function WorkspaceStatusIndicator({
       : DEFAULT_STATUS_DOT_OFFSET;
   return (
     <View style={styles.workspaceStatusDot} testID={`workspace-status-indicator-${bucket}`}>
-      <KindIcon size={14} uniProps={foregroundMutedColorMapping} />
+      <WorkspaceKindIconGlyph workspaceKind={workspaceKind} />
       {dotColorStyle ? (
         <StatusDotOverlay
           dotColorStyle={dotColorStyle}
@@ -254,6 +332,31 @@ function WorkspaceStatusIndicator({
       ) : null}
     </View>
   );
+}
+
+function WorkspaceKindIcon({
+  workspaceKind,
+}: {
+  workspaceKind: SidebarWorkspaceEntry["workspaceKind"];
+}) {
+  return (
+    <View style={styles.workspaceStatusDot} testID={`workspace-kind-icon-${workspaceKind}`}>
+      <WorkspaceKindIconGlyph workspaceKind={workspaceKind} />
+    </View>
+  );
+}
+
+function WorkspaceKindIconGlyph({
+  workspaceKind,
+}: {
+  workspaceKind: SidebarWorkspaceEntry["workspaceKind"];
+}) {
+  let KindIcon: typeof ThemedMonitor;
+  if (workspaceKind === "local_checkout") KindIcon = ThemedMonitor;
+  else if (workspaceKind === "worktree") KindIcon = ThemedFolderGit2;
+  else KindIcon = ThemedFolder;
+
+  return <KindIcon size={14} uniProps={foregroundMutedColorMapping} />;
 }
 
 function StatusDotOverlay({
@@ -281,76 +384,6 @@ function StatusDotOverlay({
   return <View style={overlayStyle} />;
 }
 
-function PrBadge({ hint }: { hint: PrHint }) {
-  const [isHovered, setIsHovered] = useState(false);
-  const handlePress = useCallback(
-    (event: GestureResponderEvent) => {
-      event.stopPropagation();
-      void openExternalUrl(hint.url);
-    },
-    [hint.url],
-  );
-  const textStyle = useMemo(
-    () => (isHovered ? [prBadgeStyles.text, prBadgeStyles.textHovered] : prBadgeStyles.text),
-    [isHovered],
-  );
-  const iconUniProps = isHovered ? foregroundColorMapping : getPrIconUniMapping(hint.state);
-
-  const handlePressIn = useCallback((event: GestureResponderEvent) => event.stopPropagation(), []);
-  const handleHoverIn = useCallback(() => setIsHovered(true), []);
-  const handleHoverOut = useCallback(() => setIsHovered(false), []);
-
-  const pressableStyle = useMemo(
-    () => [prBadgeStyles.badge, isHovered && prBadgeStyles.badgePressed],
-    [isHovered],
-  );
-
-  return (
-    <Pressable
-      accessibilityRole="link"
-      accessibilityLabel={`Pull request #${hint.number}`}
-      hitSlop={4}
-      onPressIn={handlePressIn}
-      onPress={handlePress}
-      onHoverIn={handleHoverIn}
-      onHoverOut={handleHoverOut}
-      style={pressableStyle}
-    >
-      {isHovered ? (
-        <ThemedExternalLink size={12} uniProps={iconUniProps} />
-      ) : (
-        <ThemedGitPullRequest size={12} uniProps={iconUniProps} />
-      )}
-      <Text style={textStyle} numberOfLines={1}>
-        {hint.number}
-      </Text>
-    </Pressable>
-  );
-}
-
-function ChecksBadge({ checks }: { checks: PrHint["checks"] }) {
-  if (!checks || checks.length === 0) return null;
-  const failed = checks.filter((check) => check.status === "failure").length;
-  if (failed === 0) return null;
-  return (
-    <View style={checksBadgeStyles.badge}>
-      <ThemedGitHubIcon size={10} uniProps={redColorMapping} />
-      <Text style={checksBadgeStyles.text}>{failed} failed</Text>
-    </View>
-  );
-}
-
-function getPrIconUniMapping(state: PrHint["state"]) {
-  switch (state) {
-    case "merged":
-      return purpleColorMapping;
-    case "open":
-      return greenColorMapping;
-    case "closed":
-      return redColorMapping;
-  }
-}
-
 function getStatusDotColorStyle(bucket: SidebarStateBucket) {
   switch (bucket) {
     case "needs_input":
@@ -365,40 +398,6 @@ function getStatusDotColorStyle(bucket: SidebarStateBucket) {
       return null;
   }
 }
-
-const prBadgeStyles = StyleSheet.create((theme) => ({
-  badge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-  },
-  badgePressed: {
-    opacity: 0.82,
-  },
-  text: {
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.normal,
-    lineHeight: 14,
-    color: theme.colors.foregroundMuted,
-  },
-  textHovered: {
-    color: theme.colors.foreground,
-  },
-}));
-
-const checksBadgeStyles = StyleSheet.create((theme) => ({
-  badge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-  },
-  text: {
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.normal,
-    lineHeight: 14,
-    color: theme.colors.palette.red[500],
-  },
-}));
 
 export const sidebarWorkspaceRowStyles = StyleSheet.create((theme) => ({
   rowRight: {
@@ -485,6 +484,52 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     width: "100%",
   },
+  workspaceLeadingIconSlot: {
+    width: WORKSPACE_STATUS_DOT_WIDTH,
+    height: 20,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  workspaceLeadingExpandableSlot: {
+    position: "relative",
+    width: WORKSPACE_STATUS_DOT_WIDTH,
+    height: 20,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  workspaceLeadingIconHidden: {
+    opacity: 0,
+  },
+  workspaceExpandControlSlot: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: 14,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  workspaceExpandControlSlotHidden: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: 14,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    opacity: 0,
+  },
+  workspaceExpandButton: {
+    width: 14,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
   workspaceContentColumn: {
     flex: 1,
     minWidth: 0,
@@ -510,7 +555,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   workspaceStatusDot: {
     position: "relative",
-    width: theme.iconSize.md,
+    width: WORKSPACE_STATUS_DOT_WIDTH,
     height: 20,
     borderRadius: theme.borderRadius.full,
     flexShrink: 0,
@@ -558,12 +603,6 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
     lineHeight: 14,
-  },
-  workspacePrBadgeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    marginTop: theme.spacing[1],
   },
   statusDotNeedsInput: {
     backgroundColor: theme.colors.palette.amber[500],

@@ -103,6 +103,7 @@ interface WorkspaceTabIconProps {
   active?: boolean;
   size?: number;
   statusDotBorderColor?: string;
+  showStatusBadge?: boolean;
 }
 
 const ThemedCheckIcon = withUnistyles(Check);
@@ -113,6 +114,7 @@ export function WorkspaceTabIcon({
   active = false,
   size = 14,
   statusDotBorderColor,
+  showStatusBadge = true,
 }: WorkspaceTabIconProps): ReactElement {
   const iconColor = active ? styles.iconActive.color : styles.iconInactive.color;
   const bucket = presentation.statusBucket;
@@ -129,7 +131,7 @@ export function WorkspaceTabIcon({
       ? EMPHASIZED_STATUS_DOT_OFFSET
       : DEFAULT_STATUS_DOT_OFFSET;
   const shouldShowLoader = shouldRenderSyncedStatusLoader({
-    bucket: presentation.statusBucket,
+    bucket: showStatusBadge ? presentation.statusBucket : null,
   });
   const Icon = presentation.icon;
   const agentIconWrapperStyle = useMemo(
@@ -162,7 +164,7 @@ export function WorkspaceTabIcon({
   return (
     <View style={agentIconWrapperStyle}>
       <Icon size={size} color={iconColor} />
-      {statusDotColor ? <View style={statusDotStyle} /> : null}
+      {showStatusBadge && statusDotColor ? <View style={statusDotStyle} /> : null}
     </View>
   );
 }
@@ -257,10 +259,7 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
   },
   syncedLoader: {
-    color:
-      theme.colorScheme === "light"
-        ? theme.colors.palette.amber[700]
-        : theme.colors.palette.amber[500],
+    color: theme.colors.palette.blue[500],
   },
   optionRow: {
     flexDirection: "row",

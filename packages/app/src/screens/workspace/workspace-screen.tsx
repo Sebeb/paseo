@@ -10,12 +10,13 @@ import {
 } from "react";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useIsFocused } from "@react-navigation/native";
-import { ActivityIndicator, BackHandler, Keyboard, Pressable, Text, View } from "react-native";
+import { BackHandler, Keyboard, Pressable, Text, View } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, type Href } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { useTranslation } from "react-i18next";
 import { DiffStat } from "@/components/diff-stat";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import {
   CopyX,
   ArrowLeftToLine,
@@ -79,6 +80,7 @@ import {
 import {
   buildWorkspaceTabPersistenceKey,
   collectAllTabs,
+  findMainPane,
   getFocusedBrowserId,
   type WorkspaceLayout,
   useWorkspaceLayoutStore,
@@ -108,9 +110,8 @@ import type { CheckoutStatusPayload } from "@/git/use-status-query";
 import { checkoutStatusQueryKey } from "@/git/query-keys";
 import { fetchCheckoutStatus } from "@/git/checkout-status-cache";
 import { confirmDialog } from "@/utils/confirm-dialog";
-import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useStableEvent } from "@/hooks/use-stable-event";
-import { createWorkspaceBrowser, useBrowserStore } from "@/stores/browser-store";
+import { createWorkspaceBrowser } from "@/stores/browser-store";
 import { getDesktopHost } from "@/desktop/host";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { generateDraftId } from "@/stores/draft-keys";
@@ -168,7 +169,7 @@ import {
   classifyBulkClosableTabs,
   closeBulkWorkspaceTabs,
 } from "@/screens/workspace/workspace-bulk-close";
-import { resolveCloseAgentTabPolicy } from "@/subagents";
+import { useWorkspaceTabClose } from "@/screens/workspace/use-workspace-tab-close";
 import { findAdjacentPane } from "@/utils/split-navigation";
 import { useIsCompactFormFactor, supportsDesktopPaneSplits } from "@/constants/layout";
 import { getIsElectron, isNative, isWeb } from "@/constants/platform";
@@ -184,6 +185,7 @@ import {
   type TerminalProfileInput,
 } from "@/screens/workspace/terminals/use-workspace-terminals";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
+import { useAppSettings } from "@/hooks/use-settings";
 import {
   getTerminalProfileIcon,
   resolveTerminalProfiles,
@@ -236,7 +238,6 @@ function buildWorkspaceFileLocation(
   return { path: fields.path, lineStart: fields.lineStart, lineEnd: fields.lineEnd };
 }
 
-const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
 const ThemedEllipsis = withUnistyles(Ellipsis);
 const ThemedEllipsisVertical = withUnistyles(EllipsisVertical);
 const ThemedChevronDown = withUnistyles(ChevronDown);
@@ -936,33 +937,6 @@ export const WorkspaceScreen = memo(function WorkspaceScreen({
   );
 });
 
-interface UseCloseTabsResult {
-  closingTabIds: Set<string>;
-  closeTab: (tabId: string, action: () => Promise<void>) => Promise<void>;
-}
-
-function useCloseTabs(): UseCloseTabsResult {
-  const pendingRef = useRef(new Set<string>());
-  const [closingTabIds, setClosingTabIds] = useState<Set<string>>(EMPTY_SET);
-
-  const closeTab = useCallback(async (tabId: string, action: () => Promise<void>) => {
-    const normalized = tabId.trim();
-    if (!normalized || pendingRef.current.has(normalized)) {
-      return;
-    }
-    pendingRef.current.add(normalized);
-    setClosingTabIds(new Set(pendingRef.current));
-    try {
-      await action();
-    } finally {
-      pendingRef.current.delete(normalized);
-      setClosingTabIds(new Set(pendingRef.current));
-    }
-  }, []);
-
-  return { closingTabIds, closeTab };
-}
-
 interface WorkspaceHeaderMenuProps {
   normalizedServerId: string;
   currentBranchName: string | null;
@@ -1361,7 +1335,7 @@ function renderWorkspaceContent(input: RenderWorkspaceContentInput): React.React
   if (!activeTabDescriptor && !hasHydratedAgents) {
     return (
       <View style={styles.emptyState}>
-        <ThemedActivityIndicator uniProps={mutedColorMapping} />
+        <LoadingSpinner />
       </View>
     );
   }
@@ -1726,6 +1700,18 @@ function useWorkspaceCheckoutStatus(input: {
   return { checkoutQuery, isCheckoutStatusLoading };
 }
 
+function useDesktopEmbeddedTabsEnabled(isMobile: boolean): boolean {
+  const { settings: appSettings } = useAppSettings();
+  return appSettings.tabLayoutMode !== "horizontal" && !isMobile;
+}
+
+function shouldShowDesktopPaneFallbackTabs(input: {
+  shouldRenderDesktopPaneFallback: boolean;
+  embeddedTabsEnabled: boolean;
+}): boolean {
+  return input.shouldRenderDesktopPaneFallback && !input.embeddedTabsEnabled;
+}
+
 function WorkspaceScreenContent({
   serverId,
   workspaceId,
@@ -1735,6 +1721,7 @@ function WorkspaceScreenContent({
   const _insets = useSafeAreaInsets();
   const toast = useToast();
   const isMobile = useIsCompactFormFactor();
+  const embeddedTabsEnabled = useDesktopEmbeddedTabsEnabled(isMobile);
   const isFocusModeEnabled = usePanelStore((state) => state.desktop.focusModeEnabled);
 
   const normalizedServerId = useMemo(() => trimNonEmpty(decodeSegment(serverId)) ?? "", [serverId]);
@@ -1825,14 +1812,11 @@ function WorkspaceScreenContent({
     createTerminal,
     handleScriptTerminalStarted,
     handleViewScriptTerminal,
-    invalidateTerminals,
-    killMutation: killTerminalMutation,
     knownTerminalIds,
     liveTerminalIds,
     pendingCreateInput: pendingTerminalCreateInput,
     query: terminalsQuery,
     queryKey: terminalsQueryKey,
-    removeTerminalFromCache,
     standaloneTerminalIds,
     terminals,
   } = useWorkspaceTerminals({
@@ -1851,8 +1835,6 @@ function WorkspaceScreenContent({
     onTerminalCreateQueued: handleTerminalCreateQueued,
     onTerminalCreateFailed: handleTerminalCreateFailed,
   });
-  const { archiveAgent } = useArchiveAgent();
-
   const { checkoutQuery, isCheckoutStatusLoading } = useWorkspaceCheckoutStatus({
     client,
     isConnected,
@@ -1970,14 +1952,15 @@ function WorkspaceScreenContent({
     () => (workspaceLayout ? collectAllTabs(workspaceLayout.root) : EMPTY_UI_TABS),
     [workspaceLayout],
   );
+  const mainPaneId = useMemo(
+    () => (workspaceLayout ? (findMainPane(workspaceLayout.root)?.id ?? null) : null),
+    [workspaceLayout],
+  );
   useSyncWorkspaceActiveBrowser({ workspaceLayout, isRouteFocused });
   const openWorkspaceTabInBackground = useWorkspaceLayoutStore(
     (state) => state.openTabInBackground,
   );
   const focusWorkspaceTab = useWorkspaceLayoutStore((state) => state.focusTab);
-  const closeWorkspaceTab = useWorkspaceLayoutStore((state) => state.closeTab);
-  const unpinWorkspaceAgent = useWorkspaceLayoutStore((state) => state.unpinAgent);
-  const hideWorkspaceAgent = useWorkspaceLayoutStore((state) => state.hideAgent);
   const retargetWorkspaceTab = useWorkspaceLayoutStore((state) => state.retargetTab);
   const reconcileWorkspaceTabs = useWorkspaceLayoutStore((state) => state.reconcileTabs);
   const splitWorkspacePane = useWorkspaceLayoutStore((state) => state.splitPane);
@@ -1995,32 +1978,20 @@ function WorkspaceScreenContent({
     persistenceKey ? (state.hiddenAgentIdsByWorkspace[persistenceKey] ?? EMPTY_SET) : EMPTY_SET,
   );
   const pendingByDraftId = useCreateFlowStore((state) => state.pendingByDraftId);
-  const { closingTabIds, closeTab } = useCloseTabs();
+  const [hoveredCloseTabKey, setHoveredCloseTabKey] = useState<string | null>(null);
+  const handleTabClosed = useCallback((tabId: string) => {
+    setHoveredCloseTabKey((current) => (current === tabId ? null : current));
+  }, []);
+  const { closingTabIds, closeTab, closeWorkspaceTabWithCleanup, handleCloseTabById } =
+    useWorkspaceTabClose({
+      serverId: normalizedServerId,
+      workspaceId: normalizedWorkspaceId,
+      workspaceDirectory,
+      tabs: uiTabs,
+      onTabClosed: handleTabClosed,
+    });
   const { onLayout: onHeaderLayout, isBelow: showCompactButtonLabels } =
     useContainerWidthBelow(700);
-  const closeWorkspaceTabWithCleanup = useCallback(
-    function closeWorkspaceTabWithCleanup(input: {
-      tabId: string;
-      target?: WorkspaceTabTarget | null;
-    }) {
-      const normalizedTabId = trimNonEmpty(input.tabId);
-      if (!normalizedTabId || !persistenceKey) {
-        return;
-      }
-
-      if (input.target?.kind === "agent") {
-        unpinWorkspaceAgent(persistenceKey, input.target.agentId);
-        hideWorkspaceAgent(persistenceKey, input.target.agentId);
-      }
-      if (input.target?.kind === "browser") {
-        const { browserId } = input.target;
-        useBrowserStore.getState().removeBrowser(browserId);
-        void getDesktopHost()?.browser?.clearPartition?.(browserId);
-      }
-      closeWorkspaceTab(persistenceKey, normalizedTabId);
-    },
-    [closeWorkspaceTab, hideWorkspaceAgent, persistenceKey, unpinWorkspaceAgent],
-  );
 
   const focusedPaneTabState = useMemo(
     () =>
@@ -2412,7 +2383,6 @@ function WorkspaceScreenContent({
     handleOpenFileFromChat(request.location, { parentTabId });
   });
 
-  const [hoveredCloseTabKey, setHoveredCloseTabKey] = useState<string | null>(null);
   const { handleRenameTab, renamingTab, handleRenameModalSubmit, handleRenameModalClose } =
     useWorkspaceTabRename({
       client,
@@ -2567,123 +2537,6 @@ function WorkspaceScreenContent({
       handleCreateDraftTab({ paneId });
     },
     [handleCreateDraftTab, persistenceKey, splitWorkspacePaneEmpty],
-  );
-
-  const killTerminalAsync = killTerminalMutation.mutateAsync;
-
-  const handleCloseTerminalTab = useCallback(
-    async (input: { tabId: string; terminalId: string }) => {
-      const { tabId, terminalId } = input;
-      await closeTab(tabId, async () => {
-        const confirmed = await confirmDialog({
-          title: t("workspace.tabs.confirmations.closeTerminalTitle"),
-          message: t("workspace.tabs.confirmations.closeTerminalMessage"),
-          confirmLabel: t("workspace.tabs.confirmations.close"),
-          cancelLabel: t("workspace.tabs.confirmations.cancel"),
-          destructive: true,
-        });
-        if (!confirmed) {
-          return;
-        }
-
-        removeTerminalFromCache(terminalId);
-        setHoveredCloseTabKey((current) => (current === tabId ? null : current));
-        if (persistenceKey) {
-          closeWorkspaceTabWithCleanup({
-            tabId,
-            target: { kind: "terminal", terminalId },
-          });
-        }
-
-        void killTerminalAsync(terminalId).catch(invalidateTerminals);
-      });
-    },
-    [
-      closeTab,
-      closeWorkspaceTabWithCleanup,
-      invalidateTerminals,
-      killTerminalAsync,
-      persistenceKey,
-      removeTerminalFromCache,
-      t,
-    ],
-  );
-
-  const handleCloseAgentTab = useCallback(
-    async (input: { tabId: string; agentId: string }) => {
-      const { tabId, agentId } = input;
-      await closeTab(tabId, async () => {
-        if (!normalizedServerId) {
-          return;
-        }
-
-        const agent =
-          useSessionStore.getState().sessions[normalizedServerId]?.agents?.get(agentId) ?? null;
-        const closePolicy = resolveCloseAgentTabPolicy(agent);
-        const isRunning = agent?.status === "running";
-
-        if (isRunning && closePolicy.kind === "archive-on-close") {
-          const confirmed = await confirmDialog({
-            title: t("workspace.tabs.confirmations.archiveRunningAgentTitle"),
-            message: t("workspace.tabs.confirmations.archiveRunningAgentMessage"),
-            confirmLabel: t("workspace.tabs.confirmations.archive"),
-            cancelLabel: t("workspace.tabs.confirmations.cancel"),
-            destructive: true,
-          });
-          if (!confirmed) {
-            return;
-          }
-        }
-
-        setHoveredCloseTabKey((current) => (current === tabId ? null : current));
-        if (persistenceKey) {
-          closeWorkspaceTabWithCleanup({
-            tabId,
-            target: { kind: "agent", agentId },
-          });
-        }
-
-        if (closePolicy.kind === "layout-only") {
-          return;
-        }
-
-        // Errors (e.g. timeout) are handled by the mutation's onSettled callback
-        void archiveAgent({ serverId: normalizedServerId, agentId }).catch(() => {});
-      });
-    },
-    [archiveAgent, closeTab, closeWorkspaceTabWithCleanup, normalizedServerId, persistenceKey, t],
-  );
-
-  const handleCloseDraftOrFileTab = useCallback(
-    function handleCloseDraftOrFileTab(input: {
-      tabId: string;
-      target?: WorkspaceTabTarget | null;
-    }) {
-      setHoveredCloseTabKey((current) => (current === input.tabId ? null : current));
-      if (persistenceKey) {
-        closeWorkspaceTabWithCleanup({ tabId: input.tabId, target: input.target });
-      }
-    },
-    [closeWorkspaceTabWithCleanup, persistenceKey],
-  );
-
-  const handleCloseTabById = useCallback(
-    async (tabId: string) => {
-      const tab = allTabDescriptorsById.get(tabId);
-      if (!tab) {
-        return;
-      }
-      if (tab.target.kind === "terminal") {
-        await handleCloseTerminalTab({ tabId, terminalId: tab.target.terminalId });
-        return;
-      }
-      if (tab.target.kind === "agent") {
-        await handleCloseAgentTab({ tabId, agentId: tab.target.agentId });
-        return;
-      }
-      handleCloseDraftOrFileTab({ tabId, target: tab.target });
-    },
-    [allTabDescriptorsById, handleCloseAgentTab, handleCloseDraftOrFileTab, handleCloseTerminalTab],
   );
 
   const handleCopyAgentId = useCallback(
@@ -3131,6 +2984,10 @@ function WorkspaceScreenContent({
     () => !isMobile && !canRenderDesktopPaneSplits,
     [isMobile, canRenderDesktopPaneSplits],
   );
+  const shouldShowDesktopPaneFallback = shouldShowDesktopPaneFallbackTabs({
+    shouldRenderDesktopPaneFallback,
+    embeddedTabsEnabled,
+  });
   useEffect(() => {
     if (!isRouteFocused || isNative || typeof document === "undefined" || activeTabDescriptor) {
       return;
@@ -3554,6 +3411,7 @@ function WorkspaceScreenContent({
         onResizeSplit={handleResizePaneSplit}
         onReorderTabsInPane={handleReorderTabsInPane}
         renderPaneEmptyState={renderSplitPaneEmptyState}
+        embeddedMainPaneId={embeddedTabsEnabled ? mainPaneId : null}
       />
     );
   }, [
@@ -3589,6 +3447,8 @@ function WorkspaceScreenContent({
     handleResizePaneSplit,
     handleReorderTabsInPane,
     renderSplitPaneEmptyState,
+    embeddedTabsEnabled,
+    mainPaneId,
   ]);
   const desktopContent = desktopSplitContent ?? content;
 
@@ -3662,7 +3522,7 @@ function WorkspaceScreenContent({
         />
       ) : null}
 
-      {shouldRenderDesktopPaneFallback ? (
+      {shouldShowDesktopPaneFallback ? (
         <WorkspaceDesktopTabsRow
           paneId={focusedPaneIdOrUndefined}
           isFocused={isRouteFocused}

@@ -12,10 +12,12 @@ export type SendBehavior = "interrupt" | "queue";
 export type ReleaseChannel = "stable" | "beta";
 export type ServiceUrlBehavior = "ask" | "in-app" | "external";
 export type WorkspaceTitleSource = "title" | "branch";
+export type AppTabLayoutMode = "horizontal" | "vertical" | "sidebar";
 
 const VALID_THEMES = new Set<string>([...Object.keys(THEME_TO_UNISTYLES), "auto"]);
 const VALID_SERVICE_URL_BEHAVIORS = new Set<ServiceUrlBehavior>(["ask", "in-app", "external"]);
 const VALID_WORKSPACE_TITLE_SOURCES = new Set<WorkspaceTitleSource>(["title", "branch"]);
+const VALID_TAB_LAYOUT_MODES = new Set<AppTabLayoutMode>(["horizontal", "vertical", "sidebar"]);
 export const DEFAULT_TERMINAL_SCROLLBACK_LINES = 10_000;
 export const MIN_TERMINAL_SCROLLBACK_LINES = 0;
 export const MAX_TERMINAL_SCROLLBACK_LINES = 1_000_000;
@@ -30,6 +32,7 @@ export const MAX_FONT_FAMILY_LENGTH = 200;
 export interface AppSettings {
   theme: ThemeName | "auto";
   language: AppLanguage;
+  tabLayoutMode: AppTabLayoutMode;
   sendBehavior: SendBehavior;
   serviceUrlBehavior: ServiceUrlBehavior;
   terminalScrollbackLines: number;
@@ -49,6 +52,7 @@ export interface Settings extends AppSettings {
 export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   theme: "auto",
   language: "system",
+  tabLayoutMode: "horizontal",
   sendBehavior: "interrupt",
   serviceUrlBehavior: "ask",
   terminalScrollbackLines: DEFAULT_TERMINAL_SCROLLBACK_LINES,
@@ -151,7 +155,11 @@ export async function loadSettingsFromStorage(deps: SettingsDeps): Promise<Setti
   };
 }
 
-function pickAppSettings(stored: Partial<AppSettings>): Partial<AppSettings> {
+interface PersistedAppSettings extends Partial<AppSettings> {
+  embeddedTabs?: unknown;
+}
+
+function pickAppSettings(stored: PersistedAppSettings): Partial<AppSettings> {
   const result: Partial<AppSettings> = {};
   if (typeof stored.theme === "string" && VALID_THEMES.has(stored.theme)) {
     result.theme = stored.theme;
@@ -159,6 +167,10 @@ function pickAppSettings(stored: Partial<AppSettings>): Partial<AppSettings> {
   const language = parseAppLanguage(stored.language);
   if (language !== null) {
     result.language = language;
+  }
+  const tabLayoutMode = parseTabLayoutMode(stored);
+  if (tabLayoutMode !== null) {
+    result.tabLayoutMode = tabLayoutMode;
   }
   if (stored.sendBehavior === "interrupt" || stored.sendBehavior === "queue") {
     result.sendBehavior = stored.sendBehavior;
@@ -213,6 +225,19 @@ function pickAppSettingsFromLegacy(legacy: Record<string, unknown>): Partial<App
     result.theme = legacy.theme;
   }
   return result;
+}
+
+function parseTabLayoutMode(stored: PersistedAppSettings): AppTabLayoutMode | null {
+  if (
+    typeof stored.tabLayoutMode === "string" &&
+    VALID_TAB_LAYOUT_MODES.has(stored.tabLayoutMode)
+  ) {
+    return stored.tabLayoutMode;
+  }
+  if (typeof stored.embeddedTabs === "boolean") {
+    return stored.embeddedTabs ? "sidebar" : "horizontal";
+  }
+  return null;
 }
 
 export function parseTerminalScrollbackLines(value: unknown): number | null {

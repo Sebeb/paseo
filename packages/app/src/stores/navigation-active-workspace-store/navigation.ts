@@ -31,6 +31,10 @@ export interface NavigateToLastWorkspaceDeps extends NavigateToWorkspaceDeps {
   getLastWorkspaceSelection: () => ActiveWorkspaceSelection | null;
 }
 
+export interface NavigateToWorkspaceOptions {
+  openAttentionAgent?: boolean;
+}
+
 function getParamValue(value: string | string[] | undefined): string {
   if (typeof value === "string") {
     return value.trim();
@@ -68,20 +72,23 @@ export function navigateToWorkspace(
   serverId: string,
   workspaceId: string,
   deps: NavigateToWorkspaceDeps,
+  options: NavigateToWorkspaceOptions = {},
 ): void {
   const workspaces = deps.getSessionWorkspaces(serverId);
   const resolvedWorkspaceId = resolveWorkspaceMapKeyByIdentity({
     workspaces,
     workspaceId,
   });
-  const workspaceAgents = resolvedWorkspaceId
-    ? Array.from(deps.getSessionAgents(serverId)).filter(
-        (agent) => normalizeWorkspaceOpaqueId(agent.workspaceId) === resolvedWorkspaceId,
-      )
-    : [];
-  const attentionAgentId = pickAttentionAgent(workspaceAgents);
-  if (attentionAgentId && resolvedWorkspaceId) {
-    deps.openWorkspaceAgentTab(`${serverId}:${resolvedWorkspaceId}`, attentionAgentId);
+  if (options.openAttentionAgent !== false) {
+    const workspaceAgents = resolvedWorkspaceId
+      ? Array.from(deps.getSessionAgents(serverId)).filter(
+          (agent) => normalizeWorkspaceOpaqueId(agent.workspaceId) === resolvedWorkspaceId,
+        )
+      : [];
+    const attentionAgentId = pickAttentionAgent(workspaceAgents);
+    if (attentionAgentId && resolvedWorkspaceId) {
+      deps.openWorkspaceAgentTab(`${serverId}:${resolvedWorkspaceId}`, attentionAgentId);
+    }
   }
 
   deps.rememberLastWorkspace({ serverId, workspaceId });

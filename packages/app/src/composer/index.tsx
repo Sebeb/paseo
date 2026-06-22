@@ -1,10 +1,4 @@
-import {
-  View,
-  Pressable,
-  Text,
-  ActivityIndicator,
-  type PressableStateCallbackType,
-} from "react-native";
+import { View, Pressable, Text, type PressableStateCallbackType } from "react-native";
 import type { TFunction } from "i18next";
 import {
   useState,
@@ -19,6 +13,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useShallow } from "zustand/shallow";
 import {
   ArrowUp,
@@ -824,7 +819,7 @@ function ComposerCancelButton({
     ? t("composer.cancel.cancelingAgent")
     : t("composer.cancel.stopAgent");
   const icon = isCancellingAgent ? (
-    <ActivityIndicator size="small" color="white" />
+    <LoadingSpinner size="small" />
   ) : (
     <Square size={buttonIconSize} color="white" fill="white" />
   );
@@ -924,7 +919,7 @@ function ComposerVoiceModeButton({
   const renderTriggerContent = useCallback(
     ({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => {
       if (isVoiceSwitching) {
-        return <ActivityIndicator size="small" color="white" />;
+        return <LoadingSpinner size="small" />;
       }
       const colorMapping = hovered ? iconForegroundMapping : iconForegroundMutedMapping;
       return <ThemedAudioLines size={buttonIconSize} uniProps={colorMapping} />;

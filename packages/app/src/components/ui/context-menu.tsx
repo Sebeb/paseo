@@ -14,7 +14,6 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  ActivityIndicator,
   Dimensions,
   Modal,
   Platform,
@@ -31,6 +30,7 @@ import {
 import { FadeIn, FadeOut } from "react-native-reanimated";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Check, CheckCircle } from "lucide-react-native";
 import { BottomSheetBackdrop, BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -629,11 +629,10 @@ function resolveLeadingContent(input: {
   isPending: boolean;
   isSuccess: boolean;
   leading: ReactElement | null | undefined;
-  pendingColor: string;
   successColor: string;
 }): ReactElement | null {
   if (input.isPending) {
-    return <ActivityIndicator size={16} color={input.pendingColor} />;
+    return <LoadingSpinner size={16} />;
   }
   if (input.isSuccess) {
     return <CheckCircle size={16} color={input.successColor} />;
@@ -701,7 +700,6 @@ export function ContextMenuItem({
     isPending,
     isSuccess,
     leading,
-    pendingColor: theme.colors.foregroundMuted,
     successColor: theme.colors.palette.green[500],
   });
 

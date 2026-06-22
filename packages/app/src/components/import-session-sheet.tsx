@@ -108,7 +108,6 @@ function SheetStatusMessages({
   erroredProviderLabels,
   importErrored,
 }: SheetStatusMessagesProps) {
-  const { theme } = useUnistyles();
   const { t } = useTranslation();
   if (!isClientReady) {
     return <Text style={styles.statusText}>{t("importSession.status.connectHost")}</Text>;
@@ -123,7 +122,7 @@ function SheetStatusMessages({
       ) : null}
       {isLoadingSessions && !hasRows ? (
         <View style={styles.statusRow}>
-          <LoadingSpinner color={theme.colors.foregroundMuted} />
+          <LoadingSpinner />
           <Text style={styles.statusText}>{t("importSession.status.loading")}</Text>
         </View>
       ) : null}
@@ -165,7 +164,7 @@ function RefreshAction({ isRefreshing, onPress }: { isRefreshing: boolean; onPre
     >
       <View style={styles.refreshIconSlot}>
         {isRefreshing ? (
-          <LoadingSpinner color={theme.colors.foregroundMuted} />
+          <LoadingSpinner />
         ) : (
           <RotateCw size={16} color={theme.colors.foregroundMuted} />
         )}

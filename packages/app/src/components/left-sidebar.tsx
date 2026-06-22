@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   type Dispatch,
   memo,
+  type ComponentProps,
   type ReactElement,
   type RefObject,
   type SetStateAction,
@@ -35,7 +36,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
-import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/sidebar-display-preferences-menu";
+import { SidebarGroupingSelector } from "@/components/sidebar/sidebar-grouping-selector";
 import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/combobox";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -45,19 +46,28 @@ import { useSidebarAnimation } from "@/contexts/sidebar-animation-context";
 import { useOpenProjectPicker } from "@/hooks/use-open-project-picker";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useSidebarShortcutModel } from "@/hooks/use-sidebar-shortcut-model";
+import { useAppSettings } from "@/hooks/use-settings";
 import {
   type SidebarProjectEntry,
+  type SidebarWorkspaceEntry,
   useSidebarWorkspacesList,
 } from "@/hooks/use-sidebar-workspaces-list";
-import { useSidebarViewStore, type SidebarGroupMode } from "@/stores/sidebar-view-store";
+import {
+  useSidebarViewStore,
+  type SidebarBadgeMode,
+  type SidebarGroupMode,
+} from "@/stores/sidebar-view-store";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useHostRuntimeSnapshot, useHosts } from "@/runtime/host-runtime";
 import {
   MAX_SIDEBAR_WIDTH,
+  MAX_VERTICAL_TABS_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
+  MIN_VERTICAL_TABS_SIDEBAR_WIDTH,
   selectIsAgentListOpen,
   usePanelStore,
 } from "@/stores/panel-store";
+import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { resolveActiveHost } from "@/utils/active-host";
 import { formatConnectionStatus } from "@/utils/daemons";
 import { useWindowControlsPadding } from "@/utils/desktop-window";
@@ -72,7 +82,7 @@ import {
 import type { ShortcutKey } from "@/utils/format-shortcut";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
-import { SidebarWorkspaceList } from "./sidebar-workspace-list";
+import { SidebarVerticalWorkspaceTabs, SidebarWorkspaceList } from "./sidebar-workspace-list";
 
 const MIN_CHAT_WIDTH = 400;
 
@@ -923,6 +933,14 @@ function DesktopSidebar({
   const padding = useWindowControlsPadding("sidebar");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
+  const verticalTabsSidebarWidth = usePanelStore((state) => state.verticalTabsSidebarWidth);
+  const setVerticalTabsSidebarWidth = usePanelStore((state) => state.setVerticalTabsSidebarWidth);
+  const { settings } = useAppSettings();
+  const showVerticalTabs = settings.tabLayoutMode === "vertical";
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const badgeMode = useSidebarViewStore((state) =>
+    activeServerId ? state.getBadgeMode(activeServerId) : "diff",
+  );
   const { width: viewportWidth } = useWindowDimensions();
   const hostStatusDotStyle = useMemo(
     () => [styles.hostStatusDot, { backgroundColor: activeHostStatusColor }],
@@ -931,10 +949,15 @@ function DesktopSidebar({
 
   const startWidthRef = useRef(sidebarWidth);
   const resizeWidth = useSharedValue(sidebarWidth);
+  const startVerticalTabsWidthRef = useRef(verticalTabsSidebarWidth);
+  const resizeVerticalTabsWidth = useSharedValue(verticalTabsSidebarWidth);
 
   useEffect(() => {
     resizeWidth.value = sidebarWidth;
   }, [sidebarWidth, resizeWidth]);
+  useEffect(() => {
+    resizeVerticalTabsWidth.value = verticalTabsSidebarWidth;
+  }, [resizeVerticalTabsWidth, verticalTabsSidebarWidth]);
 
   const resizeGesture = useMemo(
     () =>
@@ -947,9 +970,10 @@ function DesktopSidebar({
         .onUpdate((event) => {
           // Dragging right (positive translationX) increases width
           const newWidth = startWidthRef.current + event.translationX;
+          const reservedTabsWidth = showVerticalTabs ? verticalTabsSidebarWidth : 0;
           const maxWidth = Math.max(
             MIN_SIDEBAR_WIDTH,
-            Math.min(MAX_SIDEBAR_WIDTH, viewportWidth - MIN_CHAT_WIDTH),
+            Math.min(MAX_SIDEBAR_WIDTH, viewportWidth - MIN_CHAT_WIDTH - reservedTabsWidth),
           );
           const clampedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxWidth, newWidth));
           resizeWidth.value = clampedWidth;
@@ -957,11 +981,56 @@ function DesktopSidebar({
         .onEnd(() => {
           runOnJS(setSidebarWidth)(resizeWidth.value);
         }),
-    [sidebarWidth, resizeWidth, setSidebarWidth, viewportWidth],
+    [
+      resizeWidth,
+      setSidebarWidth,
+      showVerticalTabs,
+      sidebarWidth,
+      verticalTabsSidebarWidth,
+      viewportWidth,
+    ],
   );
 
   const resizeAnimatedStyle = useAnimatedStyle(() => ({
     width: resizeWidth.value,
+  }));
+  const verticalTabsResizeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .hitSlop({ left: 8, right: 8, top: 0, bottom: 0 })
+        .onStart(() => {
+          startVerticalTabsWidthRef.current = verticalTabsSidebarWidth;
+          resizeVerticalTabsWidth.value = verticalTabsSidebarWidth;
+        })
+        .onUpdate((event) => {
+          const newWidth = startVerticalTabsWidthRef.current + event.translationX;
+          const maxWidth = Math.max(
+            MIN_VERTICAL_TABS_SIDEBAR_WIDTH,
+            Math.min(
+              MAX_VERTICAL_TABS_SIDEBAR_WIDTH,
+              viewportWidth - MIN_CHAT_WIDTH - sidebarWidth,
+            ),
+          );
+          const clampedWidth = Math.max(
+            MIN_VERTICAL_TABS_SIDEBAR_WIDTH,
+            Math.min(maxWidth, newWidth),
+          );
+          resizeVerticalTabsWidth.value = clampedWidth;
+        })
+        .onEnd(() => {
+          runOnJS(setVerticalTabsSidebarWidth)(resizeVerticalTabsWidth.value);
+        }),
+    [
+      resizeVerticalTabsWidth,
+      setVerticalTabsSidebarWidth,
+      sidebarWidth,
+      verticalTabsSidebarWidth,
+      viewportWidth,
+    ],
+  );
+
+  const verticalTabsResizeAnimatedStyle = useAnimatedStyle(() => ({
+    width: resizeVerticalTabsWidth.value,
   }));
 
   const paddingTopSpacerStyle = useMemo(() => ({ height: padding.top }), [padding.top]);
@@ -977,74 +1046,167 @@ function DesktopSidebar({
     () => [styles.resizeHandle, isWeb && ({ cursor: "col-resize" } as object)],
     [],
   );
+  const selectedWorkspace = useMemo(
+    () =>
+      findSelectedWorkspace({
+        projects,
+        activeServerId,
+        activeWorkspaceSelection,
+      }),
+    [activeServerId, activeWorkspaceSelection, projects],
+  );
+  const verticalTabsSidebarStyle = useMemo(
+    () => [styles.verticalTabsSidebar, verticalTabsResizeAnimatedStyle],
+    [verticalTabsResizeAnimatedStyle],
+  );
 
   if (!isOpen) {
     return null;
   }
 
   return (
-    <Animated.View style={desktopSidebarStyle}>
-      <View style={desktopSidebarBorderStyle}>
-        <View style={styles.sidebarDragArea}>
-          <TitlebarDragRegion />
-          {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
-          <View style={styles.sidebarHeaderGroup}>
-            <SidebarHeaderRow
-              icon={Plus}
-              label={labels.newWorkspace}
-              onPress={handleNewWorkspaceNavigate}
-              testID="sidebar-global-new-workspace"
-              variant="compact"
-              shortcutKeys={newWorkspaceKeys}
-            />
-            <SidebarHeaderRow
-              icon={History}
-              label={labels.sessions}
-              onPress={handleViewMore}
-              isActive={isSessionsActive}
-              testID="sidebar-sessions"
-              variant="compact"
-            />
+    <View style={styles.desktopSidebarShell}>
+      <Animated.View style={desktopSidebarStyle}>
+        <View style={desktopSidebarBorderStyle}>
+          <View style={styles.sidebarDragArea}>
+            <TitlebarDragRegion />
+            {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
+            <View style={styles.sidebarHeaderGroup}>
+              <SidebarHeaderRow
+                icon={Plus}
+                label={labels.newWorkspace}
+                onPress={handleNewWorkspaceNavigate}
+                testID="sidebar-global-new-workspace"
+                variant="compact"
+                shortcutKeys={newWorkspaceKeys}
+              />
+              <SidebarHeaderRow
+                icon={History}
+                label={labels.sessions}
+                onPress={handleViewMore}
+                isActive={isSessionsActive}
+                testID="sidebar-sessions"
+                variant="compact"
+              />
+            </View>
           </View>
-        </View>
-        <WorkspacesSectionHeader serverId={activeServerId} />
+          <WorkspacesSectionHeader serverId={activeServerId} />
 
-        {isInitialLoad ? (
-          <SidebarAgentListSkeleton />
-        ) : (
-          <SidebarWorkspaceList
-            serverId={activeServerId}
-            collapsedProjectKeys={collapsedProjectKeys}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            groupMode={groupMode}
-            projects={projects}
-            isRefreshing={isManualRefresh && isRevalidating}
-            onRefresh={handleRefresh}
-            onAddProject={handleOpenProject}
+          {isInitialLoad ? (
+            <SidebarAgentListSkeleton />
+          ) : (
+            <SidebarWorkspaceList
+              serverId={activeServerId}
+              collapsedProjectKeys={collapsedProjectKeys}
+              onToggleProjectCollapsed={toggleProjectCollapsed}
+              shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+              groupMode={groupMode}
+              projects={projects}
+              isRefreshing={isManualRefresh && isRevalidating}
+              onRefresh={handleRefresh}
+              onAddProject={handleOpenProject}
+            />
+          )}
+
+          <SidebarCalloutSlot />
+
+          <SidebarFooter
+            theme={theme}
+            activeServerId={activeServerId}
+            activeHostLabel={activeHostLabel}
+            hostStatusDotStyle={hostStatusDotStyle}
+            hostOptions={hostOptions}
+            hostTriggerRef={hostTriggerRef}
+            isHostPickerOpen={isHostPickerOpen}
+            setIsHostPickerOpen={setIsHostPickerOpen}
+            handleHostSelect={handleHostSelect}
+            renderHostOption={renderHostOption}
+            handleOpenProject={handleOpenProject}
+            handleHome={handleHome}
+            handleSettings={handleSettings}
+            labels={labels}
           />
-        )}
 
-        <SidebarCalloutSlot />
-
-        <SidebarFooter
-          theme={theme}
-          activeServerId={activeServerId}
-          activeHostLabel={activeHostLabel}
-          hostStatusDotStyle={hostStatusDotStyle}
-          hostOptions={hostOptions}
-          hostTriggerRef={hostTriggerRef}
-          isHostPickerOpen={isHostPickerOpen}
-          setIsHostPickerOpen={setIsHostPickerOpen}
-          handleHostSelect={handleHostSelect}
-          renderHostOption={renderHostOption}
-          handleOpenProject={handleOpenProject}
-          handleHome={handleHome}
-          handleSettings={handleSettings}
-          labels={labels}
+          {/* Resize handle - absolutely positioned over right border */}
+          <GestureDetector gesture={resizeGesture}>
+            <View style={resizeHandleStyle} />
+          </GestureDetector>
+        </View>
+      </Animated.View>
+      {showVerticalTabs ? (
+        <VerticalTabsSidebar
+          style={verticalTabsSidebarStyle}
+          selectedWorkspace={selectedWorkspace}
+          badgeMode={badgeMode}
+          onWorkspacePress={undefined}
+          resizeGesture={verticalTabsResizeGesture}
+          resizeHandleStyle={resizeHandleStyle}
         />
+      ) : null}
+    </View>
+  );
+}
 
-        {/* Resize handle - absolutely positioned over right border */}
+function findSelectedWorkspace({
+  projects,
+  activeServerId,
+  activeWorkspaceSelection,
+}: {
+  projects: SidebarProjectEntry[];
+  activeServerId: string | null;
+  activeWorkspaceSelection: ReturnType<typeof useActiveWorkspaceSelection>;
+}): SidebarWorkspaceEntry | null {
+  if (!activeServerId || activeWorkspaceSelection?.serverId !== activeServerId) {
+    return null;
+  }
+  for (const project of projects) {
+    const workspace = project.workspaces.find(
+      (entry) => entry.workspaceId === activeWorkspaceSelection.workspaceId,
+    );
+    if (workspace) {
+      return workspace;
+    }
+  }
+  return null;
+}
+
+function VerticalTabsSidebar({
+  style,
+  selectedWorkspace,
+  badgeMode,
+  onWorkspacePress,
+  resizeGesture,
+  resizeHandleStyle,
+}: {
+  style: ComponentProps<typeof Animated.View>["style"];
+  selectedWorkspace: SidebarWorkspaceEntry | null;
+  badgeMode: SidebarBadgeMode;
+  onWorkspacePress?: () => void;
+  resizeGesture: ReturnType<typeof Gesture.Pan>;
+  resizeHandleStyle: StyleProp<ViewStyle>;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Animated.View style={style}>
+      <View style={styles.verticalTabsSidebarBorder}>
+        <View style={styles.verticalTabsHeader}>
+          <Text style={styles.verticalTabsTitle}>{t("sidebar.workspace.embeddedTabs.title")}</Text>
+        </View>
+        <View style={styles.verticalTabsBody}>
+          {selectedWorkspace ? (
+            <SidebarVerticalWorkspaceTabs
+              workspace={selectedWorkspace}
+              badgeMode={badgeMode}
+              onWorkspacePress={onWorkspacePress}
+            />
+          ) : (
+            <View style={styles.verticalTabsEmpty}>
+              <Text style={styles.verticalTabsEmptyText}>
+                {t("sidebar.workspace.embeddedTabs.noWorkspaceSelected")}
+              </Text>
+            </View>
+          )}
+        </View>
         <GestureDetector gesture={resizeGesture}>
           <View style={resizeHandleStyle} />
         </GestureDetector>
@@ -1096,7 +1258,7 @@ function WorkspacesSectionHeader({ serverId }: { serverId: string | null }) {
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
             <View>
-              <SidebarDisplayPreferencesMenu serverId={serverId} />
+              <SidebarGroupingSelector serverId={serverId} />
             </View>
           </TooltipTrigger>
           <TooltipContent side="bottom" align="center" offset={8}>
@@ -1180,6 +1342,10 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minHeight: 0,
   },
+  desktopSidebarShell: {
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
   mobileCloseButton: {
     position: "absolute",
     top: theme.spacing[3],
@@ -1196,6 +1362,42 @@ const styles = StyleSheet.create((theme) => ({
     borderRightWidth: 1,
     borderRightColor: theme.colors.border,
     backgroundColor: theme.colors.surfaceSidebar,
+  },
+  verticalTabsSidebar: {
+    position: "relative",
+  },
+  verticalTabsSidebarBorder: {
+    flex: 1,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceSidebar,
+  },
+  verticalTabsHeader: {
+    minHeight: 37,
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing[4],
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  verticalTabsTitle: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.normal,
+  },
+  verticalTabsBody: {
+    flex: 1,
+    minHeight: 0,
+    paddingTop: theme.spacing[1],
+  },
+  verticalTabsEmpty: {
+    minHeight: 36,
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing[2],
+  },
+  verticalTabsEmptyText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.normal,
   },
   resizeHandle: {
     position: "absolute",
