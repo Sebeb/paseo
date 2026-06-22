@@ -20,18 +20,28 @@ import {
   ActivityIndicator,
   type PressableStateCallbackType,
   type StyleProp,
+  type LayoutChangeEvent,
   type ViewStyle,
 } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { MAX_CONTENT_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
 import { useMutation } from "@tanstack/react-query";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { Check, ChevronDown, X } from "lucide-react-native";
 import { usePanelStore } from "@/stores/panel-store";
 import {
   AssistantMessage,
   SpeakMessage,
   UserMessage,
+  PinnedUserMessage,
   ActivityLog,
   ToolCall,
   TodoListCard,
@@ -81,6 +91,17 @@ import { isWeb } from "@/constants/platform";
 import type { Theme } from "@/styles/theme";
 import { recordRenderProfileReasons } from "@/utils/render-profiler";
 import { MountedTabActiveContext } from "@/components/split-container";
+import { useAppSettings } from "@/hooks/use-settings";
+import type { PinnedUserInputState } from "./pinned-user-input";
+
+const PINNED_USER_INPUT_TOP_PADDING = 15;
+const PINNED_USER_INPUT_MAX_HEIGHT = 118;
+const PINNED_USER_INPUT_GRADIENT_HEIGHT = 15;
+const PINNED_USER_INPUT_SOLID_BACKGROUND_HEIGHT =
+  PINNED_USER_INPUT_TOP_PADDING + PINNED_USER_INPUT_MAX_HEIGHT;
+const PINNED_USER_INPUT_OVERLAY_HEIGHT =
+  PINNED_USER_INPUT_SOLID_BACKGROUND_HEIGHT + PINNED_USER_INPUT_GRADIENT_HEIGHT;
+const PINNED_USER_INPUT_ANIMATION_DURATION_MS = 420;
 
 function renderLiveAuxiliaryNode(input: {
   pendingPermissions: ReactNode;
@@ -98,6 +119,81 @@ function renderLiveAuxiliaryNode(input: {
         </View>
       ) : null}
     </>
+  );
+}
+
+function PinnedUserInputOverlay({
+  accessibilityLabel,
+  backdropStyle,
+  item,
+  shouldDisableAnimation,
+  onContentLayout,
+  onPress,
+}: {
+  accessibilityLabel: string;
+  backdropStyle: StyleProp<ViewStyle>;
+  item: Extract<StreamItem, { kind: "user_message" }> | null;
+  shouldDisableAnimation: boolean;
+  onContentLayout: (event: LayoutChangeEvent) => void;
+  onPress: () => void;
+}) {
+  const [renderedItem, setRenderedItem] = useState(item);
+  const translateY = useSharedValue(item ? 0 : -PINNED_USER_INPUT_OVERLAY_HEIGHT);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+  const overlayStyle = useMemo(
+    () => [stylesheet.pinnedUserInputOverlay, animatedStyle],
+    [animatedStyle],
+  );
+
+  useEffect(() => {
+    if (item) {
+      setRenderedItem(item);
+    }
+    const targetTranslateY = item ? 0 : -PINNED_USER_INPUT_OVERLAY_HEIGHT;
+    translateY.value = shouldDisableAnimation
+      ? targetTranslateY
+      : withTiming(targetTranslateY, {
+          duration: PINNED_USER_INPUT_ANIMATION_DURATION_MS,
+          easing: Easing.out(Easing.cubic),
+        });
+
+    if (item) {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setRenderedItem(null);
+    }, PINNED_USER_INPUT_ANIMATION_DURATION_MS);
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [item, shouldDisableAnimation, translateY]);
+
+  return (
+    <Animated.View pointerEvents={item ? "box-none" : "none"} style={overlayStyle}>
+      <View pointerEvents="none" style={backdropStyle} />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        onPress={onPress}
+        testID="pinned-user-input-button"
+        style={stylesheet.pinnedUserInputPressable}
+      >
+        <View onLayout={onContentLayout}>
+          {renderedItem ? (
+            <StreamItemWrapper gapBelow={0}>
+              <PinnedUserMessage
+                message={renderedItem.text}
+                images={renderedItem.images}
+                attachments={renderedItem.attachments}
+              />
+            </StreamItemWrapper>
+          ) : null}
+        </View>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -249,6 +345,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     ref,
   ) {
     const { t } = useTranslation();
+    const { settings: appSettings } = useAppSettings();
     const viewportRef = useRef<StreamViewportHandle | null>(null);
     const isMobile = useIsCompactFormFactor();
     const streamRenderStrategy = useMemo(
@@ -260,6 +357,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       [isMobile],
     );
     const [isNearBottom, setIsNearBottom] = useState(true);
+    const [pinnedUserInput, setPinnedUserInput] = useState<PinnedUserInputState | null>(null);
+    const [pinnedUserInputContentHeight, setPinnedUserInputContentHeight] = useState(
+      PINNED_USER_INPUT_MAX_HEIGHT,
+    );
     const [expandedInlineToolCallIds, setExpandedInlineToolCallIds] = useState<Set<string>>(
       new Set(),
     );
@@ -297,8 +398,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
     useEffect(() => {
       setIsNearBottom(true);
+      setPinnedUserInput(null);
       setExpandedInlineToolCallIds(new Set());
     }, [agentId]);
+
+    useEffect(() => {
+      if (!appSettings.pinUserInputs) {
+        setPinnedUserInput(null);
+      }
+    }, [appSettings.pinUserInputs]);
 
     const handleInlinePathPress = useStableEvent(
       (target: InlinePathTarget, disposition: OpenFileDisposition) => {
@@ -416,6 +524,37 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
     const scrollToBottom = useCallback(() => {
       viewportRef.current?.scrollToBottom("jump-to-bottom");
+    }, []);
+
+    const scrollToPinnedUserInput = useCallback(() => {
+      const itemId = pinnedUserInput?.item.id;
+      if (!itemId) {
+        return;
+      }
+      viewportRef.current?.scrollToStreamItemTop(itemId);
+    }, [pinnedUserInput?.item.id]);
+
+    const handlePinnedUserInputContentLayout = useCallback((event: LayoutChangeEvent) => {
+      const measuredHeight = event.nativeEvent.layout.height;
+      const nextHeight = Math.min(
+        PINNED_USER_INPUT_MAX_HEIGHT,
+        Math.max(0, Math.ceil(measuredHeight)),
+      );
+      setPinnedUserInputContentHeight((previousHeight) =>
+        previousHeight === nextHeight ? previousHeight : nextHeight,
+      );
+    }, []);
+
+    const handlePinnedUserInputChange = useCallback((next: PinnedUserInputState | null) => {
+      setPinnedUserInput((previous) => {
+        if (previous?.item === next?.item) {
+          return previous;
+        }
+        if (previous?.item.id === next?.item.id && previous?.item.text === next?.item.text) {
+          return previous;
+        }
+        return next;
+      });
     }, []);
 
     const setInlineDetailsExpanded = useCallback(
@@ -733,6 +872,36 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       !streamRenderStrategy.shouldDisableParentScrollOnInlineDetailsExpansion() ||
       expandedInlineToolCallIds.size === 0;
 
+    const pinnedUserInputBackdropFadeStart =
+      PINNED_USER_INPUT_TOP_PADDING + pinnedUserInputContentHeight;
+    const pinnedUserInputBackdropHeight =
+      pinnedUserInputBackdropFadeStart + PINNED_USER_INPUT_GRADIENT_HEIGHT;
+    const pinnedUserInputBackdropMask = isWeb
+      ? `linear-gradient(to bottom, #000 0, #000 ${pinnedUserInputBackdropFadeStart}px, transparent ${pinnedUserInputBackdropHeight}px)`
+      : undefined;
+    const pinnedUserInputBackdropStyle = useMemo(
+      () => [
+        stylesheet.pinnedUserInputBackdrop,
+        inlineUnistylesStyle({
+          height: pinnedUserInputBackdropHeight,
+          maskImage: pinnedUserInputBackdropMask,
+          WebkitMaskImage: pinnedUserInputBackdropMask,
+        }),
+      ],
+      [pinnedUserInputBackdropHeight, pinnedUserInputBackdropMask],
+    );
+
+    const pinnedUserInputOverlay = (
+      <PinnedUserInputOverlay
+        accessibilityLabel={t("agentStream.scrollToPinnedUserInput")}
+        backdropStyle={pinnedUserInputBackdropStyle}
+        item={pinnedUserInput?.item ?? null}
+        shouldDisableAnimation={shouldDisableEntryExitAnimations}
+        onContentLayout={handlePinnedUserInputContentLayout}
+        onPress={scrollToPinnedUserInput}
+      />
+    );
+
     return (
       <ToolCallSheetProvider>
         <View style={stylesheet.container}>
@@ -748,6 +917,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               isAuthoritativeHistoryReady,
               onNearBottomChange: setIsNearBottom,
               onNearHistoryStart: loadOlder,
+              pinUserInputsEnabled: appSettings.pinUserInputs,
+              onPinnedUserInputChange: handlePinnedUserInputChange,
+              pinnedUserInputOverlay,
               isLoadingOlderHistory: isLoadingOlder,
               hasOlderHistory: hasOlder,
               scrollEnabled: streamScrollEnabled,
@@ -1141,6 +1313,7 @@ const stylesheet = StyleSheet.create((theme) => ({
   container: {
     flex: 1,
     backgroundColor: theme.colors.surface0,
+    position: "relative",
   },
   contentWrapper: {
     width: "100%",
@@ -1226,6 +1399,28 @@ const stylesheet = StyleSheet.create((theme) => ({
   },
   scrollToBottomIcon: {
     color: theme.colors.foreground,
+  },
+  pinnedUserInputOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: PINNED_USER_INPUT_OVERLAY_HEIGHT,
+    pointerEvents: "box-none",
+    zIndex: 2,
+  },
+  pinnedUserInputBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: theme.colors.surface0,
+    zIndex: 1,
+  },
+  pinnedUserInputPressable: {
+    width: "100%",
+    paddingTop: PINNED_USER_INPUT_TOP_PADDING,
+    zIndex: 2,
   },
 }));
 
