@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: 25ff932af152990c2bd54ce1d96ea3a6ea62e9e6 — feat(app): unify sidebar entry rows with per-kind status counts
+Anchor commit: d54e55578b7217f61d1f76cd9f5e1d5d2ad84777 — feat(app): expand sidebar workspace tab tree
 
 ## Purpose
 
@@ -32,6 +32,11 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Adds right-click context menu on workspace rows in the status-group list.
 - Shows provider icon on draft tabs when badge mode is "status".
 - Adds a split-pane creation button to the workspace header that uses horizontal/vertical split depending on modifier key held.
+- Adds right-click and kebab menus on embedded sidebar tabs with the same copy/reload/rename/close actions as workspace tabs, plus bulk close-left/close-right/close-others actions.
+- Renders embedded tabs as a collapsible parent/child tree that follows subagent relationships, persists parent expansion state, and shows aggregated child status badges on parent rows.
+- Keeps active secondary-pane tabs visible in the embedded sidebar list even though manual reordering only applies to the main pane.
+- Shows pending branch-operation badges on workspace rows while checkout-store git actions such as pull/push/merge/create-PR are running.
+- Uses the current sidebar sort order for close-successor selection and keyboard tab cycling, instead of falling back to pane insertion order.
 
 ## Restored Main Polish
 
@@ -400,16 +405,18 @@ Returns `running` when the pending create attempt is for the current server and 
 
 Builds the workspace tab persistence key from server/workspace ids, reads the setup snapshot, and returns `running` only when the snapshot status is `running`.
 
-## Embedded Tab Ordering
+## Embedded Tab Ordering And Tree Building
 
 ### `packages/app/src/components/sidebar/embedded-tabs-order.ts`
 
+Still owns the manual drag/drop merge step for the main pane.
+
 #### `EmbeddedTabOrderItem`
 
-Represents an item in the embedded sidebar tab list:
+Represents an embedded sidebar row candidate:
 
-- `mainPane`: whether the tab belongs to the main pane.
-- `tab.tabId`: tab id used for ordering.
+- `mainPane`: whether the tab belongs to the main workspace pane.
+- `tab.tabId`: stable tab id used for order persistence.
 
 #### `mergeEmbeddedVisibleTabOrder({ mainPaneItems, nextVisibleItems })`
 
@@ -417,26 +424,96 @@ Merges a drag-reordered visible subset back into the full main-pane order.
 
 Implementation details:
 
-- Extracts reordered visible ids from `nextVisibleItems`, keeping only items where `mainPane` is true.
-- Builds a set of visible ids.
-- Iterates the full `mainPaneItems`.
-- For hidden/non-visible items, preserves the original tab id in place.
-- For visible items, consumes the next reordered visible id.
-- Falls back to the original id if the reordered visible list is unexpectedly short.
+- Reads reordered ids only from visible rows whose `item.mainPane` is true.
+- Preserves hidden main-pane tabs in place.
+- Ignores secondary-pane rows so dragging the sidebar tree never rewrites split-pane ordering.
+- Falls back to original ids if the reordered visible subset is shorter than expected.
 
-This lets users reorder the currently visible embedded tabs without losing hidden tabs from the full pane order.
+### `packages/app/src/utils/sidebar-tab-sort.ts`
+
+Extracts tab sorting into a shared utility used by both the sidebar tree and workspace-screen navigation order.
+
+#### Types
+
+```ts
+interface SidebarTabSortItem {
+  tab: WorkspaceTab;
+}
+```
+
+#### `sortSidebarTabItems({ items, sortMode, agents, statusSummariesByTabId })`
+
+- Returns a shallow copy in `"manual"` mode.
+- `"created"` sorts by `tab.createdAt` descending.
+- `"lastUpdated"` sorts by agent `lastUserMessageAt` when the target is an agent, otherwise `tab.createdAt`, descending.
+- `"status"` sorts by `getSidebarEntryStatusSortRank(summary)` first, then `lastUpdatedAt` descending.
+
+#### `sortSidebarWorkspaceTabs({ tabs, ... })`
+
+Thin adapter that maps raw `WorkspaceTab[]` through `sortSidebarTabItems` and returns sorted tabs.
+
+### `packages/app/src/utils/sidebar-embedded-tab-tree.ts`
+
+Builds the nested row model for the embedded sidebar tab list.
+
+#### Types
+
+```ts
+interface SidebarEmbeddedTabTreeItem {
+  tab: WorkspaceTab;
+}
+
+interface SidebarEmbeddedTabTreeRow<Item extends SidebarEmbeddedTabTreeItem> {
+  item: Item;
+  depth: number;
+  childCount: number;
+  expanded: boolean;
+  parentTabKey: string | null;
+  statusSummary: SidebarTabStatusSummary;
+}
+```
+
+#### `buildSidebarParentTabKey({ workspaceKey, tabId })`
+
+Creates the persisted expansion key as `<workspaceKey>:<tabId>`.
+
+#### `buildSidebarEmbeddedTabTreeRows({ workspaceKey, items, parentTabIdByTabId, expandedParentTabKeys, statusSummariesByTabId })`
+
+Implementation details:
+
+- Creates a node for every visible embedded-tab item.
+- Treats tabs without an in-list parent as roots.
+- Uses `parentTabIdByTabId` only when the parent tab is also present in `items`; missing parents do not create phantom rows.
+- Computes each node's aggregate `statusSummary` by combining its own summary with descendant summaries.
+- Emits rows depth-first.
+- Only emits children when the row's `parentTabKey` is present in `expandedParentTabKeys`.
+- Marks leaf rows with `parentTabKey: null` and `expanded: false`.
+
+#### `combineOwnAndDescendantSummaries(ownSummary, descendantSummaries)`
+
+Combines descendant propagated counts via `combineSidebarTabStatusSummaries`, then adds the row's own bucket counts, draft counts, and entry counts back on top so a parent row reflects both itself and its subtree.
 
 ## Workspace Tab Close Hook
 
 ### `packages/app/src/screens/workspace/use-workspace-tab-close.ts`
 
-This new hook centralizes tab-close cleanup used by sidebar and workspace tab surfaces.
+This hook now centralizes close cleanup, descendant-close ordering, and sorted close-successor behavior used by both workspace tabs and embedded sidebar tabs.
+
+#### Inputs
+
+```ts
+interface UseWorkspaceTabCloseInput {
+  serverId: string;
+  workspaceId: string;
+  workspaceDirectory?: string | null;
+  tabs: readonly WorkspaceTab[];
+  orderedTabIds?: readonly string[] | null;
+  parentTabIdByTabId?: Readonly<Record<string, string>> | null;
+  onTabClosed?: (tabId: string) => void;
+}
+```
 
 #### `useCloseTabs()`
-
-Private helper that tracks tab ids currently closing.
-
-Implementation details:
 
 - Maintains a mutable `pendingRef` set.
 - Exposes a React state `closingTabIds` set for rendering spinners/disabled states.
@@ -445,27 +522,17 @@ Implementation details:
 
 #### `trimNonEmpty(value)`
 
-Local string normalizer:
-
 - Returns `null` for non-strings.
 - Trims strings.
 - Returns `null` for empty strings.
 
 #### `closeWorkspaceTabWithCleanup(closeInput)`
 
-Closes a tab and performs target-specific cleanup.
-
-Implementation details:
-
 - Normalizes the tab id.
 - Requires a workspace persistence key.
-- For agent tabs:
-  - unpins the agent from the workspace
-  - hides the agent from the workspace
-- For browser tabs:
-  - removes the browser record from `useBrowserStore`
-  - clears the Electron browser partition when the desktop host exposes that bridge
-- Calls `closeWorkspaceTab` in the layout store.
+- For agent tabs: unpins and hides the agent in the workspace layout store.
+- For browser tabs: removes the browser record from `useBrowserStore` and clears the Electron browser partition when available.
+- Calls `closeWorkspaceTab(persistenceKey, normalizedTabId, orderedTabIds)` so close-successor selection follows the current sorted order.
 - Calls optional `onTabClosed`.
 
 #### `removeTerminalFromCache(terminalId)`
@@ -474,18 +541,10 @@ Updates the React Query terminal payload by applying `removeTerminalFromPayload`
 
 #### `killTerminal(terminalId)`
 
-Calls `client.killTerminal`.
-
-Implementation details:
-
 - Throws the localized disconnected-host error if no runtime client exists.
 - Throws `"Unable to close terminal"` when the payload reports failure.
 
 #### `handleCloseTerminalTab({ tabId, terminalId })`
-
-Closes a terminal tab with confirmation and daemon cleanup.
-
-Implementation details:
 
 - Uses `closeTab` so duplicate close actions are ignored.
 - Shows destructive confirmation.
@@ -494,11 +553,7 @@ Implementation details:
 - Starts terminal kill asynchronously.
 - Invalidates terminal queries if the kill request fails.
 
-#### `handleCloseAgentTab({ tabId, agentId })`
-
-Closes an agent tab and archives the agent when policy requires it.
-
-Implementation details:
+#### `handleCloseSingleAgentTab({ tabId, agentId })`
 
 - Reads the agent from the session store.
 - Resolves policy with `resolveCloseAgentTabPolicy`.
@@ -506,6 +561,18 @@ Implementation details:
 - Closes the tab locally.
 - Returns immediately for `layout-only` policy.
 - Otherwise fires `archiveAgent` and intentionally swallows mutation errors because the mutation handles settlement.
+
+#### `handleCloseAgentTab({ tabId, agentId })`
+
+- Builds `descendantTabIdsByParentTabId` from the current tab list and `parentTabIdByTabId`.
+- Calls `closeDescendantTabsBeforeParent` first, so child agent tabs are closed deepest-first before the parent row disappears.
+- Aborts the parent close if any descendant close returns `false` (for example a declined terminal confirmation).
+- After descendants are closed, runs the single-agent close/archive logic.
+
+#### `handleCloseSingleTabById(tabId)`
+
+- Dispatches terminal and agent tabs through the same close helpers used by the public API.
+- Returns `true` when the tab no longer exists in `tabTargetById`, allowing descendant close passes to tolerate already-closed rows.
 
 #### `handleClosePassiveTab(...)`
 
@@ -521,11 +588,49 @@ Dispatches close behavior by target kind:
 
 The hook returns `closingTabIds`, raw `closeTab`, `closeWorkspaceTabWithCleanup`, and `handleCloseTabById`.
 
+### `packages/app/src/screens/workspace/workspace-tab-close-tree.ts`
+
+Extracts the descendant-closing helpers used by `useWorkspaceTabClose`.
+
+#### `collectDescendantTabIdsByParentTabId({ tabs, parentTabIdByTabId })`
+
+- Builds `childrenByParent` from the layout parent map.
+- Recursively collects each tab's descendants.
+- Stores descendants in deepest-first order (`grandchildren` before their parent child) so callers can close leaves first.
+- Breaks parent cycles by tracking an `ancestors` set and returning an empty list when a cycle is detected.
+
+#### `closeDescendantTabsBeforeParent({ parentTabId, descendantTabIdsByParentTabId, closeSingleTabById })`
+
+Sequentially closes every recorded descendant for `parentTabId`, stopping and returning `false` on the first failed close.
+
 ## Sidebar List And Row Changes
+
+### `packages/app/src/components/sidebar/sidebar-vc-operation-badge.tsx`
+
+Adds the compact git-operation badges shown on workspace rows when checkout actions are in progress.
+
+#### `usePendingCheckoutBranchActionIds({ serverId, cwd })`
+
+- Reads `useCheckoutGitActionsStore.getPendingBranchActionIds`.
+- Returns `[]` when there is no workspace directory.
+- Uses a custom equality function so unchanged action id arrays do not rerender rows.
+
+#### `SidebarVcOperationBadges`
+
+- Renders one 16 px loader-backed badge per pending action id.
+- Uses a small overlay icon to distinguish action type:
+  - commit -> `GitCommitHorizontal`
+  - pull -> `Download`
+  - push -> `Upload`
+  - pull-and-push -> `ArrowDownUp`
+  - merge-branch -> `GitMerge`
+  - merge-from-base -> `RefreshCcw`
+  - PR operations -> `GitHubIcon`
+  - refresh/archive-worktree -> no overlay icon, spinner only
 
 ### `packages/app/src/components/sidebar-workspace-list.tsx`
 
-The sidebar list now supports embedded tabs under workspace rows, per-kind status badges, and context menus on project rows.
+The sidebar list now supports nested embedded tabs under workspace rows, subtree status aggregation, workspace git-operation badges, and full embedded-tab context menus.
 
 Key behavior:
 
@@ -538,6 +643,7 @@ Key behavior:
 - Supports drag/drop where available.
 - Uses `SidebarWorkspaceRowContent` for workspace row presentation and `SidebarEntryRowContent` for embedded tab rows.
 - Provides context menu actions for workspace and embedded tabs.
+- Treats non-main-pane active tabs as forced-visible embedded rows so split panes stay reachable from the sidebar.
 
 #### `useSidebarTabStatusSummaries`
 
@@ -546,19 +652,60 @@ Now also reads `queuedMessages` from the session store and `draftInputsByKey` fr
 - `queuedMessageCountsByAgentId` is derived by mapping agent queues from session state to a `Map<agentId, queue.length>`.
 - `draftInputsByKey` is derived by iterating active draft records and extracting their `input` values.
 
-#### `sortEmbeddedTabs`
-
-Added `"status"` sort mode:
-
-- Looks up each tab's `SidebarTabStatusSummary` from `statusSummariesByTabId`.
-- Compares by `getSidebarEntryStatusSortRank` (lower rank = higher priority).
-- Ties are broken by `lastUpdatedAt` descending.
-
 Old `SidebarStatusSummaryBadges`, `StatusSummaryCountBadge`, and `SidebarTabStatusSymbol` local components were removed. Callers now use `SidebarEntryStatusBadges` from `sidebar-entry-row.tsx`.
 
 `ProjectHeaderTrailingContent` was removed. Project rows build their trailing content inline and pass `SidebarEntryStatusBadges` directly.
 
 Added `ProjectContextMenuContent` — a `ContextMenuContent` panel mirroring the project kebab menu, wrapping the project row with `ContextMenu`/`ContextMenuTrigger`.
+
+#### `WorkspaceRowRightGroup` / `WorkspaceRowActionSlot`
+
+- Workspace rows now query `usePendingCheckoutBranchActionIds` using the workspace directory.
+- Trailing metadata is split into:
+  - `WorkspaceRowTrailingMeta` for diff stat / PR hint / status badges / VC operation badges.
+  - `WorkspaceRowActionControls` for hover-visible create-tab and kebab actions.
+- When branch-operation badges are visible, they replace diff/status trailing metadata for that row.
+
+#### `EmbeddedWorkspaceTabs`
+
+This component now owns the embedded sidebar tree for one workspace.
+
+Implementation details:
+
+- Reads the persisted layout, collects all panes, and finds the main pane.
+- Builds `allItems` from every main-pane tab plus the active tab from each non-main pane.
+- Computes per-tab status summaries through `summarizeSidebarTabs`.
+- Sorts with `sortSidebarTabItems`.
+- Converts the sorted rows into a visible tree with `buildSidebarEmbeddedTabTreeRows`.
+- Applies `applyRecentTreeRowCount`, which limits visible rows by top-level tree position but force-includes pinned/active rows.
+- Persists parent expansion state through `useSidebarCollapsedSectionsStore(...expandedParentTabKeys...)`.
+- Uses `useWorkspaceTabClose` with both `orderedTabIds` and `parentTabIdByTabId`.
+
+#### `EmbeddedWorkspaceTabRow`
+
+- Renders parent rows with an `EmbeddedTabChevronButton` instead of the tab icon.
+- Indents descendant rows by `24 + depth * 16`.
+- In diff mode, shows the highest-priority status as the leading overlay badge.
+- In status mode, renders subtree badges in the trailing slot using the row's aggregate `statusSummary`.
+- Shows kebab + close controls on hover/native/compact layouts.
+- Supports middle-click close on web by attaching an `auxclick` handler directly to the row element.
+- Allows drag handles only for depth-0 main-pane rows in manual mode.
+- Wraps both the row and kebab surface around the same `WorkspaceTabMenuEntry[]` produced by `buildWorkspaceTabMenuEntries`.
+
+#### Embedded tab menus and bulk close
+
+- `EmbeddedTabContextMenuContent` and `EmbeddedTabKebabMenu` render the same menu entry list for right-click and three-dot surfaces.
+- `buildMenuEntries(item)` passes callbacks for:
+  - copy agent id
+  - copy file path
+  - copy provider resume command
+  - reload agent
+  - rename tab
+  - close tab
+  - close tabs to the left
+  - close tabs to the right
+  - close other tabs
+- Bulk close actions operate on the selected pane's ordered tabs, not the full workspace tab set.
 
 ### `packages/app/src/components/sidebar/sidebar-workspace-row-content.tsx`
 
@@ -592,11 +739,40 @@ Changes:
 
 ### `packages/app/src/stores/workspace-layout-store.ts`
 
-Adds layout metadata needed for embedded sidebar tab behavior, including main-pane lookup support and tests for finding the main pane.
+`closeTab` now accepts an optional `orderedTabIds?: readonly string[] | null` argument and forwards it into `closeTabInLayout`.
 
 ### `packages/app/src/stores/workspace-layout-actions.ts`
 
-Adds/updates actions used by sidebar tab close, reorder, and layout operations.
+Adds/updates actions used by sidebar tab close, reorder, tree parenting, and layout reconciliation.
+
+#### `WorkspaceTabSnapshot`
+
+Adds:
+
+```ts
+parentAgentIdByAgentId?: ReadonlyMap<string, string> | Iterable<readonly [string, string]>;
+```
+
+This snapshot field carries subagent parentage from live agent visibility into the persisted tab layout reconciler.
+
+#### `closeTabInLayout({ layout, tabId, orderedTabIds })`
+
+- Passes `orderedTabIds` into `getCloseSuccessorTabId`.
+- Keeps the existing "prefer parent tab if still open" rule.
+- Otherwise chooses next/previous using `mergeTabNavigationOrder({ fallbackTabIds: pane.tabIds, orderedTabIds })`.
+
+#### Parent/child tab helpers
+
+- `normalizeStringMap` trims and validates parent-agent mappings from the snapshot.
+- `attachParentTabInLayout` writes `parentTabIdByTabId[childTabId] = parentTabId` and re-normalizes the map.
+- `pruneStaleAgentParentTabMappings` removes agent-tab parent edges whose live agent parent no longer matches the open parent tab.
+
+#### Reconciliation
+
+- `reconcileWorkspaceTabs` normalizes `parentAgentIdByAgentId` from the snapshot.
+- `addMissingEntityTabs` now recursively ensures a parent agent tab exists before opening an auto-open subagent tab.
+- When both parent and child agent tabs are open, it attaches a layout parent edge between their deterministic tab ids.
+- Parent edges are pruned before stale-tab collapse runs, so removed subagent relationships do not leave orphan tree links behind.
 
 ### `packages/app/src/stores/navigation-active-workspace-store/navigation.ts`
 
@@ -604,15 +780,47 @@ Updates navigation behavior so explicit workspace navigation wins over attention
 
 Tests verify the active workspace store behavior.
 
-### `packages/app/src/stores/panel-store`
+### `packages/app/src/stores/sidebar-collapsed-sections-store/state.ts`
 
-Adds panel state needed for resizable/sidebar-aware workspace tab presentation.
+Adds persisted parent-tab expansion state:
+
+- `expandedParentTabKeys: Set<string>` on in-memory state.
+- `toggleParentTabExpanded(state, parentTabKey)` to expand/collapse one parent row.
+- serialization/deserialization of `expandedParentTabKeys` beside the existing project/status/workspace collapsed key sets.
+
+### `packages/app/src/workspace-tabs/agent-visibility.ts`
+
+`deriveWorkspaceAgentVisibility` now returns `parentAgentIdByAgentId`.
+
+Rules:
+
+- Only records a parent mapping when both child and parent belong to the same workspace.
+- Subagent tabs are auto-opened even if they would not otherwise satisfy `shouldAutoOpenAgentTab`.
+- `buildWorkspaceTabSnapshot` passes the parent map into `WorkspaceTabSnapshot`.
+- `workspaceAgentVisibilityEqual` now compares both sets and the parent map.
+
+### `packages/app/src/workspace-tabs/tab-navigation.ts`
+
+Shared navigation helpers used by layout close-successor logic and workspace keyboard cycling.
+
+#### `mergeTabNavigationOrder({ fallbackTabIds, orderedTabIds })`
+
+- Starts with `orderedTabIds` when present.
+- Drops ids that are not currently open.
+- De-dupes repeated ids.
+- Appends any remaining fallback ids so transiently unsorted tabs still remain navigable.
+
+#### `getRelativeTabId({ tabIds, activeTabId, delta })`
+
+- Returns `null` for an empty list.
+- Uses the active tab's position when present, otherwise starts from index 0.
+- Wraps cyclically for both forward and backward movement.
 
 ## Workspace Screen Integration
 
 ### `packages/app/src/screens/workspace/workspace-screen.tsx`
 
-The workspace screen now uses the shared close hook and exposes tab actions needed by sidebar embedded tab controls. It also adds split-pane creation controls to the workspace header.
+The workspace screen now uses the shared sort/navigation helpers so the main workspace view and embedded sidebar tree agree on ordering, close-successor behavior, and keyboard traversal. It also adds split-pane creation controls to the workspace header.
 
 #### `useDesktopEmbeddedTabsEnabled(isMobile)`
 
@@ -646,6 +854,15 @@ Returns null when `input.visible` is false; otherwise renders the `WorkspaceHead
 #### `WorkspaceHeaderSplitMenuTriggerIcon`
 
 Shows `ThemedColumns2` (horizontal split) or `ThemedRows2` (vertical split) based on current placement. Color follows hover/open state.
+
+#### Tab ordering and close integration
+
+- Computes `statusSummariesByTabId` for all UI tabs.
+- Derives `effectiveTabSortMode` with `getWorkspaceTabNavigationSortMode`.
+- Builds `orderedTabIds` with `sortSidebarWorkspaceTabs`.
+- Passes those ids into `useWorkspaceTabClose`, so closing a tab from the main workspace view uses the same successor order as the sidebar.
+- Reorders `navigationTabs` from `orderedTabIds` whenever sort mode is not manual.
+- Uses `getRelativeTabId` for cyclic previous/next tab keyboard navigation.
 
 ## Split Container
 
@@ -719,11 +936,17 @@ New and updated tests include:
 - `packages/app/src/components/sidebar/sidebar-workspace-row-content.test.tsx`
 - `packages/app/src/stores/sidebar-view-store.test.ts`
 - `packages/app/src/stores/workspace-layout-store.find-main-pane.test.ts`
+- `packages/app/src/stores/workspace-layout-store.test.ts`
+- `packages/app/src/utils/sidebar-active-ancestor-highlight.test.ts`
+- `packages/app/src/utils/sidebar-embedded-tab-tree.test.ts`
+- `packages/app/src/utils/sidebar-tab-sort.test.ts`
 - `packages/app/src/utils/sidebar-tab-status-summary.test.ts`
+- `packages/app/src/workspace-tabs/agent-visibility.test.ts`
+- `packages/app/src/workspace-tabs/tab-navigation.test.ts`
+- `packages/app/src/screens/workspace/workspace-tab-close-tree.test.ts`
 - navigation and collapsed-section store tests
-- workspace layout store tests
 
-These cover ordering, row rendering, persisted sidebar preferences, main-pane lookup, tab status summaries (including draft state and queued message counts), navigation behavior, and collapsed-section state.
+These cover ordering, nested tree construction, row rendering, persisted sidebar preferences, main-pane lookup, close-descendant sequencing, tab status summaries (including draft state and queued message counts), navigation behavior, and collapsed-section state.
 
 ## Verification
 
