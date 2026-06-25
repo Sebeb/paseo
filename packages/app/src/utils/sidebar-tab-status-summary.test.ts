@@ -187,8 +187,8 @@ describe("sidebar tab status summary", () => {
     expect(getVisibleSidebarEntryStatusKinds(result)).toEqual([
       "draft",
       "input_required",
-      "unread",
       "in_progress",
+      "unread",
       "failed",
     ]);
   });
@@ -302,13 +302,14 @@ describe("sidebar tab status summary", () => {
     expect(getSidebarEntryStatusCount(result, "draft")).toBe(1);
   });
 
-  it("shows empty draft tabs locally without propagating them to parent summaries", () => {
+  it("shows new draft tabs without user text locally without propagating them", () => {
     const result = summarize({
       tabs: [tab({ tabId: "draft-empty", target: { kind: "draft", draftId: "draft-1" } })],
     });
 
     expect(result.draft).toBe(1);
     expect(result.propagatedDraft).toBe(0);
+    expect(getSidebarEntryStatusCount(result, "draft")).toBe(1);
     expect(combineSidebarTabStatusSummaries([result]).draft).toBe(0);
     expect(getSidebarEntryStatusCount(combineSidebarTabStatusSummaries([result]), "draft")).toBe(0);
   });
@@ -339,7 +340,7 @@ describe("sidebar tab status summary", () => {
     expect(combineSidebarTabStatusSummaries([result]).entryCounts.queued_messages).toBe(2);
   });
 
-  it("reports status sort rank without prioritizing queued-only tabs", () => {
+  it("reports status sort rank without prioritizing draft-only or queued-only tabs", () => {
     const draft = summarize({
       tabs: [tab({ tabId: "draft", target: { kind: "draft", draftId: "draft-1" } })],
     });
@@ -353,8 +354,8 @@ describe("sidebar tab status summary", () => {
       queuedMessageCountsByAgentId: new Map([["queued", 1]]),
     });
 
-    expect(getSidebarEntryStatusSortRank(draft)).toBe(0);
-    expect(getSidebarEntryStatusSortRank(failed)).toBe(2);
-    expect(getSidebarEntryStatusSortRank(queuedOnly)).toBe(5);
+    expect(getSidebarEntryStatusSortRank(draft)).toBe(4);
+    expect(getSidebarEntryStatusSortRank(failed)).toBe(1);
+    expect(getSidebarEntryStatusSortRank(queuedOnly)).toBe(4);
   });
 });

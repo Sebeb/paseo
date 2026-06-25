@@ -93,7 +93,7 @@ interface WorkspaceLayoutStore {
     parentTabId: string,
   ) => string | null;
   openTabInBackground: (workspaceKey: string, target: WorkspaceTabTarget) => string | null;
-  closeTab: (workspaceKey: string, tabId: string) => void;
+  closeTab: (workspaceKey: string, tabId: string, orderedTabIds?: readonly string[] | null) => void;
   restoreClosedTab: (workspaceKey: string, entryKey: string) => string | null;
   restoreLastClosedTab: (workspaceKey: string) => string | null;
   focusTab: (workspaceKey: string, tabId: string) => void;
@@ -456,7 +456,7 @@ export function createWorkspaceLayoutStore(
 
           return result.tabId;
         },
-        closeTab: (workspaceKey, tabId) => {
+        closeTab: (workspaceKey, tabId, orderedTabIds) => {
           const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);
           const normalizedTabId = trimNonEmpty(tabId);
           if (!normalizedWorkspaceKey || !normalizedTabId) {
@@ -471,6 +471,7 @@ export function createWorkspaceLayoutStore(
             const nextLayout = closeTabInLayout({
               layout,
               tabId: normalizedTabId,
+              orderedTabIds,
             });
             if (!nextLayout) {
               return state;

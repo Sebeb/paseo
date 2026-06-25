@@ -39,6 +39,23 @@ export type CheckoutGitAsyncActionId =
   | "merge-from-base"
   | "archive-worktree";
 
+export const CHECKOUT_GIT_BRANCH_ASYNC_ACTION_IDS = [
+  "commit",
+  "pull",
+  "push",
+  "pull-and-push",
+  "create-pr",
+  "merge-pr-squash",
+  "merge-pr-merge",
+  "merge-pr-rebase",
+  "enable-pr-auto-merge-squash",
+  "enable-pr-auto-merge-merge",
+  "enable-pr-auto-merge-rebase",
+  "disable-pr-auto-merge",
+  "merge-branch",
+  "merge-from-base",
+] as const satisfies readonly CheckoutGitAsyncActionId[];
+
 type CheckoutKey = string;
 type StatusMap = Partial<Record<CheckoutGitAsyncActionId, CheckoutGitActionStatus>>;
 
@@ -227,6 +244,10 @@ interface CheckoutGitActionsStoreState {
     cwd: string;
     actionId: CheckoutGitAsyncActionId;
   }) => CheckoutGitActionStatus;
+  getPendingBranchActionIds: (params: {
+    serverId: string;
+    cwd: string;
+  }) => CheckoutGitAsyncActionId[];
 
   commit: (params: { serverId: string; cwd: string }) => Promise<void>;
   pull: (params: { serverId: string; cwd: string }) => Promise<void>;
@@ -311,6 +332,15 @@ export const useCheckoutGitActionsStore = create<CheckoutGitActionsStoreState>()
   getStatus: ({ serverId, cwd, actionId }) => {
     const key = checkoutKey(serverId, cwd);
     return get().statusByCheckout[key]?.[actionId] ?? "idle";
+  },
+  getPendingBranchActionIds: ({ serverId, cwd }) => {
+    const statuses = get().statusByCheckout[checkoutKey(serverId, cwd)];
+    if (!statuses) {
+      return [];
+    }
+    return CHECKOUT_GIT_BRANCH_ASYNC_ACTION_IDS.filter(
+      (actionId) => statuses[actionId] === "pending",
+    );
   },
 
   commit: async ({ serverId, cwd }) => {

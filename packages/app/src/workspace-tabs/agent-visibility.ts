@@ -7,6 +7,7 @@ export interface WorkspaceAgentVisibility {
   activeAgentIds: Set<string>;
   autoOpenAgentIds: Set<string>;
   knownAgentIds: Set<string>;
+  parentAgentIdByAgentId: Map<string, string>;
 }
 
 function agentBelongsToWorkspace(agent: Agent, workspaceId: string): boolean {
@@ -25,12 +26,14 @@ export function deriveWorkspaceAgentVisibility(input: {
       activeAgentIds: new Set<string>(),
       autoOpenAgentIds: new Set<string>(),
       knownAgentIds: new Set<string>(),
+      parentAgentIdByAgentId: new Map<string, string>(),
     };
   }
 
   const activeAgentIds = new Set<string>();
   const autoOpenAgentIds = new Set<string>();
   const knownAgentIds = new Set<string>();
+  const parentAgentIdByAgentId = new Map<string, string>();
   for (const agent of sessionAgents?.values() ?? []) {
     if (!agentBelongsToWorkspace(agent, workspaceId)) {
       continue;
@@ -38,7 +41,14 @@ export function deriveWorkspaceAgentVisibility(input: {
     knownAgentIds.add(agent.id);
     if (!agent.archivedAt) {
       activeAgentIds.add(agent.id);
-      if (shouldAutoOpenAgentTab(agent)) {
+      const parentAgent = agent.parentAgentId ? sessionAgents?.get(agent.parentAgentId) : null;
+      const hasSameWorkspaceParent = parentAgent
+        ? agentBelongsToWorkspace(parentAgent, workspaceId)
+        : false;
+      if (agent.parentAgentId && hasSameWorkspaceParent) {
+        parentAgentIdByAgentId.set(agent.id, agent.parentAgentId);
+        autoOpenAgentIds.add(agent.id);
+      } else if (shouldAutoOpenAgentTab(agent)) {
         autoOpenAgentIds.add(agent.id);
       }
     }
@@ -50,7 +60,7 @@ export function deriveWorkspaceAgentVisibility(input: {
     knownAgentIds.add(agent.id);
   }
 
-  return { activeAgentIds, autoOpenAgentIds, knownAgentIds };
+  return { activeAgentIds, autoOpenAgentIds, knownAgentIds, parentAgentIdByAgentId };
 }
 
 export function buildWorkspaceTabSnapshot(input: {
@@ -67,6 +77,7 @@ export function buildWorkspaceTabSnapshot(input: {
     activeAgentIds: input.agentVisibility.activeAgentIds,
     autoOpenAgentIds: input.agentVisibility.autoOpenAgentIds,
     knownAgentIds: input.agentVisibility.knownAgentIds,
+    parentAgentIdByAgentId: input.agentVisibility.parentAgentIdByAgentId,
     knownTerminalIds: input.knownTerminalIds,
     standaloneTerminalIds: input.standaloneTerminalIds,
     hasActivePendingDraftCreate: input.hasActivePendingDraftCreate,
@@ -80,7 +91,8 @@ export function workspaceAgentVisibilityEqual(
   return (
     setsEqual(a.activeAgentIds, b.activeAgentIds) &&
     setsEqual(a.autoOpenAgentIds, b.autoOpenAgentIds) &&
-    setsEqual(a.knownAgentIds, b.knownAgentIds)
+    setsEqual(a.knownAgentIds, b.knownAgentIds) &&
+    mapsEqual(a.parentAgentIdByAgentId, b.parentAgentIdByAgentId)
   );
 }
 
@@ -90,6 +102,18 @@ function setsEqual(a: Set<string>, b: Set<string>): boolean {
   }
   for (const item of a) {
     if (!b.has(item)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function mapsEqual(a: Map<string, string>, b: Map<string, string>): boolean {
+  if (a.size !== b.size) {
+    return false;
+  }
+  for (const [key, value] of a) {
+    if (b.get(key) !== value) {
       return false;
     }
   }

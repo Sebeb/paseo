@@ -2,12 +2,14 @@ export interface CollapsedProjectsState {
   collapsedProjectKeys: Set<string>;
   collapsedStatusGroupKeys: Set<string>;
   collapsedWorkspaceKeys: Set<string>;
+  expandedParentTabKeys: Set<string>;
 }
 
 export interface PersistedCollapsedProjects {
   collapsedProjectKeys?: unknown;
   collapsedStatusGroupKeys?: unknown;
   collapsedWorkspaceKeys?: unknown;
+  expandedParentTabKeys?: unknown;
 }
 
 export function toggleProjectCollapsed(
@@ -105,15 +107,30 @@ export function setProjectCollapsed(
   return { ...state, collapsedProjectKeys: next };
 }
 
+export function toggleParentTabExpanded(
+  state: CollapsedProjectsState,
+  parentTabKey: string,
+): CollapsedProjectsState {
+  const next = new Set(state.expandedParentTabKeys);
+  if (next.has(parentTabKey)) {
+    next.delete(parentTabKey);
+  } else {
+    next.add(parentTabKey);
+  }
+  return { ...state, expandedParentTabKeys: next };
+}
+
 export function serializeCollapsedProjects(state: CollapsedProjectsState): {
   collapsedProjectKeys: string[];
   collapsedStatusGroupKeys: string[];
   collapsedWorkspaceKeys: string[];
+  expandedParentTabKeys: string[];
 } {
   return {
     collapsedProjectKeys: Array.from(state.collapsedProjectKeys),
     collapsedStatusGroupKeys: Array.from(state.collapsedStatusGroupKeys),
     collapsedWorkspaceKeys: Array.from(state.collapsedWorkspaceKeys),
+    expandedParentTabKeys: Array.from(state.expandedParentTabKeys),
   };
 }
 
@@ -124,17 +141,20 @@ export function mergePersistedCollapsedProjects<S extends CollapsedProjectsState
   if (
     !persisted?.collapsedProjectKeys &&
     !persisted?.collapsedStatusGroupKeys &&
-    !persisted?.collapsedWorkspaceKeys
+    !persisted?.collapsedWorkspaceKeys &&
+    !persisted?.expandedParentTabKeys
   ) {
     return current;
   }
   const restoredProjects = deserializeCollapsedKeys(persisted.collapsedProjectKeys);
   const restoredStatusGroups = deserializeCollapsedKeys(persisted.collapsedStatusGroupKeys);
   const restoredWorkspaces = deserializeCollapsedKeys(persisted.collapsedWorkspaceKeys);
+  const restoredExpandedParentTabs = deserializeCollapsedKeys(persisted.expandedParentTabKeys);
   if (
     areSetsEqual(current.collapsedProjectKeys, restoredProjects) &&
     areSetsEqual(current.collapsedStatusGroupKeys, restoredStatusGroups) &&
-    areSetsEqual(current.collapsedWorkspaceKeys, restoredWorkspaces)
+    areSetsEqual(current.collapsedWorkspaceKeys, restoredWorkspaces) &&
+    areSetsEqual(current.expandedParentTabKeys, restoredExpandedParentTabs)
   ) {
     return current;
   }
@@ -143,6 +163,7 @@ export function mergePersistedCollapsedProjects<S extends CollapsedProjectsState
     collapsedProjectKeys: restoredProjects,
     collapsedStatusGroupKeys: restoredStatusGroups,
     collapsedWorkspaceKeys: restoredWorkspaces,
+    expandedParentTabKeys: restoredExpandedParentTabs,
   };
 }
 

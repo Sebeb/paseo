@@ -101,7 +101,7 @@ describe("workspace bulk close helpers", () => {
       client: { closeItems },
       closeTab: async (tabId, action) => {
         closedTabIds.push(tabId);
-        await action();
+        return action();
       },
       closeWorkspaceTabWithCleanup: (input) => {
         cleanupCalls.push(input);
@@ -147,7 +147,7 @@ describe("workspace bulk close helpers", () => {
       },
       closeTab: async (tabId, action) => {
         closedTabIds.push(tabId);
-        await action();
+        return action();
       },
       closeWorkspaceTabWithCleanup: (input) => {
         cleanupCalls.push(input);

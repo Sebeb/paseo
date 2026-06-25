@@ -47,7 +47,7 @@ import { AdaptiveRenameModal } from "@/components/rename-modal";
 import { requireWorkspaceDirectory, resolveWorkspaceDirectory } from "@/utils/workspace-directory";
 import { redirectIfArchivingActiveWorkspace } from "@/utils/sidebar-workspace-archive-redirect";
 import { useWorkspaceArchive } from "@/workspace/use-workspace-archive";
-import { useCheckoutGitActionsStore } from "@/git/actions-store";
+import { type CheckoutGitAsyncActionId, useCheckoutGitActionsStore } from "@/git/actions-store";
 import { toWorktreeArchiveRisk } from "@/git/worktree-archive-warning";
 import * as Clipboard from "expo-clipboard";
 import { Shortcut } from "@/components/ui/shortcut";
@@ -62,6 +62,10 @@ import {
   SidebarWorkspaceTrailingActionOverlay,
   SidebarWorkspaceTrailingActionSlot,
 } from "@/components/sidebar/sidebar-workspace-row-content";
+import {
+  SidebarVcOperationBadges,
+  usePendingCheckoutBranchActionIds,
+} from "@/components/sidebar/sidebar-vc-operation-badge";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
 
 // Themed icon wrappers
@@ -359,6 +363,10 @@ function StatusWorkspaceRowWithMenu({
   const workspaceDirectory = resolveWorkspaceDirectory({
     workspaceDirectory: workspace.workspaceDirectory,
   });
+  const pendingBranchActionIds = usePendingCheckoutBranchActionIds({
+    serverId: workspace.serverId,
+    cwd: workspace.projectKind === "git" ? workspaceDirectory : null,
+  });
   const worktreeArchiveStatus = useCheckoutGitActionsStore((state) =>
     workspaceDirectory
       ? state.getStatus({
@@ -482,6 +490,7 @@ function StatusWorkspaceRowWithMenu({
         onRename={handleOpenRename}
         onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+        pendingBranchActionIds={pendingBranchActionIds}
       />
       <StatusWorkspaceContextMenuContent
         workspaceKey={workspace.workspaceKey}
@@ -526,6 +535,7 @@ function StatusWorkspaceRowInner({
   onRename,
   onMarkAsRead,
   archiveShortcutKeys,
+  pendingBranchActionIds,
 }: {
   workspace: SidebarWorkspaceEntry;
   projectName: string;
@@ -543,6 +553,7 @@ function StatusWorkspaceRowInner({
   onRename?: () => void;
   onMarkAsRead?: () => void;
   archiveShortcutKeys?: ShortcutKey[][] | null;
+  pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
 }) {
   const isTouchPlatform = platformIsNative;
 
@@ -564,7 +575,11 @@ function StatusWorkspaceRowInner({
         const showShortcut = showShortcutBadge && shortcutNumber !== null;
         const showKebab = Boolean(onArchive && (isHovered || isTouchPlatform));
         const showKebabInSlot = showKebab && !showShortcut;
-        const showActionBase = Boolean(workspace.diffStat && !showKebabInSlot && !showShortcut);
+        const showVcOperationBadges =
+          pendingBranchActionIds.length > 0 && !showKebabInSlot && !showShortcut;
+        const showActionBase = Boolean(
+          (workspace.diffStat || showVcOperationBadges) && !showKebabInSlot && !showShortcut,
+        );
         const showActionOverlay = showKebabInSlot;
         const shouldRenderActionSlot = showActionBase || showActionOverlay;
         const workspaceRowStyle = getStatusWorkspaceRowStyle({ selected, isHovered });
@@ -602,6 +617,7 @@ function StatusWorkspaceRowInner({
                     archiveStatus={archiveStatus}
                     archivePendingLabel={archivePendingLabel}
                     archiveShortcutKeys={archiveShortcutKeys}
+                    pendingBranchActionIds={pendingBranchActionIds}
                   />
                 ) : null}
               </SidebarWorkspaceRowContent>
@@ -626,6 +642,7 @@ function StatusWorkspaceActionSlot({
   archiveStatus,
   archivePendingLabel,
   archiveShortcutKeys,
+  pendingBranchActionIds,
 }: {
   workspace: SidebarWorkspaceEntry;
   showBase: boolean;
@@ -639,16 +656,15 @@ function StatusWorkspaceActionSlot({
   archiveStatus?: "idle" | "pending" | "success";
   archivePendingLabel?: string;
   archiveShortcutKeys?: ShortcutKey[][] | null;
+  pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
 }) {
   return (
     <SidebarWorkspaceTrailingActionSlot>
       <SidebarWorkspaceTrailingActionBase visible={showBase}>
-        {workspace.diffStat ? (
-          <DiffStat
-            additions={workspace.diffStat.additions}
-            deletions={workspace.diffStat.deletions}
-          />
-        ) : null}
+        <StatusWorkspaceBaseMeta
+          workspace={workspace}
+          pendingBranchActionIds={pendingBranchActionIds}
+        />
       </SidebarWorkspaceTrailingActionBase>
       <SidebarWorkspaceTrailingActionOverlay visible={showOverlay}>
         {onArchive ? (
@@ -667,6 +683,24 @@ function StatusWorkspaceActionSlot({
         ) : null}
       </SidebarWorkspaceTrailingActionOverlay>
     </SidebarWorkspaceTrailingActionSlot>
+  );
+}
+
+function StatusWorkspaceBaseMeta({
+  workspace,
+  pendingBranchActionIds,
+}: {
+  workspace: SidebarWorkspaceEntry;
+  pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
+}) {
+  if (pendingBranchActionIds.length > 0) {
+    return <SidebarVcOperationBadges actionIds={pendingBranchActionIds} />;
+  }
+  if (!workspace.diffStat) {
+    return null;
+  }
+  return (
+    <DiffStat additions={workspace.diffStat.additions} deletions={workspace.diffStat.deletions} />
   );
 }
 
@@ -951,9 +985,12 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surfaceSidebarHover,
   },
   kebabButton: {
-    padding: 2,
-    borderRadius: 4,
-    marginLeft: 2,
+    width: 24,
+    height: 24,
+    borderRadius: theme.borderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   kebabButtonHovered: {
     backgroundColor: theme.colors.surface2,

@@ -94,6 +94,7 @@ import type { WorkspaceTab, WorkspaceTabTarget } from "@/stores/workspace-tabs-s
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
+import { useSidebarViewStore, type SidebarEmbeddedTabSortMode } from "@/stores/sidebar-view-store";
 import {
   buildDeterministicWorkspaceTabId,
   normalizeWorkspaceTabTarget,
@@ -115,7 +116,8 @@ import { checkoutStatusQueryKey } from "@/git/query-keys";
 import { fetchCheckoutStatus } from "@/git/checkout-status-cache";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { useStableEvent } from "@/hooks/use-stable-event";
-import { createWorkspaceBrowser } from "@/stores/browser-store";
+import { createWorkspaceBrowser, useBrowserStore } from "@/stores/browser-store";
+import { useDraftStore, type DraftInput } from "@/stores/draft-store";
 import { getDesktopHost } from "@/desktop/host";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { generateDraftId } from "@/stores/draft-keys";
@@ -190,6 +192,13 @@ import {
 } from "@/screens/workspace/terminals/use-workspace-terminals";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useAppSettings } from "@/hooks/use-settings";
+import {
+  summarizeSidebarTabs,
+  type SidebarTabStatusSummary,
+  type SidebarTerminalStatusRecord,
+} from "@/utils/sidebar-tab-status-summary";
+import { sortSidebarWorkspaceTabs } from "@/utils/sidebar-tab-sort";
+import { getRelativeTabId } from "@/workspace-tabs/tab-navigation";
 import {
   getTerminalProfileIcon,
   resolveTerminalProfiles,
@@ -1947,11 +1956,34 @@ function useDesktopEmbeddedTabsEnabled(isMobile: boolean): boolean {
   return appSettings.tabLayoutMode !== "horizontal" && !isMobile;
 }
 
+function getWorkspaceTabNavigationSortMode(input: {
+  embeddedTabsEnabled: boolean;
+  tabSortMode: SidebarEmbeddedTabSortMode;
+}): SidebarEmbeddedTabSortMode {
+  if (input.embeddedTabsEnabled) {
+    return input.tabSortMode;
+  }
+  return "manual";
+}
+
 function shouldShowDesktopPaneFallbackTabs(input: {
   shouldRenderDesktopPaneFallback: boolean;
   embeddedTabsEnabled: boolean;
 }): boolean {
   return input.shouldRenderDesktopPaneFallback && !input.embeddedTabsEnabled;
+}
+
+function getWorkspaceParentTabIdByTabId(
+  workspaceLayout: WorkspaceLayout | null,
+): Readonly<Record<string, string>> | null {
+  return workspaceLayout?.parentTabIdByTabId ?? null;
+}
+
+function resolveWorkspaceDesktopContent(input: {
+  desktopSplitContent: ReactNode | null;
+  content: ReactNode;
+}): ReactNode {
+  return input.desktopSplitContent ?? input.content;
 }
 
 function WorkspaceScreenContent({
@@ -2184,11 +2216,23 @@ function WorkspaceScreenContent({
   const workspaceLayout = useWorkspaceLayoutStore((state) =>
     persistenceKey ? (state.layoutByWorkspace[persistenceKey] ?? null) : null,
   );
+  const parentTabIdByTabId = getWorkspaceParentTabIdByTabId(workspaceLayout);
   const hasHydratedWorkspaceLayoutStore = useWorkspaceLayoutStoreHydrated();
   const workspaceSetupSnapshot = useWorkspaceSetupStore((state) =>
     persistenceKey ? (state.snapshots[persistenceKey] ?? null) : null,
   );
   const ensureWorkspaceSetupStatus = useWorkspaceSetupStore((state) => state.ensureSetupStatus);
+  const workspaceAgents = useSessionStore(
+    (state) => state.sessions[normalizedServerId]?.agents ?? null,
+  );
+  const queuedMessages = useSessionStore(
+    (state) => state.sessions[normalizedServerId]?.queuedMessages ?? null,
+  );
+  const tabSortMode = useSidebarViewStore((state) =>
+    state.getEmbeddedTabSortMode(normalizedServerId),
+  );
+  const browsersById = useBrowserStore((state) => state.browsersById);
+  const draftRecords = useDraftStore((state) => state.drafts);
   const showWorkspaceSetup = shouldShowWorkspaceSetup(workspaceSetupSnapshot);
   const uiTabs = useMemo(
     () => (workspaceLayout ? collectAllTabs(workspaceLayout.root) : EMPTY_UI_TABS),
@@ -2233,14 +2277,6 @@ function WorkspaceScreenContent({
   const handleTabClosed = useCallback((tabId: string) => {
     setHoveredCloseTabKey((current) => (current === tabId ? null : current));
   }, []);
-  const { closingTabIds, closeTab, closeWorkspaceTabWithCleanup, handleCloseTabById } =
-    useWorkspaceTabClose({
-      serverId: normalizedServerId,
-      workspaceId: normalizedWorkspaceId,
-      workspaceDirectory,
-      tabs: uiTabs,
-      onTabClosed: handleTabClosed,
-    });
   const { onLayout: onHeaderLayout, isBelow: showCompactButtonLabels } =
     useContainerWidthBelow(700);
 
@@ -2251,6 +2287,101 @@ function WorkspaceScreenContent({
         tabs: uiTabs,
       }),
     [uiTabs, workspaceLayout],
+  );
+  const draftInputsByKey = useMemo<Record<string, DraftInput>>(() => {
+    const inputs: Record<string, DraftInput> = {};
+    for (const [key, record] of Object.entries(draftRecords)) {
+      if (record.lifecycle === "active") {
+        inputs[key] = record.input;
+      }
+    }
+    return inputs;
+  }, [draftRecords]);
+  const queuedMessageCountsByAgentId = useMemo(
+    () =>
+      queuedMessages
+        ? new Map(
+            Array.from(queuedMessages.entries()).map(([agentId, queue]) => [agentId, queue.length]),
+          )
+        : undefined,
+    [queuedMessages],
+  );
+  const setupSnapshotsByKey = useMemo(
+    () =>
+      persistenceKey && workspaceSetupSnapshot ? { [persistenceKey]: workspaceSetupSnapshot } : {},
+    [persistenceKey, workspaceSetupSnapshot],
+  );
+  const terminalsById = useMemo(
+    () =>
+      new Map<string, SidebarTerminalStatusRecord>(
+        terminals.map((terminal) => [
+          terminal.id,
+          { id: terminal.id, activity: terminal.activity ?? null },
+        ]),
+      ),
+    [terminals],
+  );
+  const statusSummariesByTabId = useMemo(() => {
+    const summaries = new Map<string, SidebarTabStatusSummary>();
+    for (const tab of uiTabs) {
+      summaries.set(
+        tab.tabId,
+        summarizeSidebarTabs({
+          tabs: [tab],
+          serverId: normalizedServerId,
+          workspaceId: normalizedWorkspaceId,
+          agents: workspaceAgents,
+          pendingCreatesByDraftId: pendingByDraftId,
+          setupSnapshots: setupSnapshotsByKey,
+          browsersById,
+          terminalsById,
+          draftInputsByKey,
+          queuedMessageCountsByAgentId,
+        }),
+      );
+    }
+    return summaries;
+  }, [
+    browsersById,
+    draftInputsByKey,
+    normalizedServerId,
+    normalizedWorkspaceId,
+    pendingByDraftId,
+    queuedMessageCountsByAgentId,
+    setupSnapshotsByKey,
+    terminalsById,
+    uiTabs,
+    workspaceAgents,
+  ]);
+  const effectiveTabSortMode = getWorkspaceTabNavigationSortMode({
+    embeddedTabsEnabled,
+    tabSortMode,
+  });
+  const orderedTabIds = useMemo(
+    () =>
+      sortSidebarWorkspaceTabs({
+        tabs: uiTabs,
+        sortMode: effectiveTabSortMode,
+        agents: workspaceAgents,
+        statusSummariesByTabId,
+      }).map((tab) => tab.tabId),
+    [effectiveTabSortMode, statusSummariesByTabId, uiTabs, workspaceAgents],
+  );
+  const { closingTabIds, closeTab, closeWorkspaceTabWithCleanup, handleCloseTabById } =
+    useWorkspaceTabClose({
+      serverId: normalizedServerId,
+      workspaceId: normalizedWorkspaceId,
+      workspaceDirectory,
+      tabs: uiTabs,
+      orderedTabIds,
+      parentTabIdByTabId,
+      onTabClosed: handleTabClosed,
+    });
+  const handleCloseTabByIdVoid = useCallback(
+    (tabId: string) => {
+      void handleCloseTabById(tabId);
+    },
+    [handleCloseTabById],
   );
   const setFocusedAgentId = useSessionStore((state) => state.setFocusedAgentId);
   const setFocusedTerminalId = useSessionStore((state) => state.setFocusedTerminalId);
@@ -2366,6 +2497,32 @@ function WorkspaceScreenContent({
     () => focusedPaneTabState.tabs.map((tab) => tab.descriptor),
     [focusedPaneTabState.tabs],
   );
+  const navigationTabs = useMemo<WorkspaceTabDescriptor[]>(() => {
+    if (effectiveTabSortMode === "manual") {
+      return tabs;
+    }
+
+    const tabById = new Map(tabs.map((tab) => [tab.tabId, tab]));
+    const nextTabs: WorkspaceTabDescriptor[] = [];
+    const addedTabIds = new Set<string>();
+    for (const tabId of orderedTabIds) {
+      const tab = tabById.get(tabId);
+      if (!tab || addedTabIds.has(tabId)) {
+        continue;
+      }
+      addedTabIds.add(tabId);
+      nextTabs.push(tab);
+    }
+    for (const tab of tabs) {
+      if (addedTabIds.has(tab.tabId)) {
+        continue;
+      }
+      addedTabIds.add(tab.tabId);
+      nextTabs.push(tab);
+    }
+    return nextTabs;
+  }, [effectiveTabSortMode, orderedTabIds, tabs]);
+  const navigationTabIds = useMemo(() => navigationTabs.map((tab) => tab.tabId), [navigationTabs]);
   const hasSetupTab = useMemo(
     () =>
       uiTabs.some(
@@ -3120,21 +3277,20 @@ function WorkspaceScreenContent({
           }
           return true;
         case "workspace.tab.navigate-index": {
-          const next = tabs[action.index - 1] ?? null;
+          const next = navigationTabs[action.index - 1] ?? null;
           if (next?.tabId) {
             navigateToTabId(next.tabId);
           }
           return true;
         }
         case "workspace.tab.navigate-relative": {
-          if (tabs.length > 0) {
-            const currentIndex = tabs.findIndex((tab) => tab.tabId === activeTabId);
-            const fromIndex = currentIndex >= 0 ? currentIndex : 0;
-            const nextIndex = (fromIndex + action.delta + tabs.length) % tabs.length;
-            const next = tabs[nextIndex] ?? null;
-            if (next?.tabId) {
-              navigateToTabId(next.tabId);
-            }
+          const nextTabId = getRelativeTabId({
+            tabIds: navigationTabIds,
+            activeTabId,
+            delta: action.delta,
+          });
+          if (nextTabId) {
+            navigateToTabId(nextTabId);
           }
           return true;
         }
@@ -3148,9 +3304,10 @@ function WorkspaceScreenContent({
       handleCreateDraftTab,
       handleCreateTerminal,
       navigateToTabId,
+      navigationTabIds,
+      navigationTabs,
       persistenceKey,
       restoreLastClosedWorkspaceTab,
-      tabs,
     ],
   );
 
@@ -3527,6 +3684,45 @@ function WorkspaceScreenContent({
     gate: workspaceScreenGate,
     workspaceKey: persistenceKey,
   });
+  const createTerminalDisabled = useMemo(
+    () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,
+    [createTerminalMutation.isPending, pendingTerminalCreateInput],
+  );
+  const showCreateBrowserTab = getIsElectron();
+  const headerSplitMenu = useMemo(
+    () =>
+      renderWorkspaceHeaderSplitMenu({
+        visible: shouldShowWorkspaceHeaderSplitMenu({
+          embeddedTabsEnabled,
+          canRenderDesktopPaneSplits,
+          mainPaneId,
+        }),
+        normalizedServerId,
+        showCreateBrowserTab,
+        createTerminalDisabled,
+        menuNewAgentIcon,
+        menuNewTerminalIcon,
+        menuNewBrowserIcon: MENU_NEW_BROWSER_ICON,
+        onCreateDraftSplit: handleCreateDraftMainPaneSplit,
+        onCreateTerminalSplit: handleCreateTerminalMainPaneSplit,
+        onCreateTerminalProfileSplit: handleCreateTerminalProfileMainPaneSplit,
+        onCreateBrowserSplit: handleCreateBrowserMainPaneSplit,
+      }),
+    [
+      embeddedTabsEnabled,
+      canRenderDesktopPaneSplits,
+      mainPaneId,
+      normalizedServerId,
+      showCreateBrowserTab,
+      createTerminalDisabled,
+      menuNewAgentIcon,
+      menuNewTerminalIcon,
+      handleCreateDraftMainPaneSplit,
+      handleCreateTerminalMainPaneSplit,
+      handleCreateTerminalProfileMainPaneSplit,
+      handleCreateBrowserMainPaneSplit,
+    ],
+  );
 
   const headerRight = useMemo(
     () => (
@@ -3651,6 +3847,7 @@ function WorkspaceScreenContent({
             }}
           </HeaderToggleButton>
         ) : null}
+        {headerSplitMenu}
       </View>
     ),
     [
@@ -3672,6 +3869,7 @@ function WorkspaceScreenContent({
       explorerToggleAccessibilityState,
       explorerToggleStyle,
       t,
+      headerSplitMenu,
     ],
   );
 
@@ -3683,28 +3881,6 @@ function WorkspaceScreenContent({
     () => shouldShowWorkspaceExplorerSidebar({ isRouteFocused, isFocusModeEnabled, isMobile }),
     [isRouteFocused, isFocusModeEnabled, isMobile],
   );
-  const createTerminalDisabled = useMemo(
-    () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,
-    [createTerminalMutation.isPending, pendingTerminalCreateInput],
-  );
-  const showCreateBrowserTab = getIsElectron();
-  const headerSplitMenu = renderWorkspaceHeaderSplitMenu({
-    visible: shouldShowWorkspaceHeaderSplitMenu({
-      embeddedTabsEnabled,
-      canRenderDesktopPaneSplits,
-      mainPaneId,
-    }),
-    normalizedServerId,
-    showCreateBrowserTab,
-    createTerminalDisabled,
-    menuNewAgentIcon,
-    menuNewTerminalIcon,
-    menuNewBrowserIcon: MENU_NEW_BROWSER_ICON,
-    onCreateDraftSplit: handleCreateDraftMainPaneSplit,
-    onCreateTerminalSplit: handleCreateTerminalMainPaneSplit,
-    onCreateTerminalProfileSplit: handleCreateTerminalProfileMainPaneSplit,
-    onCreateBrowserSplit: handleCreateBrowserMainPaneSplit,
-  });
   const focusedPaneIdOrUndefined = useMemo(() => focusedPaneId ?? undefined, [focusedPaneId]);
   const desktopFocusModeEnabled = useMemo(
     () => isFocusModeEnabled && !isMobile,
@@ -3733,7 +3909,7 @@ function WorkspaceScreenContent({
         setHoveredCloseTabKey={setHoveredCloseTabKey}
         closingTabIds={closingTabIds}
         onNavigateTab={navigateToTabId}
-        onCloseTab={handleCloseTabById}
+        onCloseTab={handleCloseTabByIdVoid}
         onCopyResumeCommand={handleCopyResumeCommand}
         onCopyAgentId={handleCopyAgentId}
         onCopyFilePath={handleCopyFilePath}
@@ -3771,7 +3947,7 @@ function WorkspaceScreenContent({
     hoveredCloseTabKey,
     closingTabIds,
     navigateToTabId,
-    handleCloseTabById,
+    handleCloseTabByIdVoid,
     handleCopyResumeCommand,
     handleCopyAgentId,
     handleCopyFilePath,
@@ -3796,7 +3972,7 @@ function WorkspaceScreenContent({
     embeddedTabsEnabled,
     mainPaneId,
   ]);
-  const desktopContent = desktopSplitContent ?? content;
+  const desktopContent = resolveWorkspaceDesktopContent({ desktopSplitContent, content });
 
   const workspaceCenterColumn = (
     <View style={styles.centerColumn}>
@@ -3806,7 +3982,6 @@ function WorkspaceScreenContent({
           left={
             <>
               <SidebarMenuToggle />
-              {headerSplitMenu}
               <WorkspaceHeaderTitleBar
                 isLoading={isWorkspaceHeaderLoading}
                 title={workspaceHeaderTitle}
@@ -3862,7 +4037,7 @@ function WorkspaceScreenContent({
           onCopyFilePath={handleCopyFilePath}
           onReloadAgent={handleReloadAgent}
           onRenameTab={handleRenameTab}
-          onCloseTab={handleCloseTabById}
+          onCloseTab={handleCloseTabByIdVoid}
           onCloseTabsAbove={handleCloseTabsToLeft}
           onCloseTabsBelow={handleCloseTabsToRight}
           onCloseOtherTabs={handleCloseOtherTabs}
@@ -3879,7 +4054,7 @@ function WorkspaceScreenContent({
           normalizedWorkspaceId={normalizedWorkspaceId}
           setHoveredCloseTabKey={setHoveredCloseTabKey}
           onNavigateTab={navigateToTabId}
-          onCloseTab={handleCloseTabById}
+          onCloseTab={handleCloseTabByIdVoid}
           onCopyResumeCommand={handleCopyResumeCommand}
           onCopyAgentId={handleCopyAgentId}
           onCopyFilePath={handleCopyFilePath}

@@ -915,7 +915,7 @@ function DesktopSidebar({
   const setVerticalTabsSidebarWidth = usePanelStore((state) => state.setVerticalTabsSidebarWidth);
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const badgeMode = useSidebarViewStore((state) =>
-    activeServerId ? state.getBadgeMode(activeServerId) : "diff",
+    activeServerId ? state.getBadgeMode(activeServerId) : "status",
   );
   const { width: viewportWidth } = useWindowDimensions();
   const hostStatusDotStyle = useMemo(
@@ -1338,8 +1338,6 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 37,
     justifyContent: "center",
     paddingHorizontal: theme.spacing[4],
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
   },
   verticalTabsTitle: {
     color: theme.colors.foregroundMuted,

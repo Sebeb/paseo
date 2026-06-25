@@ -41,7 +41,7 @@ interface CloseWorkspaceTabWithCleanupInput {
 interface CloseBulkWorkspaceTabsInput {
   client: Pick<DaemonClient, "closeItems"> | null;
   groups: BulkClosableTabGroups;
-  closeTab: (tabId: string, action: () => Promise<void>) => Promise<void>;
+  closeTab: (tabId: string, action: () => Promise<boolean>) => Promise<boolean>;
   closeWorkspaceTabWithCleanup: (input: CloseWorkspaceTabWithCleanupInput) => void;
   logLabel: string;
   warn?: (message: string, payload: object) => void;
@@ -133,6 +133,7 @@ export async function closeBulkWorkspaceTabs(input: CloseBulkWorkspaceTabsInput)
         tabId,
         target: { kind: "agent", agentId },
       });
+      return true;
     });
   }
 
@@ -142,12 +143,14 @@ export async function closeBulkWorkspaceTabs(input: CloseBulkWorkspaceTabsInput)
         tabId,
         target: { kind: "terminal", terminalId },
       });
+      return true;
     });
   }
 
   for (const { tabId, target } of groups.otherTabs) {
     void closeTab(tabId, async () => {
       closeWorkspaceTabWithCleanup({ tabId, target });
+      return true;
     });
   }
 }

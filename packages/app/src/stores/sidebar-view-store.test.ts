@@ -30,7 +30,7 @@ describe("sidebar-view-store", () => {
 
     expect(useSidebarViewStore.getState().getEmbeddedTabSortMode("srv")).toBe("manual");
     expect(useSidebarViewStore.getState().getEmbeddedRecentTabCount("srv")).toBe(5);
-    expect(useSidebarViewStore.getState().getBadgeMode("srv")).toBe("diff");
+    expect(useSidebarViewStore.getState().getBadgeMode("srv")).toBe("status");
   });
 
   it("trims server ids before storing embedded tab preferences", () => {
@@ -49,8 +49,8 @@ describe("sidebar-view-store", () => {
     });
   });
 
-  it("defaults sidebar badge mode to diff", () => {
-    expect(useSidebarViewStore.getState().getBadgeMode("srv")).toBe("diff");
+  it("defaults sidebar badge mode to status", () => {
+    expect(useSidebarViewStore.getState().getBadgeMode("srv")).toBe("status");
   });
 
   it("stores the auto-collapse workspace display preference", () => {

@@ -60,7 +60,7 @@ function makeAgent(input: {
 const WORKSPACE_ID = "ws-1";
 
 describe("workspace agent visibility", () => {
-  it("keeps subagents active and known while excluding them from auto-open", () => {
+  it("auto-opens same-workspace subagents under their parent", () => {
     const parent = makeAgent({
       id: "parent-agent",
       cwd: "/repo/worktree",
@@ -82,8 +82,9 @@ describe("workspace agent visibility", () => {
     });
 
     expect(result.activeAgentIds).toEqual(new Set(["parent-agent", "child-agent"]));
-    expect(result.autoOpenAgentIds).toEqual(new Set(["parent-agent"]));
+    expect(result.autoOpenAgentIds).toEqual(new Set(["parent-agent", "child-agent"]));
     expect(result.knownAgentIds).toEqual(new Set(["parent-agent", "child-agent"]));
+    expect(result.parentAgentIdByAgentId).toEqual(new Map([["child-agent", "parent-agent"]]));
   });
 
   it("keeps archived subagents known but excludes them from active and auto-open", () => {
@@ -103,9 +104,10 @@ describe("workspace agent visibility", () => {
     expect(result.activeAgentIds).toEqual(new Set<string>());
     expect(result.autoOpenAgentIds).toEqual(new Set<string>());
     expect(result.knownAgentIds).toEqual(new Set(["archived-child"]));
+    expect(result.parentAgentIdByAgentId).toEqual(new Map());
   });
 
-  it("excludes a child from auto-open even when its snapshot arrives before the parent", () => {
+  it("auto-opens a same-workspace child even when its snapshot arrives before the parent", () => {
     const child = makeAgent({
       id: "child-agent",
       cwd: "/repo/worktree",
@@ -127,8 +129,36 @@ describe("workspace agent visibility", () => {
     });
 
     expect(result.activeAgentIds).toEqual(new Set(["child-agent", "parent-agent"]));
-    expect(result.autoOpenAgentIds).toEqual(new Set(["parent-agent"]));
+    expect(result.autoOpenAgentIds).toEqual(new Set(["child-agent", "parent-agent"]));
     expect(result.knownAgentIds).toEqual(new Set(["child-agent", "parent-agent"]));
+    expect(result.parentAgentIdByAgentId).toEqual(new Map([["child-agent", "parent-agent"]]));
+  });
+
+  it("leaves cross-workspace subagents out of auto-open", () => {
+    const parent = makeAgent({
+      id: "parent-agent",
+      cwd: "/repo/main",
+      workspaceId: "parent-workspace",
+    });
+    const child = makeAgent({
+      id: "child-agent",
+      cwd: "/repo/worktree",
+      workspaceId: WORKSPACE_ID,
+      parentAgentId: "parent-agent",
+    });
+
+    const result = deriveWorkspaceAgentVisibility({
+      sessionAgents: new Map<string, Agent>([
+        [parent.id, parent],
+        [child.id, child],
+      ]),
+      workspaceId: WORKSPACE_ID,
+    });
+
+    expect(result.activeAgentIds).toEqual(new Set(["child-agent"]));
+    expect(result.autoOpenAgentIds).toEqual(new Set<string>());
+    expect(result.knownAgentIds).toEqual(new Set(["child-agent"]));
+    expect(result.parentAgentIdByAgentId).toEqual(new Map());
   });
 
   it("keeps archived agents out of activeAgentIds but present in knownAgentIds", () => {
@@ -164,6 +194,7 @@ describe("workspace agent visibility", () => {
 
     expect(result.activeAgentIds).toEqual(new Set(["visible-agent"]));
     expect(result.autoOpenAgentIds).toEqual(new Set(["visible-agent"]));
+    expect(result.parentAgentIdByAgentId).toEqual(new Map());
     expect(result.knownAgentIds.has("visible-agent")).toBe(true);
     expect(result.knownAgentIds.has("archived-agent")).toBe(true);
     expect(result.knownAgentIds.has("other-workspace-agent")).toBe(false);
@@ -297,6 +328,7 @@ describe("workspace agent visibility", () => {
       activeAgentIds: new Set(["active-agent"]),
       autoOpenAgentIds: new Set(["root-agent"]),
       knownAgentIds: new Set(["active-agent", "archived-agent"]),
+      parentAgentIdByAgentId: new Map([["child-agent", "root-agent"]]),
     };
 
     expect(
@@ -314,6 +346,7 @@ describe("workspace agent visibility", () => {
       activeAgentIds: agentVisibility.activeAgentIds,
       autoOpenAgentIds: agentVisibility.autoOpenAgentIds,
       knownAgentIds: agentVisibility.knownAgentIds,
+      parentAgentIdByAgentId: agentVisibility.parentAgentIdByAgentId,
       knownTerminalIds: ["terminal-1", "script-terminal"],
       standaloneTerminalIds: ["terminal-1"],
       hasActivePendingDraftCreate: false,
@@ -326,11 +359,13 @@ describe("workspace agent visibility", () => {
         activeAgentIds: new Set(["a", "b"]),
         autoOpenAgentIds: new Set(["a"]),
         knownAgentIds: new Set(["a", "b", "c"]),
+        parentAgentIdByAgentId: new Map([["b", "a"]]),
       };
       const b = {
         activeAgentIds: new Set(["a", "b"]),
         autoOpenAgentIds: new Set(["a"]),
         knownAgentIds: new Set(["a", "b", "c"]),
+        parentAgentIdByAgentId: new Map([["b", "a"]]),
       };
       expect(workspaceAgentVisibilityEqual(a, b)).toBe(true);
     });
@@ -340,11 +375,13 @@ describe("workspace agent visibility", () => {
         activeAgentIds: new Set(["a"]),
         autoOpenAgentIds: new Set(["a"]),
         knownAgentIds: new Set(["a"]),
+        parentAgentIdByAgentId: new Map(),
       };
       const b = {
         activeAgentIds: new Set(["b"]),
         autoOpenAgentIds: new Set(["a"]),
         knownAgentIds: new Set(["a"]),
+        parentAgentIdByAgentId: new Map(),
       };
       expect(workspaceAgentVisibilityEqual(a, b)).toBe(false);
     });
@@ -354,11 +391,13 @@ describe("workspace agent visibility", () => {
         activeAgentIds: new Set(["a", "b"]),
         autoOpenAgentIds: new Set(["a"]),
         knownAgentIds: new Set(["a", "b"]),
+        parentAgentIdByAgentId: new Map(),
       };
       const b = {
         activeAgentIds: new Set(["a", "b"]),
         autoOpenAgentIds: new Set(["b"]),
         knownAgentIds: new Set(["a", "b"]),
+        parentAgentIdByAgentId: new Map(),
       };
       expect(workspaceAgentVisibilityEqual(a, b)).toBe(false);
     });
@@ -368,11 +407,29 @@ describe("workspace agent visibility", () => {
         activeAgentIds: new Set(["a"]),
         autoOpenAgentIds: new Set(["a"]),
         knownAgentIds: new Set(["a"]),
+        parentAgentIdByAgentId: new Map(),
       };
       const b = {
         activeAgentIds: new Set(["a"]),
         autoOpenAgentIds: new Set(["a"]),
         knownAgentIds: new Set(["a", "b"]),
+        parentAgentIdByAgentId: new Map(),
+      };
+      expect(workspaceAgentVisibilityEqual(a, b)).toBe(false);
+    });
+
+    it("returns false when parent mappings differ", () => {
+      const a = {
+        activeAgentIds: new Set(["a", "b"]),
+        autoOpenAgentIds: new Set(["a", "b"]),
+        knownAgentIds: new Set(["a", "b"]),
+        parentAgentIdByAgentId: new Map([["b", "a"]]),
+      };
+      const b = {
+        activeAgentIds: new Set(["a", "b"]),
+        autoOpenAgentIds: new Set(["a", "b"]),
+        knownAgentIds: new Set(["a", "b"]),
+        parentAgentIdByAgentId: new Map([["b", "other"]]),
       };
       expect(workspaceAgentVisibilityEqual(a, b)).toBe(false);
     });
@@ -382,11 +439,13 @@ describe("workspace agent visibility", () => {
         activeAgentIds: new Set<string>(),
         autoOpenAgentIds: new Set<string>(),
         knownAgentIds: new Set<string>(),
+        parentAgentIdByAgentId: new Map<string, string>(),
       };
       const b = {
         activeAgentIds: new Set<string>(),
         autoOpenAgentIds: new Set<string>(),
         knownAgentIds: new Set<string>(),
+        parentAgentIdByAgentId: new Map<string, string>(),
       };
       expect(workspaceAgentVisibilityEqual(a, b)).toBe(true);
     });

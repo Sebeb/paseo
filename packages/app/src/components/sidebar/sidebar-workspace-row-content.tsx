@@ -388,7 +388,7 @@ function getStatusDotColorStyle(bucket: SidebarStateBucket) {
 export const sidebarWorkspaceRowStyles = StyleSheet.create((theme) => ({
   rowRight: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: theme.spacing[2],
     flexShrink: 0,
   },
@@ -414,15 +414,17 @@ export const sidebarWorkspaceRowStyles = StyleSheet.create((theme) => ({
   trailingActionSlot: {
     position: "relative",
     minWidth: 18,
-    minHeight: 20,
+    height: 24,
     flexShrink: 0,
     alignItems: "flex-end",
-    justifyContent: "flex-start",
+    justifyContent: "center",
   },
   trailingActionOverlay: {
     position: "absolute",
-    top: 0,
     right: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
   },
 }));
 

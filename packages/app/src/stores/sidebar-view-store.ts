@@ -35,7 +35,7 @@ function normalizeRecentTabCount(value: unknown): SidebarEmbeddedRecentTabCount 
 }
 
 function normalizeBadgeMode(value: unknown): SidebarBadgeMode {
-  return value === "status" || value === "none" || value === "diff" ? value : "diff";
+  return value === "status" || value === "none" || value === "diff" ? value : "status";
 }
 
 export const useSidebarViewStore = create<SidebarViewStoreState>()(
@@ -93,7 +93,7 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
       },
       getBadgeMode: (serverId) => {
         const key = serverId.trim();
-        if (!key) return "diff";
+        if (!key) return "status";
         return normalizeBadgeMode(get().badgeModeByServerId[key]);
       },
       setBadgeMode: (serverId, mode) => {
