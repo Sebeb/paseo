@@ -41,6 +41,8 @@ These details were previously implemented on `main`, then lost when this feature
 - The sidebar header no longer shows a global "new workspace" action.
 - The history/sessions action lives in the sidebar footer beside the open-folder action.
 - Project and workspace hover actions must not change row height or vertical spacing; trailing action buttons are overlaid within a stable row layout.
+- In vertical tab layout, the vertical workspace tab rail remains visible when the main workspace sidebar is toggled closed. Closing the sidebar hides only the workspace/project list, not the separate vertical tab rail.
+- In sidebar/vertical tab layout, the main pane's split-tab creation action lives in the workspace header immediately after the sidebar toggle instead of floating over the pane body. The trigger shows the horizontal split icon by default, switches to the vertical split icon while Command is held on macOS or Control is held on non-macOS platforms, and opens the new-tab menu so the selected agent/browser/terminal/profile is created inside that split.
 
 ## Sidebar View Store
 

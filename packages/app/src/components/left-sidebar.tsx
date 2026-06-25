@@ -142,6 +142,7 @@ interface MobileSidebarProps extends SidebarSharedProps {
 interface DesktopSidebarProps extends SidebarSharedProps {
   insetsTop: number;
   isOpen: boolean;
+  showVerticalTabs: boolean;
   handleViewMore: () => void;
 }
 
@@ -157,6 +158,8 @@ export const LeftSidebar = memo(function LeftSidebar({
   const isOpen = usePanelStore((state) =>
     selectIsAgentListOpen(state, { isCompact: isCompactLayout }),
   );
+  const { settings } = useAppSettings();
+  const showDesktopVerticalTabs = settings.tabLayoutMode === "vertical" && !isCompactLayout;
   const showMobileAgent = usePanelStore((state) => state.showMobileAgent);
   const pathname = usePathname();
   const daemons = useHosts();
@@ -214,7 +217,7 @@ export const LeftSidebar = memo(function LeftSidebar({
 
   const { projects, isInitialLoad, isRevalidating, refreshAll } = useSidebarWorkspacesList({
     serverId: activeServerId,
-    enabled: isCompactLayout || isOpen,
+    enabled: isCompactLayout || isOpen || showDesktopVerticalTabs,
   });
   const { collapsedProjectKeys, shortcutIndexByWorkspaceKey, toggleProjectCollapsed } =
     useSidebarShortcutModel({ projects });
@@ -343,6 +346,7 @@ export const LeftSidebar = memo(function LeftSidebar({
       {...sharedProps}
       insetsTop={insets.top}
       isOpen={isOpen}
+      showVerticalTabs={showDesktopVerticalTabs}
       handleOpenProject={handleOpenProjectDesktop}
       handleHome={handleHomeDesktop}
       handleSettings={handleSettingsDesktop}
@@ -899,6 +903,7 @@ function DesktopSidebar({
   labels,
   insetsTop,
   isOpen,
+  showVerticalTabs,
   handleViewMore,
 }: DesktopSidebarProps) {
   const pathname = usePathname();
@@ -908,8 +913,6 @@ function DesktopSidebar({
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
   const verticalTabsSidebarWidth = usePanelStore((state) => state.verticalTabsSidebarWidth);
   const setVerticalTabsSidebarWidth = usePanelStore((state) => state.setVerticalTabsSidebarWidth);
-  const { settings } = useAppSettings();
-  const showVerticalTabs = settings.tabLayoutMode === "vertical";
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const badgeMode = useSidebarViewStore((state) =>
     activeServerId ? state.getBadgeMode(activeServerId) : "diff",
@@ -967,6 +970,7 @@ function DesktopSidebar({
   const resizeAnimatedStyle = useAnimatedStyle(() => ({
     width: resizeWidth.value,
   }));
+  const effectiveSidebarWidth = isOpen ? sidebarWidth : 0;
   const verticalTabsResizeGesture = useMemo(
     () =>
       Gesture.Pan()
@@ -981,7 +985,7 @@ function DesktopSidebar({
             MIN_VERTICAL_TABS_SIDEBAR_WIDTH,
             Math.min(
               MAX_VERTICAL_TABS_SIDEBAR_WIDTH,
-              viewportWidth - MIN_CHAT_WIDTH - sidebarWidth,
+              viewportWidth - MIN_CHAT_WIDTH - effectiveSidebarWidth,
             ),
           );
           const clampedWidth = Math.max(
@@ -994,9 +998,9 @@ function DesktopSidebar({
           runOnJS(setVerticalTabsSidebarWidth)(resizeVerticalTabsWidth.value);
         }),
     [
+      effectiveSidebarWidth,
       resizeVerticalTabsWidth,
       setVerticalTabsSidebarWidth,
-      sidebarWidth,
       verticalTabsSidebarWidth,
       viewportWidth,
     ],
@@ -1033,63 +1037,64 @@ function DesktopSidebar({
     [verticalTabsResizeAnimatedStyle],
   );
 
-  if (!isOpen) {
+  if (!isOpen && !showVerticalTabs) {
     return null;
   }
 
   return (
     <View style={styles.desktopSidebarShell}>
-      <Animated.View style={desktopSidebarStyle}>
-        <View style={desktopSidebarBorderStyle}>
-          <View style={styles.sidebarDragArea}>
-            <TitlebarDragRegion />
-            {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
-          </View>
-          <WorkspacesSectionHeader serverId={activeServerId} />
+      {isOpen ? (
+        <Animated.View style={desktopSidebarStyle}>
+          <View style={desktopSidebarBorderStyle}>
+            <View style={styles.sidebarDragArea}>
+              <TitlebarDragRegion />
+              {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
+            </View>
+            <WorkspacesSectionHeader serverId={activeServerId} />
 
-          {isInitialLoad ? (
-            <SidebarAgentListSkeleton />
-          ) : (
-            <SidebarWorkspaceList
-              serverId={activeServerId}
-              collapsedProjectKeys={collapsedProjectKeys}
-              onToggleProjectCollapsed={toggleProjectCollapsed}
-              shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-              groupMode={groupMode}
-              projects={projects}
-              isRefreshing={isManualRefresh && isRevalidating}
-              onRefresh={handleRefresh}
-              onAddProject={handleOpenProject}
+            {isInitialLoad ? (
+              <SidebarAgentListSkeleton />
+            ) : (
+              <SidebarWorkspaceList
+                serverId={activeServerId}
+                collapsedProjectKeys={collapsedProjectKeys}
+                onToggleProjectCollapsed={toggleProjectCollapsed}
+                shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+                groupMode={groupMode}
+                projects={projects}
+                isRefreshing={isManualRefresh && isRevalidating}
+                onRefresh={handleRefresh}
+                onAddProject={handleOpenProject}
+              />
+            )}
+
+            <SidebarCalloutSlot />
+
+            <SidebarFooter
+              theme={theme}
+              activeServerId={activeServerId}
+              activeHostLabel={activeHostLabel}
+              hostStatusDotStyle={hostStatusDotStyle}
+              hostOptions={hostOptions}
+              hostTriggerRef={hostTriggerRef}
+              isHostPickerOpen={isHostPickerOpen}
+              setIsHostPickerOpen={setIsHostPickerOpen}
+              handleHostSelect={handleHostSelect}
+              renderHostOption={renderHostOption}
+              handleViewMore={handleViewMore}
+              handleOpenProject={handleOpenProject}
+              handleHome={handleHome}
+              handleSettings={handleSettings}
+              labels={labels}
+              isSessionsActive={isSessionsActive}
             />
-          )}
 
-          <SidebarCalloutSlot />
-
-          <SidebarFooter
-            theme={theme}
-            activeServerId={activeServerId}
-            activeHostLabel={activeHostLabel}
-            hostStatusDotStyle={hostStatusDotStyle}
-            hostOptions={hostOptions}
-            hostTriggerRef={hostTriggerRef}
-            isHostPickerOpen={isHostPickerOpen}
-            setIsHostPickerOpen={setIsHostPickerOpen}
-            handleHostSelect={handleHostSelect}
-            renderHostOption={renderHostOption}
-            handleViewMore={handleViewMore}
-            handleOpenProject={handleOpenProject}
-            handleHome={handleHome}
-            handleSettings={handleSettings}
-            labels={labels}
-            isSessionsActive={isSessionsActive}
-          />
-
-          {/* Resize handle - absolutely positioned over right border */}
-          <GestureDetector gesture={resizeGesture}>
-            <View style={resizeHandleStyle} />
-          </GestureDetector>
-        </View>
-      </Animated.View>
+            <GestureDetector gesture={resizeGesture}>
+              <View style={resizeHandleStyle} />
+            </GestureDetector>
+          </View>
+        </Animated.View>
+      ) : null}
       {showVerticalTabs ? (
         <VerticalTabsSidebar
           style={verticalTabsSidebarStyle}

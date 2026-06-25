@@ -28,8 +28,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { Columns2, Rows2 } from "lucide-react-native";
-import { Pressable, View, Text, type PressableStateCallbackType } from "react-native";
+import { View, Text } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { ResizeHandle } from "@/components/resize-handle";
@@ -913,8 +912,6 @@ function SplitPaneView({
   tabDropPreview,
   embeddedMainPaneId,
 }: SplitPaneViewProps) {
-  const { t } = useTranslation();
-  const { theme } = useUnistyles();
   const paneRef = useRef<View | null>(null);
   const stableOnFocusPane = useStableEvent(onFocusPane);
   const padding = useWindowControlsPadding("tabRow");
@@ -1019,13 +1016,6 @@ function SplitPaneView({
     [padding.left, padding.right],
   );
   const isEmbeddedMainPane = embeddedMainPaneId === pane.id;
-  const embeddedSplitActionStyle = useCallback(
-    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
-      styles.embeddedSplitAction,
-      (hovered || pressed) && styles.embeddedSplitActionHovered,
-    ],
-    [],
-  );
 
   return (
     <RenderProfile id={`SplitPaneView:${pane.id}`}>
@@ -1067,40 +1057,6 @@ function SplitPaneView({
         )}
 
         <View style={styles.paneContent}>
-          {isEmbeddedMainPane ? (
-            <View style={styles.embeddedSplitActions}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("workspace.tabs.actions.splitRight")}
-                onPress={handleSplitRight}
-                style={embeddedSplitActionStyle}
-              >
-                {({ hovered, pressed }) => (
-                  <Columns2
-                    size={15}
-                    color={
-                      hovered || pressed ? theme.colors.foreground : theme.colors.foregroundMuted
-                    }
-                  />
-                )}
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("workspace.tabs.actions.splitDown")}
-                onPress={handleSplitDown}
-                style={embeddedSplitActionStyle}
-              >
-                {({ hovered, pressed }) => (
-                  <Rows2
-                    size={15}
-                    color={
-                      hovered || pressed ? theme.colors.foreground : theme.colors.foregroundMuted
-                    }
-                  />
-                )}
-              </Pressable>
-            </View>
-          ) : null}
           {mountedPaneTabIds.length > 0
             ? mountedPaneTabIds.map((tabId) => {
                 const tabDescriptor = tabDescriptorMap.get(tabId);
@@ -1201,28 +1157,6 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minWidth: 0,
     minHeight: 0,
-  },
-  embeddedSplitActions: {
-    position: "absolute",
-    top: theme.spacing[2],
-    right: theme.spacing[2],
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[1],
-    zIndex: 5,
-  },
-  embeddedSplitAction: {
-    width: 28,
-    height: 28,
-    borderRadius: theme.borderRadius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.colors.surface0,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.border,
-  },
-  embeddedSplitActionHovered: {
-    backgroundColor: theme.colors.surface2,
   },
   dragOverlayChip: {
     flexDirection: "row",
