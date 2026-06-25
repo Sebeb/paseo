@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
+import { createElement, memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { Pressable, Text, View, type GestureResponderEvent, type ViewStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
@@ -12,6 +12,7 @@ import {
   SquareTerminal,
 } from "lucide-react-native";
 import { WorkspaceHoverCard } from "@/components/workspace-hover-card";
+import { SidebarEntryRowContent } from "@/components/sidebar/sidebar-entry-row";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SyncedLoader } from "@/components/synced-loader";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -22,6 +23,7 @@ import { isEmphasizedStatusDotBucket } from "@/utils/status-dot-color";
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
 import { isNative as platformIsNative } from "@/constants/platform";
 import { useTranslation } from "react-i18next";
+import type { SidebarEntryStatusKind } from "@/utils/sidebar-tab-status-summary";
 
 const WORKSPACE_STATUS_DOT_WIDTH = 14;
 const DEFAULT_STATUS_DOT_SIZE = 7;
@@ -81,12 +83,12 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   scriptIconKind = null,
   isHovered,
   isLoading,
-  isCreating = false,
   suppressStatusLoader = false,
   suppressStatusVisual = false,
   shortcutNumber = null,
   showShortcutBadge = false,
   hasTrailingContent,
+  leadingStatusKind = null,
   expandable = false,
   expanded = false,
   onToggleExpanded,
@@ -103,62 +105,46 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   shortcutNumber?: number | null;
   showShortcutBadge?: boolean;
   hasTrailingContent?: boolean;
+  leadingStatusKind?: SidebarEntryStatusKind | null;
   expandable?: boolean;
   expanded?: boolean;
   onToggleExpanded?: (event: GestureResponderEvent) => void;
   children?: ReactNode;
 }) {
-  const workspaceBranchTextStyle = useMemo(
-    () => [
-      styles.workspaceBranchText,
-      scriptIconKind ? styles.workspaceBranchTextWithAccessory : styles.workspaceBranchTextFlexible,
-      isHovered && styles.workspaceBranchTextHovered,
-      isCreating && styles.workspaceBranchTextCreating,
-    ],
-    [scriptIconKind, isHovered, isCreating],
-  );
   const shouldRenderTrailingContent = hasTrailingContent ?? children != null;
+  const shouldRenderRightContext = shouldRenderTrailingContent || scriptIconKind != null;
 
   return (
-    <View style={styles.workspaceRowContent}>
-      <View style={styles.workspaceRowMain}>
-        <WorkspaceLeadingVisual
-          workspace={workspace}
-          isLoading={isLoading}
-          suppressStatusLoader={suppressStatusLoader}
-          suppressStatusVisual={suppressStatusVisual}
-          isHovered={isHovered}
-          expandable={expandable}
-          expanded={expanded}
-          onToggleExpanded={onToggleExpanded}
-        />
-        <View style={styles.workspaceContentColumn}>
-          <View style={styles.workspaceTitleRow}>
-            <View style={styles.workspaceTitleLeft}>
-              <Text style={workspaceBranchTextStyle} numberOfLines={1}>
-                {workspace.name}
-              </Text>
-              {scriptIconKind ? <WorkspaceScriptIcon kind={scriptIconKind} /> : null}
-            </View>
-            {shouldRenderTrailingContent ? (
-              <View style={styles.workspaceRowRight} testID="workspace-row-right">
-                {children}
-              </View>
-            ) : null}
-          </View>
-          {subtitle ? (
-            <Text style={styles.workspaceSubtitle} numberOfLines={1}>
-              {subtitle}
-            </Text>
-          ) : null}
-        </View>
-      </View>
-      {showShortcutBadge && shortcutNumber !== null ? (
-        <View style={styles.shortcutBadgeOverlay} pointerEvents="none">
-          <SidebarWorkspaceShortcutBadge number={shortcutNumber} />
-        </View>
-      ) : null}
-    </View>
+    <SidebarEntryRowContent
+      leading={createElement(WorkspaceLeadingVisual, {
+        workspace,
+        isLoading,
+        suppressStatusLoader,
+        suppressStatusVisual,
+        isHovered,
+        expandable,
+        expanded,
+        onToggleExpanded,
+      })}
+      label={workspace.name}
+      subtitle={subtitle}
+      leadingStatus={leadingStatusKind}
+      rightContext={
+        shouldRenderRightContext
+          ? createElement(
+              View,
+              { style: styles.workspaceRowRight, testID: "workspace-row-right" },
+              scriptIconKind ? createElement(WorkspaceScriptIcon, { kind: scriptIconKind }) : null,
+              children,
+            )
+          : null
+      }
+      shortcutBadge={
+        showShortcutBadge && shortcutNumber !== null
+          ? createElement(SidebarWorkspaceShortcutBadge, { number: shortcutNumber })
+          : null
+      }
+    />
   );
 });
 

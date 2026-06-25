@@ -54,6 +54,7 @@ import {
 import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
 import { useContainerWidthBelow } from "@/hooks/use-container-width";
+import { useFormPreferences } from "@/hooks/use-form-preferences";
 import {
   clearHistorySyncErrorAfterSuccessfulSync,
   reconcileMissingAgentStateWithPresentAgent,
@@ -418,8 +419,9 @@ export function useDraftPanelDescriptor(
     }),
   );
   const badgeMode = useSidebarViewStore((state) => state.getBadgeMode(context.serverId));
-  const setupProvider = target.setup?.provider ?? null;
-  const icon = badgeMode === "status" && setupProvider ? getProviderIcon(setupProvider) : SquarePen;
+  const { preferences } = useFormPreferences();
+  const draftProvider = target.setup?.provider ?? preferences.provider ?? "codex";
+  const icon = badgeMode === "status" ? getProviderIcon(draftProvider) : SquarePen;
 
   return buildDraftPanelDescriptor({
     ...createDescriptorState,
