@@ -344,6 +344,37 @@ describe("WorkspaceScriptsButton", () => {
     );
   });
 
+  it("runs the last selected script from the split primary action", async () => {
+    current = renderScripts([script({ scriptName: "dev" }), script({ scriptName: "typecheck" })]);
+
+    const primary = document.querySelector('[data-testid="workspace-scripts-run-last"]');
+    if (!(primary instanceof HTMLElement)) {
+      throw new Error("Missing scripts primary run action");
+    }
+
+    await act(async () => {
+      primary.click();
+    });
+    expect(startWorkspaceScriptMock).toHaveBeenLastCalledWith("workspace-1", "dev");
+
+    const typecheckRun = document.querySelector(
+      '[data-testid="workspace-scripts-start-typecheck"]',
+    );
+    if (!(typecheckRun instanceof HTMLElement)) {
+      throw new Error("Missing typecheck run action");
+    }
+
+    await act(async () => {
+      typecheckRun.click();
+    });
+    expect(startWorkspaceScriptMock).toHaveBeenLastCalledWith("workspace-1", "typecheck");
+
+    await act(async () => {
+      primary.click();
+    });
+    expect(startWorkspaceScriptMock).toHaveBeenLastCalledWith("workspace-1", "typecheck");
+  });
+
   it("removes the trigger caret in ghost presentation", () => {
     current = renderScripts([script({ scriptName: "dev" })], {
       hideLabels: true,

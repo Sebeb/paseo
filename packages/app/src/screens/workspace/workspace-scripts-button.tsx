@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useMemo, type ReactElement } from "react";
-import type { GestureResponderEvent } from "react-native";
+import { Fragment, useCallback, useMemo, useState, type ReactElement } from "react";
+import type { GestureResponderEvent, PressableStateCallbackType } from "react-native";
 import { Pressable, Text, View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { ChevronDown, ExternalLink, Globe, Play, SquareTerminal } from "lucide-react-native";
@@ -387,6 +387,7 @@ export function WorkspaceScriptsButton({
   const client = useSessionStore((state) => state.sessions[serverId]?.client ?? null);
   const activeConnection = useHostRuntimeSnapshot(serverId)?.activeConnection ?? null;
   const liveTerminalIdSet = useMemo(() => new Set(liveTerminalIds), [liveTerminalIds]);
+  const [lastRunScriptName, setLastRunScriptName] = useState<string | null>(null);
 
   const startScriptMutation = useMutation({
     mutationFn: async (scriptName: string) => {
@@ -416,21 +417,53 @@ export function WorkspaceScriptsButton({
     },
   });
 
-  const triggerStyle = useCallback(
-    ({ hovered, pressed, open }: { hovered: boolean; pressed: boolean; open: boolean }) => [
-      presentation === "ghost" ? styles.ghostButton : styles.splitButtonPrimary,
-      (hovered || pressed || open) &&
-        (presentation === "ghost" ? styles.ghostButtonHovered : styles.splitButtonPrimaryHovered),
+  const primaryRunButtonStyle = useCallback(
+    ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.splitButtonPrimary,
+      (Boolean(hovered) || pressed) && styles.splitButtonPrimaryHovered,
+      startScriptMutation.isPending && styles.splitButtonPrimaryDisabled,
     ],
-    [presentation],
+    [startScriptMutation.isPending],
+  );
+
+  const caretTriggerStyle = useCallback(
+    ({ hovered, pressed, open }: { hovered: boolean; pressed: boolean; open: boolean }) => [
+      styles.splitButtonCaret,
+      (hovered || pressed || open) && styles.splitButtonCaretHovered,
+    ],
+    [],
+  );
+
+  const ghostTriggerStyle = useCallback(
+    ({ hovered, pressed, open }: { hovered: boolean; pressed: boolean; open: boolean }) => [
+      styles.ghostButton,
+      (hovered || pressed || open) && styles.ghostButtonHovered,
+    ],
+    [],
   );
 
   const handleStartScript = useCallback(
-    (scriptName: string) => startScriptMutation.mutate(scriptName),
+    (scriptName: string) => {
+      setLastRunScriptName(scriptName);
+      startScriptMutation.mutate(scriptName);
+    },
     [startScriptMutation],
   );
 
-  if (scripts.length === 0) {
+  const lastRunScript =
+    (lastRunScriptName
+      ? scripts.find((script) => script.scriptName === lastRunScriptName)
+      : null) ??
+    scripts[0] ??
+    null;
+  const handlePrimaryRun = useCallback(() => {
+    if (!lastRunScript) {
+      return;
+    }
+    handleStartScript(lastRunScript.scriptName);
+  }, [handleStartScript, lastRunScript]);
+
+  if (scripts.length === 0 || !lastRunScript) {
     return null;
   }
 
@@ -439,31 +472,61 @@ export function WorkspaceScriptsButton({
   const triggerIconSize = presentation === "ghost" ? GHOST_TRIGGER_ICON_SIZE : 14;
   const triggerPlayProps =
     presentation === "ghost" ? { ...playFillTransparent, ...ghostPlayStroke } : playFillTransparent;
+  const primaryRunLabel = lastRunScript.scriptName;
 
   return (
     <View style={styles.row}>
       <View style={presentation === "ghost" ? styles.ghostButtonFrame : styles.splitButton}>
         <DropdownMenu>
-          <DropdownMenuTrigger
-            testID="workspace-scripts-button"
-            style={triggerStyle}
-            accessibilityRole="button"
-            accessibilityLabel={t("workspace.scripts.accessibility.trigger")}
-          >
-            <View style={styles.splitButtonContent}>
-              <ThemedPlay
-                size={triggerIconSize}
-                uniProps={triggerPlayMapping}
-                {...triggerPlayProps}
-              />
-              {!hideLabels && (
-                <Text style={styles.splitButtonText}>{t("workspace.scripts.title")}</Text>
-              )}
-              {presentation === "split" ? (
+          {presentation === "split" ? (
+            <>
+              <Pressable
+                testID="workspace-scripts-run-last"
+                accessibilityRole="button"
+                accessibilityLabel={t("workspace.scripts.accessibility.runScript", {
+                  scriptName: lastRunScript.scriptName,
+                })}
+                disabled={startScriptMutation.isPending}
+                onPress={handlePrimaryRun}
+                style={primaryRunButtonStyle}
+              >
+                <View style={styles.splitButtonContent}>
+                  <ThemedPlay
+                    size={triggerIconSize}
+                    uniProps={triggerPlayMapping}
+                    {...triggerPlayProps}
+                  />
+                  {!hideLabels && <Text style={styles.splitButtonText}>{primaryRunLabel}</Text>}
+                </View>
+              </Pressable>
+              <DropdownMenuTrigger
+                testID="workspace-scripts-button"
+                style={caretTriggerStyle}
+                accessibilityRole="button"
+                accessibilityLabel={t("workspace.scripts.accessibility.trigger")}
+              >
                 <ThemedChevronDown size={14} uniProps={mutedColorMapping} />
-              ) : null}
-            </View>
-          </DropdownMenuTrigger>
+              </DropdownMenuTrigger>
+            </>
+          ) : (
+            <DropdownMenuTrigger
+              testID="workspace-scripts-button"
+              style={ghostTriggerStyle}
+              accessibilityRole="button"
+              accessibilityLabel={t("workspace.scripts.accessibility.trigger")}
+            >
+              <View style={styles.splitButtonContent}>
+                <ThemedPlay
+                  size={triggerIconSize}
+                  uniProps={triggerPlayMapping}
+                  {...triggerPlayProps}
+                />
+                {!hideLabels && (
+                  <Text style={styles.splitButtonText}>{t("workspace.scripts.title")}</Text>
+                )}
+              </View>
+            </DropdownMenuTrigger>
+          )}
           <DropdownMenuContent
             align="end"
             minWidth={200}
@@ -529,6 +592,19 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
   },
   splitButtonPrimaryHovered: {
+    backgroundColor: theme.colors.surface2,
+  },
+  splitButtonPrimaryDisabled: {
+    opacity: 0.6,
+  },
+  splitButtonCaret: {
+    width: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderLeftWidth: theme.borderWidth[1],
+    borderLeftColor: theme.colors.borderAccent,
+  },
+  splitButtonCaretHovered: {
     backgroundColor: theme.colors.surface2,
   },
   splitButtonText: {
