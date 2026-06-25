@@ -8,9 +8,9 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { ActivityIndicator } from "react-native";
 import { measureElement as measureVirtualElement, useVirtualizer } from "@tanstack/react-virtual";
 import { useWebElementScrollbar } from "@/components/use-web-scrollbar";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { estimateStreamItemHeight } from "./web-virtualization";
 import type { StreamRenderInput, StreamStrategy, StreamViewportHandle } from "./strategy";
 import { createStreamStrategy, PINNED_USER_INPUT_SCROLL_TOP_OFFSET } from "./strategy";
@@ -720,7 +720,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
     return (
       <div style={historyStartSlotStyle} data-testid="load-older-history-spinner">
-        <ActivityIndicator size="small" />
+        <LoadingSpinner size="small" />
       </div>
     );
   }, [isLoadingOlderHistory]);
