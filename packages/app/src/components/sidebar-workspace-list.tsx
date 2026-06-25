@@ -92,7 +92,13 @@ import { useCreateFlowStore } from "@/stores/create-flow-store";
 import { useBrowserStore } from "@/stores/browser-store";
 import { useWorkspaceSetupStore } from "@/stores/workspace-setup-store";
 import { useShowShortcutBadges } from "@/hooks/use-show-shortcut-badges";
-import { ContextMenuTrigger, useContextMenu } from "@/components/ui/context-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  useContextMenu,
+} from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -469,23 +475,15 @@ function StatusSummaryCountBadge({
   bucket: SidebarTabStatusBucket;
   count: number;
 }) {
-  const colorStyle = getStatusSummaryCountColorStyle(bucket);
+  const colorStyle = getStatusSummaryCountBadgeStyle(bucket);
   const containerStyle = useMemo(() => [styles.statusSummaryCountBadge, colorStyle], [colorStyle]);
-  const textStyle = useMemo(() => [styles.statusSummaryCountText, colorStyle], [colorStyle]);
+  const showCount = count > 1 || bucket === "needs_input";
   if (count <= 0) {
     return null;
   }
-  if (bucket === "running") {
-    return (
-      <View style={styles.statusSummarySpinnerCountBadge}>
-        <LoadingSpinner size={18} />
-        <Text style={textStyle}>{count}</Text>
-      </View>
-    );
-  }
   return (
     <View style={containerStyle}>
-      <Text style={textStyle}>{count}</Text>
+      {showCount ? <Text style={styles.statusSummaryCountText}>{count}</Text> : null}
     </View>
   );
 }
@@ -1089,6 +1087,69 @@ function ProjectKebabMenu({
   );
 }
 
+function ProjectContextMenuContent({
+  projectKey,
+  projectPath,
+  onRemoveProject,
+  removeProjectStatus,
+}: {
+  projectKey: string;
+  projectPath: string;
+  onRemoveProject: () => void;
+  removeProjectStatus: "idle" | "pending" | "success";
+}) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const handleOpenProjectSettings = useCallback(() => {
+    if (projectKey.trim().length === 0) return;
+    router.navigate(buildProjectSettingsRoute(projectKey));
+  }, [projectKey]);
+  const canOpenProjectSettings = projectKey.trim().length > 0;
+  const canOpenInNewWindow = getIsElectron() && projectPath.trim().length > 0;
+  const handleOpenInNewWindow = useCallback(() => {
+    const trimmedPath = projectPath.trim();
+    if (trimmedPath.length === 0) return;
+    void getDesktopHost()
+      ?.window?.openNew?.({ pendingOpenProjectPath: trimmedPath })
+      ?.catch((error) => {
+        console.warn("[sidebar] openNew failed", error);
+        toast.error(t("sidebar.project.actions.openNewWindowFailed"));
+      });
+  }, [projectPath, t, toast]);
+
+  return (
+    <ContextMenuContent align="end" width={220}>
+      {canOpenProjectSettings ? (
+        <ContextMenuItem
+          testID={`sidebar-project-menu-open-settings-${projectKey}`}
+          leading={settingsLeadingIcon}
+          onSelect={handleOpenProjectSettings}
+        >
+          {t("sidebar.project.actions.openSettings")}
+        </ContextMenuItem>
+      ) : null}
+      {canOpenInNewWindow ? (
+        <ContextMenuItem
+          testID={`sidebar-project-menu-open-new-window-${projectKey}`}
+          leading={openInNewWindowLeadingIcon}
+          onSelect={handleOpenInNewWindow}
+        >
+          {t("sidebar.project.actions.openNewWindow")}
+        </ContextMenuItem>
+      ) : null}
+      <ContextMenuItem
+        testID={`sidebar-project-menu-remove-${projectKey}`}
+        leading={trash2LeadingIcon}
+        status={removeProjectStatus}
+        pendingLabel={t("sidebar.project.actions.removing")}
+        onSelect={onRemoveProject}
+      >
+        {t("sidebar.project.actions.remove")}
+      </ContextMenuItem>
+    </ContextMenuContent>
+  );
+}
+
 function WorkspaceRowRightGroup({
   workspace,
   badgeMode,
@@ -1497,6 +1558,87 @@ function WorkspaceKebabMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function WorkspaceContextMenuContent({
+  workspaceKey,
+  onCopyPath,
+  onCopyBranchName,
+  onRename,
+  onMarkAsRead,
+  onArchive,
+  archiveLabel,
+  archiveStatus,
+  archivePendingLabel,
+  archiveShortcutKeys,
+}: {
+  workspaceKey: string;
+  onCopyPath?: () => void;
+  onCopyBranchName?: () => void;
+  onRename?: () => void;
+  onMarkAsRead?: () => void;
+  onArchive: () => void;
+  archiveLabel?: string;
+  archiveStatus?: "idle" | "pending" | "success";
+  archivePendingLabel?: string;
+  archiveShortcutKeys?: ShortcutKey[][] | null;
+}) {
+  const { t } = useTranslation();
+  const archiveTrailing = useMemo(
+    () => (archiveShortcutKeys ? <Shortcut chord={archiveShortcutKeys} /> : null),
+    [archiveShortcutKeys],
+  );
+
+  return (
+    <ContextMenuContent align="end" width={260}>
+      {onCopyPath ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-copy-path-${workspaceKey}`}
+          leading={copyLeadingIcon}
+          onSelect={onCopyPath}
+        >
+          {t("sidebar.workspace.actions.copyPath")}
+        </ContextMenuItem>
+      ) : null}
+      {onCopyBranchName ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-copy-branch-name-${workspaceKey}`}
+          leading={copyLeadingIcon}
+          onSelect={onCopyBranchName}
+        >
+          {t("sidebar.workspace.actions.copyBranchName")}
+        </ContextMenuItem>
+      ) : null}
+      {onRename ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-rename-${workspaceKey}`}
+          leading={renameLeadingIcon}
+          onSelect={onRename}
+        >
+          {t("sidebar.workspace.actions.rename")}
+        </ContextMenuItem>
+      ) : null}
+      {onMarkAsRead ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-mark-as-read-${workspaceKey}`}
+          leading={markAsReadLeadingIcon}
+          onSelect={onMarkAsRead}
+        >
+          Mark as read
+        </ContextMenuItem>
+      ) : null}
+      <ContextMenuItem
+        testID={`sidebar-workspace-menu-archive-${workspaceKey}`}
+        leading={archiveLeadingIcon}
+        trailing={archiveTrailing}
+        status={archiveStatus}
+        pendingLabel={archivePendingLabel}
+        onSelect={onArchive}
+      >
+        {archiveLabel ?? t("sidebar.workspace.actions.archive")}
+      </ContextMenuItem>
+    </ContextMenuContent>
   );
 }
 
@@ -2082,6 +2224,31 @@ function ProjectHeaderRow({
   );
 }
 
+type ProjectHeaderRowWithMenuProps = Omit<ProjectHeaderRowProps, "menuController">;
+
+function ProjectHeaderRowWithMenu(props: ProjectHeaderRowWithMenuProps) {
+  if (!props.onRemoveProject) {
+    return <ProjectHeaderRow {...props} menuController={null} />;
+  }
+
+  return (
+    <ContextMenu>
+      <ProjectHeaderRowWithMenuTrigger {...props} />
+      <ProjectContextMenuContent
+        projectKey={props.project.projectKey}
+        projectPath={props.project.iconWorkingDir}
+        onRemoveProject={props.onRemoveProject}
+        removeProjectStatus={props.removeProjectStatus ?? "idle"}
+      />
+    </ContextMenu>
+  );
+}
+
+function ProjectHeaderRowWithMenuTrigger(props: ProjectHeaderRowWithMenuProps) {
+  const menuController = useContextMenu();
+  return <ProjectHeaderRow {...props} menuController={menuController} />;
+}
+
 function WorkspaceRowInner({
   workspace,
   badgeMode,
@@ -2511,9 +2678,20 @@ function WorkspaceRowWithMenu({
     },
   });
 
+  const archiveLabel = t("sidebar.workspace.actions.archive");
+  const archiveStatus = getWorkspaceArchiveStatus(
+    isWorktree,
+    worktreeArchiveStatus,
+    isHidingWorkspace,
+  );
+  const archivePendingLabel = t("sidebar.workspace.actions.archiving");
+  const onCopyBranchName = canCopyBranchName ? handleCopyBranchName : undefined;
+  const onMarkAsRead = hasClearableAttention ? handleMarkAsRead : undefined;
+  const contextArchiveShortcutKeys = selected ? archiveShortcutKeys : null;
+
   return (
-    <>
-      <WorkspaceRowInner
+    <ContextMenu>
+      <WorkspaceRowInnerWithMenu
         workspace={workspace}
         badgeMode={badgeMode}
         tabStatusSummary={tabStatusSummary}
@@ -2526,24 +2704,19 @@ function WorkspaceRowWithMenu({
         isArchiving={isArchiving}
         isCreating={isCreating}
         dragHandleProps={dragHandleProps}
-        menuController={null}
-        archiveLabel={t("sidebar.workspace.actions.archive")}
-        archiveStatus={getWorkspaceArchiveStatus(
-          isWorktree,
-          worktreeArchiveStatus,
-          isHidingWorkspace,
-        )}
-        archivePendingLabel={t("sidebar.workspace.actions.archiving")}
+        archiveLabel={archiveLabel}
+        archiveStatus={archiveStatus}
+        archivePendingLabel={archivePendingLabel}
         expandable={embeddedTabsEnabled}
         expanded={isWorkspaceExpanded}
         onToggleExpanded={handleToggleWorkspaceExpanded}
         onArchive={handleArchive}
         onCreateTab={embeddedTabsEnabled ? handleCreateEmbeddedTab : undefined}
-        onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
+        onCopyBranchName={onCopyBranchName}
         onCopyPath={handleCopyPath}
         onRename={handleOpenRename}
-        onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
-        archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+        onMarkAsRead={onMarkAsRead}
+        archiveShortcutKeys={contextArchiveShortcutKeys}
       />
       {embeddedTabsEnabled ? (
         <EmbeddedWorkspaceTabs
@@ -2555,6 +2728,18 @@ function WorkspaceRowWithMenu({
           onWorkspacePress={onWorkspacePress}
         />
       ) : null}
+      <WorkspaceContextMenuContent
+        workspaceKey={workspace.workspaceKey}
+        onCopyPath={handleCopyPath}
+        onCopyBranchName={onCopyBranchName}
+        onRename={handleOpenRename}
+        onMarkAsRead={onMarkAsRead}
+        onArchive={handleArchive}
+        archiveLabel={archiveLabel}
+        archiveStatus={archiveStatus}
+        archivePendingLabel={archivePendingLabel}
+        archiveShortcutKeys={contextArchiveShortcutKeys}
+      />
       <AdaptiveRenameModal
         visible={isRenameOpen}
         title={t("sidebar.workspace.rename.title")}
@@ -2565,8 +2750,15 @@ function WorkspaceRowWithMenu({
         onSubmit={handleSubmitRename}
         testID={`sidebar-workspace-rename-modal-${workspace.workspaceKey}`}
       />
-    </>
+    </ContextMenu>
   );
+}
+
+type WorkspaceRowInnerWithMenuProps = Omit<WorkspaceRowInnerProps, "menuController">;
+
+function WorkspaceRowInnerWithMenu(props: WorkspaceRowInnerWithMenuProps) {
+  const menuController = useContextMenu();
+  return <WorkspaceRowInner {...props} menuController={menuController} />;
 }
 
 function embeddedTabKeyExtractor(item: EmbeddedSidebarTabItem): string {
@@ -3430,7 +3622,7 @@ function ProjectBlock({
 
   return (
     <View style={styles.projectBlock}>
-      <ProjectHeaderRow
+      <ProjectHeaderRowWithMenu
         project={project}
         displayName={displayName}
         iconDataUri={iconDataUri}
@@ -3447,7 +3639,6 @@ function ProjectBlock({
         drag={drag}
         isDragging={isDragging}
         isArchiving={isRemovingProject}
-        menuController={null}
         onRemoveProject={handleRemoveProject}
         removeProjectStatus={isRemovingProject ? "pending" : "idle"}
         dragHandleProps={dragHandleProps}
@@ -4464,42 +4655,29 @@ const styles = StyleSheet.create((theme) => ({
     width: 18,
     height: 18,
     borderRadius: theme.borderRadius.full,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  statusSummarySpinnerCountBadge: {
-    position: "relative",
-    width: 18,
-    height: 18,
     alignItems: "center",
     justifyContent: "center",
   },
   statusSummaryCountText: {
-    position: "absolute",
     fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.medium,
     lineHeight: 14,
+    color: "#000000",
   },
   statusSummaryCountNeedsInput: {
-    borderColor: theme.colors.palette.amber[500],
-    color: theme.colors.palette.amber[500],
+    backgroundColor: theme.colors.palette.amber[500],
   },
   statusSummaryCountFailed: {
-    borderColor: theme.colors.palette.red[500],
-    color: theme.colors.palette.red[500],
+    backgroundColor: theme.colors.palette.red[500],
   },
   statusSummaryCountRunning: {
-    borderColor: theme.colors.palette.blue[500],
-    color: theme.colors.palette.blue[500],
+    backgroundColor: theme.colors.palette.blue[500],
   },
   statusSummaryCountAttention: {
-    borderColor: theme.colors.palette.green[500],
-    color: theme.colors.palette.green[500],
+    backgroundColor: theme.colors.palette.green[500],
   },
   statusSummaryCountDone: {
-    borderColor: theme.colors.statusSuccess,
-    color: theme.colors.statusSuccess,
+    backgroundColor: theme.colors.statusSuccess,
   },
 }));
 
@@ -4518,7 +4696,7 @@ function getStatusDotColorStyle(bucket: SidebarStateBucket): ViewStyle | null {
   }
 }
 
-function getStatusSummaryCountColorStyle(bucket: SidebarTabStatusBucket) {
+function getStatusSummaryCountBadgeStyle(bucket: SidebarTabStatusBucket) {
   switch (bucket) {
     case "needs_input":
       return styles.statusSummaryCountNeedsInput;

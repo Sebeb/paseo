@@ -29,6 +29,12 @@ import {
 import { DiffStat } from "@/components/diff-stat";
 import { useSidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
@@ -458,7 +464,7 @@ function StatusWorkspaceRowWithMenu({
   }
 
   return (
-    <>
+    <ContextMenu>
       <StatusWorkspaceRowInner
         workspace={workspace}
         projectName={projectName}
@@ -477,6 +483,18 @@ function StatusWorkspaceRowWithMenu({
         onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
       />
+      <StatusWorkspaceContextMenuContent
+        workspaceKey={workspace.workspaceKey}
+        onCopyPath={handleCopyPath}
+        onCopyBranchName={workspace.projectKind === "git" ? handleCopyBranchName : undefined}
+        onRename={handleOpenRename}
+        onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
+        onArchive={handleArchive}
+        archiveLabel={t("sidebar.workspace.actions.archive")}
+        archiveStatus={computedArchiveStatus}
+        archivePendingLabel={t("sidebar.workspace.actions.archiving")}
+        archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+      />
       <AdaptiveRenameModal
         visible={isRenameOpen}
         title="Rename workspace"
@@ -487,7 +505,7 @@ function StatusWorkspaceRowWithMenu({
         onSubmit={handleSubmitRename}
         testID={`sidebar-workspace-rename-modal-${workspace.workspaceKey}`}
       />
-    </>
+    </ContextMenu>
   );
 }
 
@@ -552,7 +570,7 @@ function StatusWorkspaceRowInner({
         const workspaceRowStyle = getStatusWorkspaceRowStyle({ selected, isHovered });
         return (
           <View style={styles.workspaceRowContainer} {...hoverHandlers}>
-            <Pressable
+            <ContextMenuTrigger
               disabled={isArchiving}
               accessibilityRole="button"
               accessibilityState={accessibilityState}
@@ -587,7 +605,7 @@ function StatusWorkspaceRowInner({
                   />
                 ) : null}
               </SidebarWorkspaceRowContent>
-            </Pressable>
+            </ContextMenuTrigger>
           </View>
         );
       }}
@@ -744,6 +762,85 @@ function StatusKebabMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function StatusWorkspaceContextMenuContent({
+  workspaceKey,
+  onCopyPath,
+  onCopyBranchName,
+  onRename,
+  onMarkAsRead,
+  onArchive,
+  archiveLabel,
+  archiveStatus,
+  archivePendingLabel,
+  archiveShortcutKeys,
+}: {
+  workspaceKey: string;
+  onCopyPath?: () => void;
+  onCopyBranchName?: () => void;
+  onRename?: () => void;
+  onMarkAsRead?: () => void;
+  onArchive: () => void;
+  archiveLabel?: string;
+  archiveStatus?: "idle" | "pending" | "success";
+  archivePendingLabel?: string;
+  archiveShortcutKeys?: ShortcutKey[][] | null;
+}) {
+  const archiveTrailing = useMemo(
+    () => (archiveShortcutKeys ? <Shortcut chord={archiveShortcutKeys} /> : null),
+    [archiveShortcutKeys],
+  );
+  return (
+    <ContextMenuContent align="end" width={260}>
+      {onCopyPath ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-copy-path-${workspaceKey}`}
+          leading={copyLeadingIcon}
+          onSelect={onCopyPath}
+        >
+          Copy path
+        </ContextMenuItem>
+      ) : null}
+      {onCopyBranchName ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-copy-branch-name-${workspaceKey}`}
+          leading={copyLeadingIcon}
+          onSelect={onCopyBranchName}
+        >
+          Copy branch name
+        </ContextMenuItem>
+      ) : null}
+      {onRename ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-rename-${workspaceKey}`}
+          leading={renameLeadingIcon}
+          onSelect={onRename}
+        >
+          Rename workspace
+        </ContextMenuItem>
+      ) : null}
+      {onMarkAsRead ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-mark-as-read-${workspaceKey}`}
+          leading={markAsReadLeadingIcon}
+          onSelect={onMarkAsRead}
+        >
+          Mark as read
+        </ContextMenuItem>
+      ) : null}
+      <ContextMenuItem
+        testID={`sidebar-workspace-menu-archive-${workspaceKey}`}
+        leading={archiveLeadingIcon}
+        trailing={archiveTrailing}
+        status={archiveStatus}
+        pendingLabel={archivePendingLabel}
+        onSelect={onArchive}
+      >
+        {archiveLabel ?? "Archive"}
+      </ContextMenuItem>
+    </ContextMenuContent>
   );
 }
 

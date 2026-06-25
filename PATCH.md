@@ -30,6 +30,18 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Keeps tab close/rename/split actions available while the tab is represented in the sidebar.
 - Updates sidebar docs/design notes for the new lifecycle/presentation behavior.
 
+## Restored Main Polish
+
+These details were previously implemented on `main`, then lost when this feature was split out. They are part of this branch's intended behavior and should be preserved when rebasing or batching the feature again.
+
+- Status summary badges render as filled circles. When a badge includes a number, the counter text is black.
+- Status summary badges suppress the number when the count is `1`, except for `needs_input`, which represents queued/blocked user input and still shows its count.
+- In status badge mode, new/unread response markers remain in the row's badge area instead of replacing the workspace/project icon.
+- Workspace rows, status-group workspace rows, and project rows can be right-clicked to open the same menu shown by their three-dot action button.
+- The sidebar header no longer shows a global "new workspace" action.
+- The history/sessions action lives in the sidebar footer beside the open-folder action.
+- Project and workspace hover actions must not change row height or vertical spacing; trailing action buttons are overlaid within a stable row layout.
+
 ## Sidebar View Store
 
 ### `packages/app/src/stores/sidebar-view-store.ts`
