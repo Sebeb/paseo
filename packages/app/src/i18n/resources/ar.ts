@@ -171,6 +171,16 @@ export const ar: TranslationResources = {
   agentStream: {
     empty: "ابدأ الدردشة مع هذا الوكيل...",
     scrollToBottom: "قم بالتمرير إلى الأسفل",
+    find: {
+      open: "البحث في الدردشة",
+      close: "إغلاق البحث",
+      placeholder: "البحث في الدردشة",
+      previous: "المطابقة السابقة",
+      next: "المطابقة التالية",
+      searchThinking: "البحث في التفكير",
+      matchCount: "{{current}} من {{total}}",
+      scanning: "جارٍ البحث {{current}}/{{total}}",
+    },
     thinking: {
       label: "التفكير",
       workedFor: "عمل لمدة {{duration}}",
@@ -1583,6 +1593,7 @@ export const ar: TranslationResources = {
         toggleSettings: "تبديل الإعدادات",
         toggleFocusMode: "تبديل وضع التركيز",
         cycleTheme: "موضوع الدورة",
+        findInThread: "البحث في الدردشة",
         focusMessageInput: "التركيز على إدخال الرسالة",
         toggleVoiceMode: "تبديل الوضع الصوتي",
         startStopDictation: "بدء إملاء /stop",

@@ -172,6 +172,16 @@ export const fr: TranslationResources = {
   agentStream: {
     empty: "Commencez à discuter avec cet agent...",
     scrollToBottom: "Faire défiler vers le bas",
+    find: {
+      open: "Rechercher dans le chat",
+      close: "Fermer la recherche",
+      placeholder: "Rechercher dans le chat",
+      previous: "Résultat précédent",
+      next: "Résultat suivant",
+      searchThinking: "Rechercher dans la réflexion",
+      matchCount: "{{current}} sur {{total}}",
+      scanning: "Recherche {{current}}/{{total}}",
+    },
     thinking: {
       label: "Réflexion",
       workedFor: "A travaillé pendant {{duration}}",
@@ -1625,6 +1635,7 @@ export const fr: TranslationResources = {
         toggleSettings: "Basculer les paramètres",
         toggleFocusMode: "Basculer le mode de mise au point",
         cycleTheme: "Thème du cycle",
+        findInThread: "Rechercher dans le chat",
         focusMessageInput: "Saisie du message de focus",
         toggleVoiceMode: "Changer le mode vocal",
         startStopDictation: "Démarrer la dictée/stop",

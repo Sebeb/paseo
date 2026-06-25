@@ -1,6 +1,7 @@
 export type KeyboardFocusScope =
   | "terminal"
   | "message-input"
+  | "find-in-thread"
   | "command-center"
   | "editable"
   | "other";
@@ -16,6 +17,10 @@ export type MessageInputKeyboardActionKind =
 
 export type KeyboardActionId =
   | "agent.interrupt"
+  | "agent.find.open"
+  | "agent.find.next"
+  | "agent.find.previous"
+  | "agent.find.close"
   | "agent.new"
   | "workspace.tab.new"
   | "workspace.tab.close.current"

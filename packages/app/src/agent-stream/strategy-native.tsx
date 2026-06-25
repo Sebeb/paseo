@@ -205,6 +205,23 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
           reason,
         });
       },
+      scrollToStreamItemTop: (itemId: string) => {
+        const historyIndex = historyRows.findIndex((item) => item.id === itemId);
+        if (historyIndex >= 0) {
+          flatListRef.current?.scrollToIndex({
+            index: historyIndex,
+            animated: true,
+            viewPosition: 0,
+          });
+          return;
+        }
+        if (segments.liveHead.some((item) => item.id === itemId)) {
+          flatListRef.current?.scrollToOffset({
+            offset: 0,
+            animated: true,
+          });
+        }
+      },
       prepareForViewportChange: () => {
         bottomAnchorController.prepareForStickyViewportChange();
         markNativeViewportSettling();
@@ -219,7 +236,14 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
         viewportRef.current = null;
       }
     };
-  }, [agentId, bottomAnchorController, markNativeViewportSettling, viewportRef]);
+  }, [
+    agentId,
+    bottomAnchorController,
+    historyRows,
+    markNativeViewportSettling,
+    segments.liveHead,
+    viewportRef,
+  ]);
 
   const handleScroll = useStableEvent((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;

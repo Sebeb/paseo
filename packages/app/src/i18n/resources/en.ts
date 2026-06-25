@@ -169,6 +169,16 @@ export const en = {
   agentStream: {
     empty: "Start chatting with this agent...",
     scrollToBottom: "Scroll to bottom",
+    find: {
+      open: "Find in chat",
+      close: "Close find",
+      placeholder: "Find in chat",
+      previous: "Previous match",
+      next: "Next match",
+      searchThinking: "Search thinking",
+      matchCount: "{{current}} of {{total}}",
+      scanning: "Scanning {{current}}/{{total}}",
+    },
     thinking: {
       label: "Thinking",
       workedFor: "Worked for {{duration}}",
@@ -1589,6 +1599,7 @@ export const en = {
         toggleSettings: "Toggle settings",
         toggleFocusMode: "Toggle focus mode",
         cycleTheme: "Cycle theme",
+        findInThread: "Find in chat",
         focusMessageInput: "Focus message input",
         toggleVoiceMode: "Toggle voice mode",
         startStopDictation: "Start/stop dictation",

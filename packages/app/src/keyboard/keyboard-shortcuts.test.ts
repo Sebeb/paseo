@@ -300,6 +300,36 @@ describe("keyboard-shortcuts", () => {
       payload: { kind: "dictation-toggle" },
     },
     {
+      name: "routes Cmd+F to find in chat on macOS",
+      event: { key: "f", code: "KeyF", metaKey: true },
+      context: { isMac: true, focusScope: "other" },
+      action: "agent.find.open",
+    },
+    {
+      name: "routes Ctrl+F to find in chat on non-mac",
+      event: { key: "f", code: "KeyF", ctrlKey: true },
+      context: { isMac: false, focusScope: "other" },
+      action: "agent.find.open",
+    },
+    {
+      name: "routes Enter to next find match in find input",
+      event: { key: "Enter", code: "Enter" },
+      context: { focusScope: "find-in-thread" },
+      action: "agent.find.next",
+    },
+    {
+      name: "routes Shift+Enter to previous find match in find input",
+      event: { key: "Enter", code: "Enter", shiftKey: true },
+      context: { focusScope: "find-in-thread" },
+      action: "agent.find.previous",
+    },
+    {
+      name: "routes Escape to close find in find input",
+      event: { key: "Escape", code: "Escape" },
+      context: { focusScope: "find-in-thread" },
+      action: "agent.find.close",
+    },
+    {
       name: "routes space to voice mute toggle outside editable scopes",
       event: { key: " ", code: "Space" },
       context: { focusScope: "other" },

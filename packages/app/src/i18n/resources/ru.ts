@@ -171,6 +171,16 @@ export const ru: TranslationResources = {
   agentStream: {
     empty: "Начните общаться с этим агентом...",
     scrollToBottom: "Прокрутить вниз",
+    find: {
+      open: "Найти в чате",
+      close: "Закрыть поиск",
+      placeholder: "Найти в чате",
+      previous: "Предыдущее совпадение",
+      next: "Следующее совпадение",
+      searchThinking: "Искать в размышлениях",
+      matchCount: "{{current}} из {{total}}",
+      scanning: "Поиск {{current}}/{{total}}",
+    },
     thinking: {
       label: "Размышления",
       workedFor: "Работал {{duration}}",
@@ -1613,6 +1623,7 @@ export const ru: TranslationResources = {
         toggleSettings: "Переключить настройки",
         toggleFocusMode: "Переключить режим фокусировки",
         cycleTheme: "Циклическая тема",
+        findInThread: "Найти в чате",
         focusMessageInput: "Фокус ввода сообщения",
         toggleVoiceMode: "Переключить голосовой режим",
         startStopDictation: "Начать диктовку /stop",

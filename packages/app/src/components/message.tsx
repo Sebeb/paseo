@@ -116,6 +116,11 @@ import { isWeb, isNative } from "@/constants/platform";
 import type { AgentCapabilityFlags } from "@getpaseo/protocol/agent-types";
 import { RewindMenu, type RewindMode } from "@/components/rewind/rewind-menu";
 import { useRewindAgentMutation } from "@/components/rewind/use-rewind-agent-mutation";
+import {
+  FindHighlightedText,
+  FindHighlightedTextSegments,
+} from "@/components/find-highlighted-text";
+import type { FindHighlightRange } from "@/agent-stream/find-in-thread";
 export type { InlinePathTarget } from "@/assistant-file-links";
 
 interface UserMessageProps {
@@ -131,6 +136,7 @@ interface UserMessageProps {
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
   disableOuterSpacing?: boolean;
+  findHighlightRanges?: FindHighlightRange[];
 }
 
 const MessageOuterSpacingContext = createContext(false);
@@ -495,6 +501,7 @@ export const UserMessage = memo(function UserMessage({
   isFirstInGroup = true,
   isLastInGroup = true,
   disableOuterSpacing,
+  findHighlightRanges,
 }: UserMessageProps) {
   const isCompact = useIsCompactFormFactor();
   const { t } = useTranslation();
@@ -596,9 +603,12 @@ export const UserMessage = memo(function UserMessage({
             </View>
           ) : null}
           {hasText ? (
-            <Text selectable style={userMessageStylesheet.text}>
-              {message}
-            </Text>
+            <FindHighlightedText
+              text={message}
+              ranges={findHighlightRanges}
+              selectable
+              style={userMessageStylesheet.text}
+            />
           ) : null}
         </View>
         {hasText ? (
@@ -729,6 +739,7 @@ interface AssistantMessageProps {
   serverId?: string;
   client?: DaemonClient | null;
   spacing?: "default" | "compactTop" | "compactBottom" | "compactBoth";
+  findHighlightRanges?: FindHighlightRange[];
 }
 
 export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
@@ -1560,6 +1571,31 @@ function MarkdownListView({ baseStyle, spacing, children }: MarkdownListViewProp
   return <View style={style}>{children}</View>;
 }
 
+function getLocalFindHighlightRanges(input: {
+  ranges: readonly FindHighlightRange[] | undefined;
+  startOffset: number;
+  length: number;
+}): FindHighlightRange[] {
+  if (!input.ranges || input.ranges.length === 0 || input.length === 0) {
+    return [];
+  }
+  const endOffset = input.startOffset + input.length;
+  const localRanges: FindHighlightRange[] = [];
+  for (const range of input.ranges) {
+    const start = Math.max(input.startOffset, range.start);
+    const end = Math.min(endOffset, range.end);
+    if (end <= start) {
+      continue;
+    }
+    localRanges.push({
+      start: start - input.startOffset,
+      end: end - input.startOffset,
+      active: range.active,
+    });
+  }
+  return localRanges;
+}
+
 export const AssistantMessage = memo(function AssistantMessage({
   message,
   timestamp: _timestamp,
@@ -1567,6 +1603,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   serverId,
   client,
   spacing = "default",
+  findHighlightRanges,
 }: AssistantMessageProps) {
   const markdownParser = useMemo(() => {
     const parser = MarkdownIt({ typographer: true, linkify: true });
@@ -1582,6 +1619,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   }, []);
 
   const fileLinkActions = useAssistantFileLinkActions();
+  const markdownFindOffsetRef = useRef(0);
   const handleMarkdownLinkPress = useStableEvent((url: string) => {
     fileLinkActions.open({ href: url }, "main");
     // react-native-markdown-display opens the link itself when this returns true.
@@ -1597,15 +1635,27 @@ export const AssistantMessage = memo(function AssistantMessage({
         _parent: ASTNode[],
         styles: MarkdownStyles,
         inheritedStyles: TextStyle = {},
-      ) => (
-        <MarkdownInheritedText
-          key={node.key}
-          inheritedStyles={inheritedStyles}
-          textStyle={styles.text}
-        >
-          {node.content}
-        </MarkdownInheritedText>
-      ),
+      ) => {
+        const content = node.content ?? "";
+        const startOffset = markdownFindOffsetRef.current;
+        markdownFindOffsetRef.current += content.length;
+        return (
+          <MarkdownInheritedText
+            key={node.key}
+            inheritedStyles={inheritedStyles}
+            textStyle={styles.text}
+          >
+            <FindHighlightedTextSegments
+              text={content}
+              ranges={getLocalFindHighlightRanges({
+                ranges: findHighlightRanges,
+                startOffset,
+                length: content.length,
+              })}
+            />
+          </MarkdownInheritedText>
+        );
+      },
       textgroup: (
         node: ASTNode,
         children: ReactNode[],
@@ -1720,6 +1770,8 @@ export const AssistantMessage = memo(function AssistantMessage({
         inheritedStyles: TextStyle = {},
       ) => {
         const content = node.content ?? "";
+        const startOffset = markdownFindOffsetRef.current;
+        markdownFindOffsetRef.current += content.length;
         const isLinkedInlineCode = nodeHasParentType(parent, "link");
         const inlineCodeSource: AssistantFileLinkSource = {
           href: content,
@@ -1767,7 +1819,14 @@ export const AssistantMessage = memo(function AssistantMessage({
             textStyle={styles.code_inline}
             monoSurface
           >
-            {content}
+            <FindHighlightedTextSegments
+              text={content}
+              ranges={getLocalFindHighlightRanges({
+                ranges: findHighlightRanges,
+                startOffset,
+                length: content.length,
+              })}
+            />
           </MarkdownInheritedText>
         );
       },
@@ -1875,7 +1934,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         );
       },
     };
-  }, [client, fileLinkActions, markdownParser, serverId, workspaceRoot]);
+  }, [client, fileLinkActions, findHighlightRanges, markdownParser, serverId, workspaceRoot]);
 
   const blocks = useMemo(() => splitMarkdownBlocks(message), [message]);
   const keyedBlocks = useMemo(
@@ -1893,6 +1952,8 @@ export const AssistantMessage = memo(function AssistantMessage({
     ],
     [spacing],
   );
+
+  markdownFindOffsetRef.current = 0;
 
   return (
     <View testID="assistant-message" style={assistantContainerStyle}>
@@ -1918,6 +1979,7 @@ interface SpeakMessageProps {
   message: string;
   timestamp: number;
   disableOuterSpacing?: boolean;
+  findHighlightRanges?: FindHighlightRange[];
 }
 
 const speakMessageStylesheet = StyleSheet.create((theme) => ({
@@ -1951,6 +2013,7 @@ export const SpeakMessage = memo(function SpeakMessage({
   message,
   timestamp: _timestamp,
   disableOuterSpacing,
+  findHighlightRanges,
 }: SpeakMessageProps) {
   const { t } = useTranslation();
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
@@ -1968,7 +2031,11 @@ export const SpeakMessage = memo(function SpeakMessage({
         <ThemedMicVocal size={12} uniProps={foregroundMutedColorMapping} />
         <Text style={speakMessageStylesheet.headerLabel}>{t("message.speak.header")}</Text>
       </View>
-      <Text style={speakMessageStylesheet.text}>{message}</Text>
+      <FindHighlightedText
+        text={message}
+        ranges={findHighlightRanges}
+        style={speakMessageStylesheet.text}
+      />
     </View>
   );
 });
@@ -2218,14 +2285,16 @@ export const CompactionMarker = memo(function CompactionMarker({
 interface TodoListCardProps {
   items: TodoEntry[];
   disableOuterSpacing?: boolean;
+  findHighlightRangesByIndex?: Map<number, FindHighlightRange[]>;
 }
 
 interface TodoListItemRowProps {
   text: string;
   completed: boolean;
+  findHighlightRanges?: FindHighlightRange[];
 }
 
-function TodoListItemRow({ text, completed }: TodoListItemRowProps) {
+function TodoListItemRow({ text, completed, findHighlightRanges }: TodoListItemRowProps) {
   const badgeStyle = useMemo(
     () => [
       todoListCardStylesheet.radioBadge,
@@ -2246,7 +2315,7 @@ function TodoListItemRow({ text, completed }: TodoListItemRowProps) {
           <ThemedTodoCheckIcon size={12} uniProps={primaryForegroundColorMapping} />
         ) : null}
       </View>
-      <Text style={textStyle}>{text}</Text>
+      <FindHighlightedText text={text} ranges={findHighlightRanges} style={textStyle} />
     </View>
   );
 }
@@ -2295,6 +2364,7 @@ const todoListCardStylesheet = StyleSheet.create((theme) => ({
 export const TodoListCard = memo(function TodoListCard({
   items,
   disableOuterSpacing,
+  findHighlightRangesByIndex,
 }: TodoListCardProps) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -2312,14 +2382,19 @@ export const TodoListCard = memo(function TodoListCard({
           {items.length === 0 ? (
             <Text style={todoListCardStylesheet.emptyText}>{t("message.todo.empty")}</Text>
           ) : (
-            items.map((item) => (
-              <TodoListItemRow key={item.text} text={item.text} completed={item.completed} />
+            items.map((item, index) => (
+              <TodoListItemRow
+                key={item.text}
+                text={item.text}
+                completed={item.completed}
+                findHighlightRanges={findHighlightRangesByIndex?.get(index)}
+              />
             ))
           )}
         </View>
       </View>
     );
-  }, [items, t]);
+  }, [findHighlightRangesByIndex, items, t]);
 
   return (
     <ExpandableBadge
@@ -2349,6 +2424,8 @@ interface ExpandableBadgeProps {
   isLastInSequence?: boolean;
   disableOuterSpacing?: boolean;
   testID?: string;
+  labelFindHighlightRanges?: FindHighlightRange[];
+  secondaryLabelFindHighlightRanges?: FindHighlightRange[];
 }
 
 interface ExpandableBadgeSecondaryLabelProps {
@@ -2356,6 +2433,7 @@ interface ExpandableBadgeSecondaryLabelProps {
   secondaryLabelStyle: StyleProp<TextStyle>;
   shouldMeasureWebShimmer: boolean;
   onSecondaryLayout: (event: LayoutChangeEvent) => void;
+  findHighlightRanges?: FindHighlightRange[];
 }
 
 function ExpandableBadgeSecondaryLabel({
@@ -2363,18 +2441,19 @@ function ExpandableBadgeSecondaryLabel({
   secondaryLabelStyle,
   shouldMeasureWebShimmer,
   onSecondaryLayout,
+  findHighlightRanges,
 }: ExpandableBadgeSecondaryLabelProps) {
   if (!secondaryLabel) {
     return null;
   }
   return (
-    <Text
+    <FindHighlightedText
+      text={secondaryLabel}
+      ranges={findHighlightRanges}
       style={secondaryLabelStyle}
       numberOfLines={1}
       onLayout={shouldMeasureWebShimmer ? onSecondaryLayout : undefined}
-    >
-      {secondaryLabel}
-    </Text>
+    />
   );
 }
 
@@ -2439,6 +2518,8 @@ interface ExpandableBadgeLabelRowProps {
   onOpenFilePress: (event: GestureResponderEvent) => void;
   onOpenFileHoverIn: () => void;
   onOpenFileHoverOut: () => void;
+  labelFindHighlightRanges?: FindHighlightRange[];
+  secondaryLabelFindHighlightRanges?: FindHighlightRange[];
 }
 
 function ExpandableBadgeLabelRow({
@@ -2465,6 +2546,8 @@ function ExpandableBadgeLabelRow({
   onOpenFilePress,
   onOpenFileHoverIn,
   onOpenFileHoverOut,
+  labelFindHighlightRanges,
+  secondaryLabelFindHighlightRanges,
 }: ExpandableBadgeLabelRowProps) {
   const { t } = useTranslation();
   return (
@@ -2472,18 +2555,19 @@ function ExpandableBadgeLabelRow({
       style={expandableBadgeStylesheet.labelRow}
       onLayout={shouldMeasureNativeShimmer ? onLabelRowLayout : undefined}
     >
-      <Text
+      <FindHighlightedText
+        text={label}
+        ranges={labelFindHighlightRanges}
         style={labelStyle}
         numberOfLines={1}
         onLayout={shouldMeasureWebShimmer ? onLabelLayout : undefined}
-      >
-        {label}
-      </Text>
+      />
       <ExpandableBadgeSecondaryLabel
         secondaryLabel={secondaryLabel}
         secondaryLabelStyle={secondaryLabelStyle}
         shouldMeasureWebShimmer={shouldMeasureWebShimmer}
         onSecondaryLayout={onSecondaryLayout}
+        findHighlightRanges={secondaryLabelFindHighlightRanges}
       />
       {showOpenFileButton ? (
         <Pressable
@@ -2707,6 +2791,8 @@ const ExpandableBadge = memo(function ExpandableBadge({
   isLastInSequence = false,
   disableOuterSpacing,
   testID,
+  labelFindHighlightRanges,
+  secondaryLabelFindHighlightRanges,
 }: ExpandableBadgeProps) {
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
   const [isHovered, setIsHovered] = useState(false);
@@ -2988,6 +3074,8 @@ const ExpandableBadge = memo(function ExpandableBadge({
             onOpenFilePress={handleOpenFilePress}
             onOpenFileHoverIn={handleOpenFileHoverIn}
             onOpenFileHoverOut={handleOpenFileHoverOut}
+            labelFindHighlightRanges={labelFindHighlightRanges}
+            secondaryLabelFindHighlightRanges={secondaryLabelFindHighlightRanges}
           />
         </View>
       </Pressable>
@@ -3016,6 +3104,10 @@ function areExpandableBadgePropsEqual(previous: ExpandableBadgeProps, next: Expa
   if (previous.isLastInSequence !== next.isLastInSequence) return false;
   if (previous.disableOuterSpacing !== next.disableOuterSpacing) return false;
   if (previous.testID !== next.testID) return false;
+  if (previous.labelFindHighlightRanges !== next.labelFindHighlightRanges) return false;
+  if (previous.secondaryLabelFindHighlightRanges !== next.secondaryLabelFindHighlightRanges) {
+    return false;
+  }
   if (previous.onToggle !== next.onToggle) return false;
   if (previous.onOpenFile !== next.onOpenFile) return false;
   if (previous.onDetailHoverChange !== next.onDetailHoverChange) return false;
@@ -3037,6 +3129,8 @@ interface ToolCallProps {
   onInlineDetailsHoverChange?: (hovered: boolean) => void;
   onInlineDetailsExpandedChange?: (expanded: boolean) => void;
   onOpenFilePath?: (filePath: string) => void;
+  labelFindHighlightRanges?: FindHighlightRange[];
+  summaryFindHighlightRanges?: FindHighlightRange[];
 }
 
 export const ToolCall = memo(function ToolCall({
@@ -3053,6 +3147,8 @@ export const ToolCall = memo(function ToolCall({
   onInlineDetailsHoverChange,
   onInlineDetailsExpandedChange,
   onOpenFilePath,
+  labelFindHighlightRanges,
+  summaryFindHighlightRanges,
 }: ToolCallProps) {
   const { openToolCall } = useToolCallSheet();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -3183,6 +3279,8 @@ export const ToolCall = memo(function ToolCall({
       isLastInSequence={isLastInSequence}
       disableOuterSpacing={disableOuterSpacing}
       onDetailHoverChange={onInlineDetailsHoverChange}
+      labelFindHighlightRanges={labelFindHighlightRanges}
+      secondaryLabelFindHighlightRanges={summaryFindHighlightRanges}
     />
   );
 }, areToolCallPropsEqual);
@@ -3199,5 +3297,7 @@ function areToolCallPropsEqual(previous: ToolCallProps, next: ToolCallProps) {
   if (previous.isLastInSequence !== next.isLastInSequence) return false;
   if (previous.disableOuterSpacing !== next.disableOuterSpacing) return false;
   if (previous.onOpenFilePath !== next.onOpenFilePath) return false;
+  if (previous.labelFindHighlightRanges !== next.labelFindHighlightRanges) return false;
+  if (previous.summaryFindHighlightRanges !== next.summaryFindHighlightRanges) return false;
   return true;
 }

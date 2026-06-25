@@ -44,6 +44,10 @@ const NONE: ShortcutAction = { kind: "none" };
 // Action ids whose routing is a no-payload pass-through to the dispatcher.
 const PASSTHROUGH_DISPATCH: Record<string, KeyboardActionDefinition> = {
   "agent.interrupt": { id: "agent.interrupt", scope: "global" },
+  "agent.find.open": { id: "agent.find.open", scope: "workspace" },
+  "agent.find.next": { id: "agent.find.next", scope: "workspace" },
+  "agent.find.previous": { id: "agent.find.previous", scope: "workspace" },
+  "agent.find.close": { id: "agent.find.close", scope: "workspace" },
   "workspace.tab.new": { id: "workspace.tab.new", scope: "workspace" },
   "workspace.new": { id: "workspace.new", scope: "sidebar" },
   "worktree.archive": { id: "worktree.archive", scope: "sidebar" },
