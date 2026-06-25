@@ -26,6 +26,12 @@ It also updates bottom anchoring so expanding/collapsing thinking groups does no
 - Keeps final assistant messages outside the collapsed thinking group so the actual answer remains visible.
 - Preserves normal access to tool calls and thinking content through expand/collapse controls.
 
+## Restored Main Polish
+
+This detail was previously implemented on `main`, then lost when this feature was split out. It is part of this branch's intended behavior and should be preserved when rebasing or batching the feature again.
+
+- The in-flight chat turn footer uses the blue synced loading indicator, matching the active chat state instead of the older amber warning treatment.
+
 ## Settings And Persistence
 
 ### `packages/app/src/hooks/use-settings/storage.ts`
