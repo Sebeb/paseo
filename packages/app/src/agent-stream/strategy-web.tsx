@@ -9,9 +9,17 @@ import React, {
 } from "react";
 import { ActivityIndicator } from "react-native";
 import { measureElement as measureVirtualElement, useVirtualizer } from "@tanstack/react-virtual";
+import { useWebElementScrollbar } from "@/components/use-web-scrollbar";
+import { useAppSettings } from "@/hooks/use-settings";
 import { estimateStreamItemHeight } from "./web-virtualization";
 import type { StreamRenderInput, StreamStrategy, StreamViewportHandle } from "./strategy";
 import { createStreamStrategy } from "./strategy";
+import {
+  PROMPT_MARKER_HIT_SIZE,
+  PROMPT_MARKER_RAIL_RIGHT,
+  PROMPT_MARKER_SIZE,
+} from "./prompt-scroll-marker-layout";
+import type { StreamItem } from "@/types/stream";
 
 interface CreateWebStreamStrategyInput {
   isMobileBreakpoint: boolean;
@@ -24,7 +32,39 @@ const USER_SCROLL_DELTA_EPSILON = 1;
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 64;
 const AUTO_SCROLL_RESUME_THRESHOLD_PX = 1;
 const HISTORY_START_THRESHOLD_PX = 96;
-import { useWebElementScrollbar } from "@/components/use-web-scrollbar";
+const PROMPT_PREVIEW_WIDTH = 280;
+const PROMPT_PREVIEW_MAX_HEIGHT = 120;
+const PROMPT_PREVIEW_EDGE_PADDING = 16;
+const PROMPT_PREVIEW_TEXT_MAX_LENGTH = 140;
+const PROMPT_SCROLL_TARGET_TOP_PADDING = 15;
+const PROMPT_PREVIEW_LAYER_Z_INDEX = 1000;
+
+type PromptMarkerSegment = "virtualizedHistory" | "mountedHistory" | "liveHead";
+
+interface PromptMarkerDescriptor {
+  id: string;
+  text: string;
+  index: number;
+  segment: PromptMarkerSegment;
+}
+
+interface PromptMarker extends PromptMarkerDescriptor {
+  targetOffset: number;
+}
+
+interface PromptRailMetrics {
+  viewportSize: number;
+  contentSize: number;
+  scrollOffset: number;
+  previewBoundsTop: number;
+  previewBoundsBottom: number;
+  offsetsById: Map<string, number>;
+}
+
+interface PromptPreviewBounds {
+  top: number;
+  bottom: number;
+}
 
 const historyStartSlotStyle: CSSProperties = {
   display: "flex",
@@ -34,6 +74,93 @@ const historyStartSlotStyle: CSSProperties = {
   paddingTop: 4,
   paddingBottom: 8,
 };
+
+const streamItemAnchorStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  width: "100%",
+};
+
+const promptMarkerOverlayStyle: CSSProperties = {
+  position: "absolute",
+  top: 0,
+  right: PROMPT_MARKER_RAIL_RIGHT,
+  bottom: 0,
+  width: PROMPT_MARKER_HIT_SIZE,
+  pointerEvents: "none",
+  zIndex: PROMPT_PREVIEW_LAYER_Z_INDEX,
+};
+
+const promptMarkerTargetBaseStyle: CSSProperties = {
+  position: "absolute",
+  right: 0,
+  width: PROMPT_MARKER_HIT_SIZE,
+  height: PROMPT_MARKER_HIT_SIZE,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  pointerEvents: "auto",
+  cursor: "pointer",
+  zIndex: PROMPT_PREVIEW_LAYER_Z_INDEX,
+};
+
+const promptMarkerDotBaseStyle: CSSProperties = {
+  width: PROMPT_MARKER_SIZE,
+  height: PROMPT_MARKER_SIZE,
+  borderRadius: 999,
+  backgroundColor: "var(--colors-surface3, #e4e4e7)",
+  border: "1px solid rgba(0, 0, 0, 0.16)",
+  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.28)",
+  opacity: 0.42,
+  transition:
+    "background-color 160ms ease-out, border-color 160ms ease-out, opacity 160ms ease-out, box-shadow 160ms ease-out",
+};
+
+const promptMarkerDotActiveStyle: CSSProperties = {
+  backgroundColor: "var(--colors-surface3, #e4e4e7)",
+  borderColor: "var(--colors-surface3, #e4e4e7)",
+  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.32)",
+  opacity: 1,
+};
+
+const promptPreviewBaseStyle: CSSProperties = {
+  position: "absolute",
+  right: PROMPT_MARKER_HIT_SIZE,
+  width: PROMPT_PREVIEW_WIDTH,
+  maxHeight: PROMPT_PREVIEW_MAX_HEIGHT,
+  overflow: "hidden",
+  padding: 16,
+  borderRadius: 16,
+  borderTopRightRadius: 2,
+  backgroundColor: "var(--colors-surface3, #e4e4e7)",
+  color: "var(--colors-foreground, #1a1a1e)",
+  boxShadow: "0 12px 32px rgba(0, 0, 0, 0.24)",
+  fontSize: 16,
+  lineHeight: "22px",
+  whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
+  textAlign: "left",
+  transition: "opacity 120ms ease-out, transform 120ms ease-out",
+  zIndex: PROMPT_PREVIEW_LAYER_Z_INDEX,
+};
+
+const promptPreviewHiddenStyle: CSSProperties = {
+  opacity: 0,
+  pointerEvents: "none",
+  transform: "translateX(4px)",
+};
+
+const promptPreviewVisibleStyle: CSSProperties = {
+  opacity: 1,
+  pointerEvents: "auto",
+  transform: "translateX(0)",
+};
+
+const PROMPT_PREVIEW_BOUNDS_SELECTOR = '[data-testid="agent-chat-space"]';
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
 function isScrollContainerNearBottom(
   scrollContainer: Pick<HTMLElement, "scrollTop" | "clientHeight" | "scrollHeight">,
@@ -107,6 +234,324 @@ function isScrollContainerOverscrolledPastBottom(
   return getScrollContainerDistanceFromBottom(scrollContainer) < 0;
 }
 
+function arePromptRailMetricsEqual(left: PromptRailMetrics, right: PromptRailMetrics): boolean {
+  if (
+    left.viewportSize !== right.viewportSize ||
+    left.contentSize !== right.contentSize ||
+    left.scrollOffset !== right.scrollOffset ||
+    left.previewBoundsTop !== right.previewBoundsTop ||
+    left.previewBoundsBottom !== right.previewBoundsBottom ||
+    left.offsetsById.size !== right.offsetsById.size
+  ) {
+    return false;
+  }
+
+  for (const [id, offset] of left.offsetsById) {
+    if (right.offsetsById.get(id) !== offset) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function getPromptPreviewBoundsElement(scrollContainer: HTMLElement): HTMLElement {
+  const chatSpace = scrollContainer.closest(PROMPT_PREVIEW_BOUNDS_SELECTOR);
+  return chatSpace instanceof HTMLElement ? chatSpace : scrollContainer;
+}
+
+function getPromptPreviewBounds(scrollContainer: HTMLElement): PromptPreviewBounds {
+  const scrollRect = scrollContainer.getBoundingClientRect();
+  const boundsElement = getPromptPreviewBoundsElement(scrollContainer);
+  const boundsRect = boundsElement.getBoundingClientRect();
+  const top = boundsRect.top - scrollRect.top;
+  const bottom = boundsRect.bottom - scrollRect.top;
+
+  if (![top, bottom].every(Number.isFinite) || bottom <= top) {
+    return {
+      top: 0,
+      bottom: scrollContainer.clientHeight,
+    };
+  }
+
+  return { top, bottom };
+}
+
+function collectPromptMarkerDescriptors(
+  segments: StreamRenderInput["segments"],
+): PromptMarkerDescriptor[] {
+  const markers: PromptMarkerDescriptor[] = [];
+  const visit = (items: StreamItem[], segment: PromptMarkerSegment) => {
+    items.forEach((item, index) => {
+      if (item.kind !== "user_message") {
+        return;
+      }
+      markers.push({
+        id: item.id,
+        text: item.text,
+        index,
+        segment,
+      });
+    });
+  };
+
+  visit(segments.historyVirtualized, "virtualizedHistory");
+  visit(segments.historyMounted, "mountedHistory");
+  visit(segments.liveHead, "liveHead");
+  return markers;
+}
+
+function findStreamItemAnchor(
+  contentElement: HTMLElement | null,
+  itemId: string,
+): HTMLElement | null {
+  if (!contentElement) {
+    return null;
+  }
+  const anchors = contentElement.querySelectorAll<HTMLElement>("[data-stream-item-id]");
+  for (const anchor of anchors) {
+    if (anchor.dataset.streamItemId === itemId) {
+      return anchor;
+    }
+  }
+  return null;
+}
+
+function getPromptMarkerTop(input: {
+  targetOffset: number;
+  viewportSize: number;
+  contentSize: number;
+}): number {
+  const maxMarkerTop = Math.max(0, input.viewportSize - PROMPT_MARKER_HIT_SIZE);
+  if (input.contentSize <= 0) {
+    return 0;
+  }
+  const clampedTarget = clamp(input.targetOffset, 0, input.contentSize);
+  return (clampedTarget / input.contentSize) * maxMarkerTop;
+}
+
+function getPromptPreviewTop(input: {
+  markerTop: number;
+  previewHeight: number;
+  previewBoundsTop: number;
+  previewBoundsBottom: number;
+}): number {
+  const dotTop = input.markerTop + (PROMPT_MARKER_HIT_SIZE - PROMPT_MARKER_SIZE) / 2;
+  const minTop = input.previewBoundsTop + PROMPT_PREVIEW_EDGE_PADDING;
+  const maxTop = Math.max(
+    minTop,
+    input.previewBoundsBottom - PROMPT_PREVIEW_EDGE_PADDING - input.previewHeight,
+  );
+  return clamp(dotTop, minTop, maxTop);
+}
+
+function getPromptPreviewText(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= PROMPT_PREVIEW_TEXT_MAX_LENGTH) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, PROMPT_PREVIEW_TEXT_MAX_LENGTH - 3).trimEnd()}...`;
+}
+
+function getActivePromptMarkerId(input: {
+  markers: readonly PromptMarker[];
+  scrollOffset: number;
+}): string | null {
+  if (input.markers.length === 0) {
+    return null;
+  }
+  const contextOffset = input.scrollOffset + PROMPT_SCROLL_TARGET_TOP_PADDING;
+  let activeMarker = input.markers[0] ?? null;
+  for (const marker of input.markers) {
+    if (marker.targetOffset > contextOffset) {
+      break;
+    }
+    activeMarker = marker;
+  }
+  return activeMarker?.id ?? null;
+}
+
+interface PromptMarkerRailProps {
+  markers: PromptMarker[];
+  viewportSize: number;
+  contentSize: number;
+  previewBoundsTop: number;
+  previewBoundsBottom: number;
+  scrollOffset: number;
+  onMarkerPress: (marker: PromptMarker) => void;
+}
+
+interface PromptMarkerRailItemProps {
+  marker: PromptMarker;
+  markerTop: number;
+  previewTop: number;
+  isHovered: boolean;
+  isActive: boolean;
+  onMarkerPress: (marker: PromptMarker) => void;
+  onHoveredPromptChange: (promptId: string | null) => void;
+  onPreviewHeightChange: (promptId: string, height: number) => void;
+}
+
+function PromptMarkerRailItem({
+  marker,
+  markerTop,
+  previewTop,
+  isHovered,
+  isActive,
+  onMarkerPress,
+  onHoveredPromptChange,
+  onPreviewHeightChange,
+}: PromptMarkerRailItemProps) {
+  const previewRef = useRef<HTMLSpanElement | null>(null);
+  const previewText = useMemo(() => getPromptPreviewText(marker.text), [marker.text]);
+  const dotStyle = useMemo(
+    (): CSSProperties => ({
+      ...promptMarkerDotBaseStyle,
+      ...(isActive ? promptMarkerDotActiveStyle : {}),
+    }),
+    [isActive],
+  );
+  const reportPreviewHeight = useCallback(() => {
+    const previewElement = previewRef.current;
+    if (!previewElement) {
+      return;
+    }
+    const height = previewElement.offsetHeight;
+    if (!Number.isFinite(height) || height <= 0) {
+      return;
+    }
+    onPreviewHeightChange(marker.id, height);
+  }, [marker.id, onPreviewHeightChange]);
+  const targetStyle = useMemo(
+    (): CSSProperties => ({
+      ...promptMarkerTargetBaseStyle,
+      top: markerTop,
+      border: 0,
+      padding: 0,
+      background: "transparent",
+    }),
+    [markerTop],
+  );
+  const previewStyle = useMemo(
+    (): CSSProperties => ({
+      ...promptPreviewBaseStyle,
+      top: previewTop - markerTop,
+      ...(isHovered ? promptPreviewVisibleStyle : promptPreviewHiddenStyle),
+    }),
+    [isHovered, markerTop, previewTop],
+  );
+  const handleClick = useCallback(() => {
+    onMarkerPress(marker);
+  }, [marker, onMarkerPress]);
+  const handleMouseEnter = useCallback(() => {
+    reportPreviewHeight();
+    onHoveredPromptChange(marker.id);
+  }, [marker.id, onHoveredPromptChange, reportPreviewHeight]);
+  const handleMouseLeave = useCallback(() => {
+    onHoveredPromptChange(null);
+  }, [onHoveredPromptChange]);
+  useLayoutEffect(() => {
+    reportPreviewHeight();
+    const previewElement = previewRef.current;
+    if (!previewElement || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      reportPreviewHeight();
+    });
+    observer.observe(previewElement);
+    return () => {
+      observer.disconnect();
+    };
+  }, [reportPreviewHeight]);
+
+  return (
+    <button
+      type="button"
+      data-testid={`prompt-scroll-marker-${marker.id}`}
+      aria-label="Jump to prompt"
+      style={targetStyle}
+      onClick={handleClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      <span style={dotStyle} />
+      <span
+        ref={previewRef}
+        data-testid={`prompt-scroll-preview-${marker.id}`}
+        style={previewStyle}
+      >
+        {previewText}
+      </span>
+    </button>
+  );
+}
+
+function PromptMarkerRail({
+  markers,
+  viewportSize,
+  contentSize,
+  previewBoundsTop,
+  previewBoundsBottom,
+  scrollOffset,
+  onMarkerPress,
+}: PromptMarkerRailProps) {
+  const [hoveredPromptId, setHoveredPromptId] = useState<string | null>(null);
+  const [previewHeightsById, setPreviewHeightsById] = useState(() => new Map<string, number>());
+  const handleHoveredPromptChange = useCallback((promptId: string | null) => {
+    setHoveredPromptId(promptId);
+  }, []);
+  const handlePreviewHeightChange = useCallback((promptId: string, height: number) => {
+    setPreviewHeightsById((previous) => {
+      if (previous.get(promptId) === height) {
+        return previous;
+      }
+      const next = new Map(previous);
+      next.set(promptId, height);
+      return next;
+    });
+  }, []);
+
+  if (markers.length === 0 || contentSize <= viewportSize || viewportSize <= 0) {
+    return null;
+  }
+
+  const activePromptId = getActivePromptMarkerId({ markers, scrollOffset });
+
+  return (
+    <div style={promptMarkerOverlayStyle} data-testid="prompt-marker-rail">
+      {markers.map((marker) => {
+        const markerTop = getPromptMarkerTop({
+          targetOffset: marker.targetOffset,
+          viewportSize,
+          contentSize,
+        });
+        const previewHeight = previewHeightsById.get(marker.id) ?? PROMPT_PREVIEW_MAX_HEIGHT;
+        const previewTop = getPromptPreviewTop({
+          markerTop,
+          previewHeight,
+          previewBoundsTop,
+          previewBoundsBottom,
+        });
+        const isHovered = hoveredPromptId === marker.id;
+        const isActive = activePromptId === marker.id;
+        return (
+          <PromptMarkerRailItem
+            key={marker.id}
+            marker={marker}
+            markerTop={markerTop}
+            previewTop={previewTop}
+            isHovered={isHovered}
+            isActive={isActive}
+            onMarkerPress={onMarkerPress}
+            onHoveredPromptChange={handleHoveredPromptChange}
+            onPreviewHeightChange={handlePreviewHeightChange}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: boolean }) {
   const {
     segments,
@@ -125,6 +570,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   } = props;
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
+  const virtualRowsContainerRef = useRef<HTMLDivElement | null>(null);
   const handleScrollContainerRef = useCallback((node: HTMLElement | null) => {
     scrollContainerRef.current = node;
   }, []);
@@ -146,7 +592,21 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const pendingVirtualRowMeasureFramesRef = useRef(new Map<Element, number>());
   const shouldSuppressNextResizeStickToBottomRef = useRef(false);
   const historyStartReadyRef = useRef(false);
+  const { settings: appSettings } = useAppSettings();
+  const [promptRailMetrics, setPromptRailMetrics] = useState<PromptRailMetrics>({
+    viewportSize: 0,
+    contentSize: 0,
+    scrollOffset: 0,
+    previewBoundsTop: 0,
+    previewBoundsBottom: 0,
+    offsetsById: new Map(),
+  });
   const showDesktopWebScrollbar = !isMobileBreakpoint;
+  const showPromptMarkers = showDesktopWebScrollbar && appSettings.promptScrollMarkers;
+  const promptMarkerDescriptors = useMemo(
+    () => collectPromptMarkerDescriptors(segments),
+    [segments],
+  );
   const scrollbarOverlay = useWebElementScrollbar(scrollContainerRef, {
     enabled: showDesktopWebScrollbar,
     contentRef,
@@ -189,6 +649,77 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   }, [rowVirtualizer]);
   const virtualRows = rowVirtualizer.getVirtualItems();
   const virtualTotalSize = rowVirtualizer.getTotalSize();
+
+  const getVirtualPromptOffset = useCallback(
+    (index: number): number | null => {
+      const offsetInfo = rowVirtualizer.getOffsetForIndex(index, "start");
+      if (!offsetInfo) {
+        return null;
+      }
+      const virtualRowsContainerOffset = virtualRowsContainerRef.current?.offsetTop ?? 0;
+      return virtualRowsContainerOffset + offsetInfo[0];
+    },
+    [rowVirtualizer],
+  );
+
+  const resolvePromptOffset = useCallback(
+    (marker: PromptMarkerDescriptor): number | null => {
+      if (marker.segment === "virtualizedHistory") {
+        return getVirtualPromptOffset(marker.index);
+      }
+      const anchor = findStreamItemAnchor(contentRef.current, marker.id);
+      return anchor?.offsetTop ?? null;
+    },
+    [getVirtualPromptOffset],
+  );
+
+  const updatePromptRailMetrics = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer || !showPromptMarkers) {
+      setPromptRailMetrics((previous) => {
+        const next: PromptRailMetrics = {
+          viewportSize: 0,
+          contentSize: 0,
+          scrollOffset: 0,
+          previewBoundsTop: 0,
+          previewBoundsBottom: 0,
+          offsetsById: new Map(),
+        };
+        return arePromptRailMetricsEqual(previous, next) ? previous : next;
+      });
+      return;
+    }
+
+    const offsetsById = new Map<string, number>();
+    for (const marker of promptMarkerDescriptors) {
+      const offset = resolvePromptOffset(marker);
+      if (offset !== null) {
+        offsetsById.set(marker.id, offset);
+      }
+    }
+
+    const previewBounds = getPromptPreviewBounds(scrollContainer);
+    const next: PromptRailMetrics = {
+      viewportSize: scrollContainer.clientHeight,
+      contentSize: scrollContainer.scrollHeight,
+      scrollOffset: scrollContainer.scrollTop,
+      previewBoundsTop: previewBounds.top,
+      previewBoundsBottom: previewBounds.bottom,
+      offsetsById,
+    };
+    setPromptRailMetrics((previous) =>
+      arePromptRailMetricsEqual(previous, next) ? previous : next,
+    );
+  }, [promptMarkerDescriptors, resolvePromptOffset, showPromptMarkers]);
+
+  const updatePromptRailScrollOffset = useCallback((scrollOffset: number) => {
+    setPromptRailMetrics((previous) => {
+      if (previous.scrollOffset === scrollOffset) {
+        return previous;
+      }
+      return { ...previous, scrollOffset };
+    });
+  }, []);
 
   const measureVirtualizedRowElement = useCallback(
     (node: HTMLDivElement | null) => {
@@ -337,6 +868,16 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
 
     lastKnownScrollTopRef.current = currentScrollTop;
     updateScrollMetrics();
+    if (showPromptMarkers) {
+      updatePromptRailScrollOffset(currentScrollTop);
+    }
+    if (
+      showPromptMarkers &&
+      (scrollContainer.clientHeight !== promptRailMetrics.viewportSize ||
+        scrollContainer.scrollHeight !== promptRailMetrics.contentSize)
+    ) {
+      updatePromptRailMetrics();
+    }
     if (
       historyStartReadyRef.current &&
       hasOlderHistory &&
@@ -344,7 +885,17 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     ) {
       onNearHistoryStart();
     }
-  }, [cancelPendingStickToBottom, hasOlderHistory, onNearHistoryStart, updateScrollMetrics]);
+  }, [
+    cancelPendingStickToBottom,
+    hasOlderHistory,
+    onNearHistoryStart,
+    promptRailMetrics.contentSize,
+    promptRailMetrics.viewportSize,
+    showPromptMarkers,
+    updatePromptRailMetrics,
+    updatePromptRailScrollOffset,
+    updateScrollMetrics,
+  ]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -409,20 +960,33 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     virtualTotalSize,
   ]);
 
+  useLayoutEffect(() => {
+    updatePromptRailMetrics();
+  }, [
+    segments.historyMounted,
+    segments.historyVirtualized,
+    segments.liveHead,
+    updatePromptRailMetrics,
+    virtualTotalSize,
+  ]);
+
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     const contentNode = contentRef.current;
     if (!scrollContainer || typeof ResizeObserver === "undefined") {
       return;
     }
+    const previewBoundsElement = getPromptPreviewBoundsElement(scrollContainer);
 
     updateScrollMetrics();
+    updatePromptRailMetrics();
     const observer = new ResizeObserver(() => {
       updateScrollMetrics();
       if (shouldSuppressNextResizeStickToBottomRef.current) {
         shouldSuppressNextResizeStickToBottomRef.current = false;
         return;
       }
+      updatePromptRailMetrics();
       if (!followOutputRef.current) {
         return;
       }
@@ -432,10 +996,13 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     if (contentNode) {
       observer.observe(contentNode);
     }
+    if (previewBoundsElement !== scrollContainer && previewBoundsElement !== contentNode) {
+      observer.observe(previewBoundsElement);
+    }
     return () => {
       observer.disconnect();
     };
-  }, [scheduleStickToBottom, updateScrollMetrics]);
+  }, [scheduleStickToBottom, updatePromptRailMetrics, updateScrollMetrics]);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -556,6 +1123,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       overscrollBehaviorY: "contain",
     };
   }, [scrollEnabled]);
+  const viewportChromeStyle = useMemo(
+    (): CSSProperties => ({
+      position: "relative",
+      display: "flex",
+      flex: 1,
+      minHeight: 0,
+    }),
+    [],
+  );
   const virtualRowsContainerStyle = useMemo((): CSSProperties => {
     return {
       position: "relative",
@@ -577,14 +1153,24 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   );
   const mountedHistoryRows = useMemo(() => {
     return segments.historyMounted.map((item, index) => (
-      <div key={item.id} data-stream-item-id={item.id}>
+      <div
+        key={item.id}
+        data-stream-item-id={item.id}
+        data-stream-item-kind={item.kind}
+        style={streamItemAnchorStyle}
+      >
         {renderHistoryMountedRow(item, index, segments.historyMounted)}
       </div>
     ));
   }, [renderHistoryMountedRow, segments.historyMounted]);
   const liveHeadRows = useMemo(() => {
     return segments.liveHead.map((item, index) => (
-      <div key={item.id} data-stream-item-id={item.id}>
+      <div
+        key={item.id}
+        data-stream-item-id={item.id}
+        data-stream-item-kind={item.kind}
+        style={streamItemAnchorStyle}
+      >
         {renderLiveHeadRow(item, index, segments.liveHead)}
       </div>
     ));
@@ -607,9 +1193,33 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     !boundary.hasVirtualizedHistory &&
     !boundary.hasLiveHead &&
     !liveAuxiliary;
+  const promptMarkers = useMemo((): PromptMarker[] => {
+    return promptMarkerDescriptors.flatMap((marker) => {
+      const targetOffset = promptRailMetrics.offsetsById.get(marker.id);
+      return targetOffset === undefined ? [] : [{ ...marker, targetOffset }];
+    });
+  }, [promptMarkerDescriptors, promptRailMetrics.offsetsById]);
+  const handlePromptMarkerPress = useCallback(
+    (marker: PromptMarker) => {
+      const scrollContainer = scrollContainerRef.current;
+      if (!scrollContainer) {
+        return;
+      }
+      const resolvedOffset = resolvePromptOffset(marker) ?? marker.targetOffset;
+      const maxScrollOffset = Math.max(
+        0,
+        scrollContainer.scrollHeight - scrollContainer.clientHeight,
+      );
+      scrollContainer.scrollTo({
+        top: clamp(resolvedOffset - PROMPT_SCROLL_TARGET_TOP_PADDING, 0, maxScrollOffset),
+        behavior: "auto",
+      });
+    },
+    [resolvePromptOffset],
+  );
 
   return (
-    <>
+    <div style={viewportChromeStyle}>
       <div
         ref={handleScrollContainerRef}
         data-testid="agent-chat-scroll"
@@ -619,7 +1229,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         <div ref={handleContentRef} style={contentContainerStyle}>
           {historyStartSlot}
           {shouldUseVirtualizer ? (
-            <div style={virtualRowsContainerStyle}>
+            <div ref={virtualRowsContainerRef} style={virtualRowsContainerStyle}>
               {virtualRows.map((virtualRow) => {
                 const item = segments.historyVirtualized[virtualRow.index];
                 if (!item) {
@@ -630,6 +1240,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
                     key={virtualRow.key}
                     data-index={virtualRow.index}
                     data-stream-item-id={item.id}
+                    data-stream-item-kind={item.kind}
                     ref={measureVirtualizedRowElement}
                     style={renderVirtualRowStyle(virtualRow.start)}
                   >
@@ -649,8 +1260,17 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
           {shouldRenderEmpty ? listEmptyComponent : null}
         </div>
       </div>
+      <PromptMarkerRail
+        markers={promptMarkers}
+        viewportSize={promptRailMetrics.viewportSize}
+        contentSize={promptRailMetrics.contentSize}
+        previewBoundsTop={promptRailMetrics.previewBoundsTop}
+        previewBoundsBottom={promptRailMetrics.previewBoundsBottom}
+        scrollOffset={promptRailMetrics.scrollOffset}
+        onMarkerPress={handlePromptMarkerPress}
+      />
       {scrollbarOverlay}
-    </>
+    </div>
   );
 }
 

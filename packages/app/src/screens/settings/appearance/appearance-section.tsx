@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import {
   MAX_CODE_FONT_SIZE,
@@ -437,6 +438,32 @@ function SyntaxRow({ value, onChange }: SyntaxRowProps) {
   );
 }
 
+interface PromptScrollMarkersRowProps {
+  value: boolean;
+  onChange: (value: boolean) => void;
+}
+
+function PromptScrollMarkersRow({ value, onChange }: PromptScrollMarkersRowProps) {
+  const { t } = useTranslation();
+  return (
+    <View style={settingsStyles.row}>
+      <View style={settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle}>
+          {t("settings.appearance.display.promptMarkers")}
+        </Text>
+        <Text style={settingsStyles.rowHint}>
+          {t("settings.appearance.display.promptMarkersHint")}
+        </Text>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        accessibilityLabel={t("settings.appearance.display.promptMarkersAccessibility")}
+      />
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -445,6 +472,7 @@ export function AppearanceSection() {
   const { t } = useTranslation();
   const { settings, updateSettings } = useAppSettings();
   const showFontFamilyRows = !isNative;
+  const showPromptMarkerRows = !isNative;
   const uiFontPlaceholder = resolveDefaultStackPlaceholder(t, DEFAULT_UI_FONT_STACK);
   const monoFontPlaceholder = resolveDefaultStackPlaceholder(t, DEFAULT_MONO_FONT_STACK);
 
@@ -478,6 +506,13 @@ export function AppearanceSection() {
   const handleSyntaxThemeChange = useCallback(
     (syntaxTheme: SyntaxThemeId) => {
       void updateSettings({ syntaxTheme });
+    },
+    [updateSettings],
+  );
+
+  const handlePromptScrollMarkersChange = useCallback(
+    (promptScrollMarkers: boolean) => {
+      void updateSettings({ promptScrollMarkers });
     },
     [updateSettings],
   );
@@ -570,6 +605,16 @@ export function AppearanceSection() {
           />
         </View>
       </SettingsSection>
+      {showPromptMarkerRows ? (
+        <SettingsSection title={t("settings.appearance.display.title")}>
+          <View style={settingsStyles.card}>
+            <PromptScrollMarkersRow
+              value={settings.promptScrollMarkers}
+              onChange={handlePromptScrollMarkersChange}
+            />
+          </View>
+        </SettingsSection>
+      ) : null}
       <SettingsSection title={t("settings.appearance.fonts.title")}>
         <View style={settingsStyles.card}>
           {showFontFamilyRows ? (

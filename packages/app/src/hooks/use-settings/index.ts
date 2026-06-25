@@ -182,6 +182,9 @@ export function useSettings(): UseSettingsReturn {
       if (updates.workspaceTitleSource !== undefined) {
         appUpdates.workspaceTitleSource = updates.workspaceTitleSource;
       }
+      if (updates.promptScrollMarkers !== undefined) {
+        appUpdates.promptScrollMarkers = updates.promptScrollMarkers;
+      }
       const promises: Promise<void>[] = [];
       if (Object.keys(appUpdates).length > 0) {
         promises.push(appSettings.updateSettings(appUpdates));
