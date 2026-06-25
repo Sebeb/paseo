@@ -1221,6 +1221,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
         streamViewRef={streamViewRef}
         serverId={serverId}
         agentId={agentId}
+        isPaneFocused={isPaneFocused}
         agent={effectiveAgent}
         routeBottomAnchorRequest={routeBottomAnchorRequest}
         hasAppliedAuthoritativeHistory={hasAppliedAuthoritativeHistory}
@@ -1293,6 +1294,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   streamViewRef,
   serverId,
   agentId,
+  isPaneFocused,
   agent,
   routeBottomAnchorRequest,
   hasAppliedAuthoritativeHistory,
@@ -1302,6 +1304,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   streamViewRef: React.RefObject<AgentStreamViewHandle | null>;
   serverId: string;
   agentId?: string;
+  isPaneFocused: boolean;
   agent: AgentScreenAgent;
   routeBottomAnchorRequest: RouteBottomAnchorRequest;
   hasAppliedAuthoritativeHistory: boolean;
@@ -1351,6 +1354,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
       isAuthoritativeHistoryReady={hasAppliedAuthoritativeHistory}
       toast={toast}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
+      isPaneFocused={isPaneFocused}
     />
   );
 });

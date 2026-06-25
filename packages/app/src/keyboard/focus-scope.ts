@@ -65,6 +65,12 @@ export function resolveKeyboardFocusScope(input: {
   }
 
   if (
+    candidates.some((element) => Boolean(element.closest("[data-testid='find-in-thread-root']")))
+  ) {
+    return "find-in-thread";
+  }
+
+  if (
     candidates.some((element) => {
       const editable = element as HTMLElement;
       if (editable.isContentEditable) {

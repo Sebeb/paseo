@@ -862,6 +862,39 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     scheduleStickToBottom();
   }, [cancelPendingStickToBottom, scheduleStickToBottom, scrollMessagesToBottom]);
 
+  const scrollToStreamItemTop = useCallback(
+    (itemId: string) => {
+      const scrollContainer = scrollContainerRef.current;
+      if (!scrollContainer) {
+        return;
+      }
+      const element = streamItemElementByIdRef.current.get(itemId);
+      if (element) {
+        setFollowOutput(false);
+        scrollContainer.scrollTo({
+          top: Math.max(0, element.offsetTop - PINNED_USER_INPUT_SCROLL_TOP_OFFSET),
+          behavior: "smooth",
+        });
+        return;
+      }
+      const estimatedTop = findEstimatedStreamItemTop({
+        items: segments.historyVirtualized,
+        itemId,
+        estimateHeight: estimateStreamItemHeight,
+        initialTop: virtualRowsContainerRef.current?.offsetTop ?? 0,
+      });
+      if (estimatedTop === null) {
+        return;
+      }
+      setFollowOutput(false);
+      scrollContainer.scrollTo({
+        top: Math.max(0, estimatedTop - PINNED_USER_INPUT_SCROLL_TOP_OFFSET),
+        behavior: "smooth",
+      });
+    },
+    [segments.historyVirtualized],
+  );
+
   const updateScrollMetrics = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) {
@@ -1157,35 +1190,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         cancelPendingStickToBottom();
         forceStickToBottom();
       },
-      scrollToStreamItemTop: (itemId: string) => {
-        const scrollContainer = scrollContainerRef.current;
-        if (!scrollContainer) {
-          return;
-        }
-        const element = streamItemElementByIdRef.current.get(itemId);
-        if (element) {
-          setFollowOutput(false);
-          scrollContainer.scrollTo({
-            top: Math.max(0, element.offsetTop - PINNED_USER_INPUT_SCROLL_TOP_OFFSET),
-            behavior: "smooth",
-          });
-          return;
-        }
-        const estimatedTop = findEstimatedStreamItemTop({
-          items: segments.historyVirtualized,
-          itemId,
-          estimateHeight: estimateStreamItemHeight,
-          initialTop: virtualRowsContainerRef.current?.offsetTop ?? 0,
-        });
-        if (estimatedTop === null) {
-          return;
-        }
-        setFollowOutput(false);
-        scrollContainer.scrollTo({
-          top: Math.max(0, estimatedTop - PINNED_USER_INPUT_SCROLL_TOP_OFFSET),
-          behavior: "smooth",
-        });
-      },
+      scrollToStreamItemTop,
       prepareForViewportChange: () => {
         if (!followOutputRef.current) {
           return;
@@ -1208,7 +1213,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     cancelPendingStickToBottom,
     forceStickToBottom,
     scheduleStickToBottom,
-    segments.historyVirtualized,
+    scrollToStreamItemTop,
     viewportRef,
   ]);
 

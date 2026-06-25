@@ -28,6 +28,10 @@ function makeCtx(overrides: Partial<ShortcutRoutingContext> = {}): ShortcutRouti
 describe("routeKeyboardShortcut — dispatch passthroughs", () => {
   it.each([
     ["agent.interrupt", { id: "agent.interrupt", scope: "global" }],
+    ["agent.find.open", { id: "agent.find.open", scope: "workspace" }],
+    ["agent.find.next", { id: "agent.find.next", scope: "workspace" }],
+    ["agent.find.previous", { id: "agent.find.previous", scope: "workspace" }],
+    ["agent.find.close", { id: "agent.find.close", scope: "workspace" }],
     ["workspace.tab.new", { id: "workspace.tab.new", scope: "workspace" }],
     ["workspace.new", { id: "workspace.new", scope: "sidebar" }],
     ["worktree.archive", { id: "worktree.archive", scope: "sidebar" }],

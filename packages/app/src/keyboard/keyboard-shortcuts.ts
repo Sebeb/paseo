@@ -152,6 +152,7 @@ const SHORTCUT_HELP_LABEL_KEYS: Record<string, string> = {
   "toggle-settings": "settings.shortcuts.help.toggleSettings",
   "toggle-focus": "settings.shortcuts.help.toggleFocusMode",
   "cycle-theme": "settings.shortcuts.help.cycleTheme",
+  "find-in-thread": "settings.shortcuts.help.findInThread",
   "focus-message-input": "settings.shortcuts.help.focusMessageInput",
   "cycle-agent-mode": "settings.shortcuts.help.cycleAgentMode",
   "voice-toggle": "settings.shortcuts.help.toggleVoiceMode",
@@ -907,6 +908,50 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
       label: "Cycle theme",
       keys: ["mod", "alt", "T"],
     },
+  },
+
+  // --- Find in thread ---
+  {
+    id: "agent-find-open-cmd-f-mac",
+    action: "agent.find.open",
+    combo: "Cmd+F",
+    when: { mac: true, commandCenter: false, terminal: false },
+    help: {
+      id: "find-in-thread",
+      section: "agent-input",
+      label: "Find in chat",
+      keys: ["mod", "F"],
+    },
+  },
+  {
+    id: "agent-find-open-ctrl-f-non-mac",
+    action: "agent.find.open",
+    combo: "Ctrl+F",
+    when: { mac: false, commandCenter: false, terminal: false },
+    help: {
+      id: "find-in-thread",
+      section: "agent-input",
+      label: "Find in chat",
+      keys: ["mod", "F"],
+    },
+  },
+  {
+    id: "agent-find-next-enter",
+    action: "agent.find.next",
+    combo: "Enter",
+    when: { focusScope: "find-in-thread" },
+  },
+  {
+    id: "agent-find-previous-shift-enter",
+    action: "agent.find.previous",
+    combo: "Shift+Enter",
+    when: { focusScope: "find-in-thread" },
+  },
+  {
+    id: "agent-find-close-escape",
+    action: "agent.find.close",
+    combo: "Escape",
+    when: { focusScope: "find-in-thread" },
   },
 
   // --- Message input ---

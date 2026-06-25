@@ -667,6 +667,7 @@ export function WorkspaceDraftAgentTab({
                 streamItems={optimisticStreamItems}
                 pendingPermissions={EMPTY_PENDING_PERMISSIONS}
                 onOpenWorkspaceFile={onOpenWorkspaceFile}
+                isPaneFocused={isPaneFocused}
               />
             </View>
           ) : (

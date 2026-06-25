@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import {
   View,
   Text,
+  TextInput,
   Pressable,
   ScrollView,
   Platform,
@@ -44,8 +45,10 @@ import Animated, {
 import {
   Check,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   MessageSquareText,
+  Search,
   Wrench,
   X,
 } from "lucide-react-native";
@@ -118,6 +121,27 @@ import { MountedTabActiveContext } from "@/components/split-container";
 import { formatDuration } from "@/utils/time";
 import type { TurnTiming } from "@/timeline/turn-time";
 import type { PinnedUserInputState } from "./pinned-user-input";
+import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
+import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
+import {
+  buildFindHighlights,
+  buildFindRecords,
+  FIND_PART_MESSAGE,
+  FIND_PART_SPEAK_MESSAGE,
+  FIND_PART_TOOL_SUMMARY,
+  FIND_PART_TOOL_TITLE,
+  getFindHighlightRanges,
+  type FindHighlightsByItemId,
+  type FindInThreadMatch,
+} from "./find-in-thread";
+import { startFindThreadJob } from "./find-runner";
+
+const FIND_KEYBOARD_ACTIONS = [
+  "agent.find.open",
+  "agent.find.next",
+  "agent.find.previous",
+  "agent.find.close",
+] as const;
 
 const PINNED_USER_INPUT_TOP_PADDING = 15;
 const PINNED_USER_INPUT_MAX_HEIGHT = 118;
@@ -323,6 +347,64 @@ function renderLiveHeadStreamItem(input: {
   return input.renderStreamItem(layoutItem);
 }
 
+function getTodoFindHighlightRanges(
+  highlights: FindHighlightsByItemId,
+  itemId: string,
+): Map<number, ReturnType<typeof getFindHighlightRanges>> | undefined {
+  const parts = highlights.get(itemId);
+  if (!parts) {
+    return undefined;
+  }
+  const rangesByIndex = new Map<number, ReturnType<typeof getFindHighlightRanges>>();
+  for (const [part, ranges] of parts) {
+    if (!part.startsWith("todo:")) {
+      continue;
+    }
+    const index = Number(part.slice("todo:".length));
+    if (Number.isInteger(index) && index >= 0) {
+      rangesByIndex.set(index, ranges);
+    }
+  }
+  return rangesByIndex.size > 0 ? rangesByIndex : undefined;
+}
+
+function getNextFindMatchId(
+  matches: readonly FindInThreadMatch[],
+  previousMatchId: string | null,
+  delta: 1 | -1,
+): string | null {
+  if (matches.length === 0) {
+    return null;
+  }
+  const currentIndex = previousMatchId
+    ? matches.findIndex((match) => match.id === previousMatchId)
+    : -1;
+  if (currentIndex >= 0) {
+    return matches[(currentIndex + delta + matches.length) % matches.length]?.id ?? null;
+  }
+  if (delta > 0) {
+    return matches[0]?.id ?? null;
+  }
+  return matches.at(-1)?.id ?? null;
+}
+
+function resolveActiveFindMatchId(input: {
+  currentMatchId: string | null;
+  preservedMatchId: string | null;
+  matches: readonly FindInThreadMatch[];
+}): string | null {
+  if (input.currentMatchId && input.matches.some((match) => match.id === input.currentMatchId)) {
+    return input.currentMatchId;
+  }
+  if (
+    input.preservedMatchId &&
+    input.matches.some((match) => match.id === input.preservedMatchId)
+  ) {
+    return input.preservedMatchId;
+  }
+  return input.matches[0]?.id ?? null;
+}
+
 export interface AgentStreamViewHandle {
   scrollToBottom(reason?: BottomAnchorLocalRequest["reason"]): void;
   prepareForViewportChange(): void;
@@ -339,6 +421,7 @@ export interface AgentStreamViewProps {
   isAuthoritativeHistoryReady?: boolean;
   toast?: ToastApi | null;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  isPaneFocused?: boolean;
 }
 
 const AGENT_CAPABILITY_FLAG_KEYS: (keyof AgentCapabilityFlags)[] = [
@@ -375,6 +458,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       isAuthoritativeHistoryReady = true,
       toast,
       onOpenWorkspaceFile,
+      isPaneFocused = true,
     },
     ref,
   ) {
@@ -401,6 +485,18 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const [expandedThinkingGroupIds, setExpandedThinkingGroupIds] = useState<Map<string, boolean>>(
       new Map(),
     );
+    const [isFindOpen, setIsFindOpen] = useState(false);
+    const [findQuery, setFindQuery] = useState("");
+    const [findIncludesThinking, setFindIncludesThinking] = useState(false);
+    const [findMatches, setFindMatches] = useState<FindInThreadMatch[]>([]);
+    const [activeFindMatchId, setActiveFindMatchId] = useState<string | null>(null);
+    const [isFindScanning, setIsFindScanning] = useState(false);
+    const [findScannedRecordCount, setFindScannedRecordCount] = useState(0);
+    const [findTotalRecordCount, setFindTotalRecordCount] = useState(0);
+    const findInputRef = useRef<TextInput | null>(null);
+    const activeFindMatchIdRef = useRef<string | null>(null);
+    const preservedFindMatchIdRef = useRef<string | null>(null);
+    const findMatchesRef = useRef<FindInThreadMatch[]>([]);
     const openFileExplorerForCheckout = usePanelStore((state) => state.openFileExplorerForCheckout);
     const setExplorerTabForCheckout = usePanelStore((state) => state.setExplorerTabForCheckout);
     const collapseThinkingBehavior = useAppSettings().settings.collapseThinking;
@@ -439,6 +535,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       setPinnedUserInput(null);
       setExpandedInlineToolCallIds(new Set());
       setExpandedThinkingGroupIds(new Map());
+      setIsFindOpen(false);
+      setFindQuery("");
+      findMatchesRef.current = [];
+      setFindMatches([]);
+      setActiveFindMatchId(null);
     }, [agentId]);
 
     useEffect(() => {
@@ -535,6 +636,37 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         agentStatus: agent.status,
       });
     }, [agent.status, chronologicalStreamItems, collapseThinkingBehavior]);
+    const findThinkingGroupIndex = useMemo(
+      () =>
+        buildCollapseThinkingGroups({
+          items: chronologicalStreamItems,
+          behavior: "completed",
+          agentStatus: agent.status,
+        }),
+      [agent.status, chronologicalStreamItems],
+    );
+    const findRecords = useMemo(
+      () =>
+        buildFindRecords({
+          items: chronologicalStreamItems,
+          thinkingGroupIndex: findThinkingGroupIndex,
+          options: { includeThinking: findIncludesThinking },
+        }),
+      [chronologicalStreamItems, findIncludesThinking, findThinkingGroupIndex],
+    );
+    const findHighlights = useMemo(
+      () => buildFindHighlights({ matches: findMatches, activeMatchId: activeFindMatchId }),
+      [activeFindMatchId, findMatches],
+    );
+    const activeFindMatch = useMemo(
+      () => findMatches.find((match) => match.id === activeFindMatchId) ?? null,
+      [activeFindMatchId, findMatches],
+    );
+    const activeFindMatchIndex = useMemo(
+      () =>
+        activeFindMatchId ? findMatches.findIndex((match) => match.id === activeFindMatchId) : -1,
+      [activeFindMatchId, findMatches],
+    );
 
     const baseRenderModel = useMemo(() => {
       return buildAgentStreamRenderModel({
@@ -616,6 +748,163 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       });
     }, []);
 
+    useEffect(() => {
+      activeFindMatchIdRef.current = activeFindMatchId;
+    }, [activeFindMatchId]);
+
+    const closeFind = useCallback(() => {
+      setIsFindOpen(false);
+      setFindQuery("");
+      findMatchesRef.current = [];
+      setFindMatches([]);
+      setActiveFindMatchId(null);
+      setIsFindScanning(false);
+      setFindScannedRecordCount(0);
+      setFindTotalRecordCount(0);
+    }, []);
+
+    const openFind = useCallback(() => {
+      setIsFindOpen(true);
+      const focusInput = () => findInputRef.current?.focus();
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(focusInput);
+      } else {
+        setTimeout(focusInput, 0);
+      }
+    }, []);
+
+    const moveFindMatch = useCallback(
+      (delta: 1 | -1) => {
+        setActiveFindMatchId((previous) => getNextFindMatchId(findMatches, previous, delta));
+      },
+      [findMatches],
+    );
+
+    const moveToNextFindMatch = useCallback(() => {
+      moveFindMatch(1);
+    }, [moveFindMatch]);
+
+    const moveToPreviousFindMatch = useCallback(() => {
+      moveFindMatch(-1);
+    }, [moveFindMatch]);
+
+    const handleFindKeyboardAction = useCallback(
+      (action: KeyboardActionDefinition): boolean => {
+        if (!isPaneFocused) {
+          return false;
+        }
+        switch (action.id) {
+          case "agent.find.open":
+            openFind();
+            return true;
+          case "agent.find.next":
+            if (!isFindOpen) return false;
+            moveFindMatch(1);
+            return true;
+          case "agent.find.previous":
+            if (!isFindOpen) return false;
+            moveFindMatch(-1);
+            return true;
+          case "agent.find.close":
+            if (!isFindOpen) return false;
+            closeFind();
+            return true;
+          default:
+            return false;
+        }
+      },
+      [closeFind, isFindOpen, isPaneFocused, moveFindMatch, openFind],
+    );
+
+    useKeyboardActionHandler({
+      handlerId: `agent-find:${agentId}`,
+      actions: FIND_KEYBOARD_ACTIONS,
+      enabled: isPaneFocused,
+      priority: 80,
+      isActive: () => isPaneFocused,
+      handle: handleFindKeyboardAction,
+    });
+
+    useEffect(() => {
+      if (!isFindOpen || findQuery.length === 0) {
+        findMatchesRef.current = [];
+        setFindMatches([]);
+        setActiveFindMatchId(null);
+        setIsFindScanning(false);
+        setFindScannedRecordCount(0);
+        setFindTotalRecordCount(findRecords.length);
+        return;
+      }
+
+      preservedFindMatchIdRef.current = activeFindMatchIdRef.current;
+      findMatchesRef.current = [];
+      setFindMatches([]);
+      setActiveFindMatchId(null);
+      setIsFindScanning(true);
+      setFindScannedRecordCount(0);
+      setFindTotalRecordCount(findRecords.length);
+
+      const job = startFindThreadJob({
+        records: findRecords,
+        query: findQuery,
+        onProgress: (progress) => {
+          setFindScannedRecordCount(progress.scannedRecordCount);
+          setFindTotalRecordCount(progress.totalRecordCount);
+          const nextMatches = [...findMatchesRef.current, ...progress.matches];
+          findMatchesRef.current = nextMatches;
+          setFindMatches(nextMatches);
+          const preservedMatchId = preservedFindMatchIdRef.current;
+          setActiveFindMatchId((currentMatchId) => {
+            const nextActiveMatchId = resolveActiveFindMatchId({
+              currentMatchId,
+              preservedMatchId,
+              matches: nextMatches,
+            });
+            if (nextActiveMatchId === preservedMatchId) {
+              preservedFindMatchIdRef.current = null;
+            }
+            return nextActiveMatchId;
+          });
+        },
+        onComplete: (complete) => {
+          setFindScannedRecordCount(complete.scannedRecordCount);
+          setFindTotalRecordCount(complete.totalRecordCount);
+          setIsFindScanning(false);
+        },
+      });
+
+      return () => {
+        job.cancel();
+      };
+    }, [findQuery, findRecords, isFindOpen]);
+
+    useEffect(() => {
+      if (!activeFindMatch) {
+        return () => {};
+      }
+      const thinkingGroup = thinkingGroupIndex.groupByItemId.get(activeFindMatch.itemId);
+      if (thinkingGroup) {
+        pauseBottomAnchoringForNextLayoutChange();
+        setExpandedThinkingGroupIds((previous) => {
+          if (previous.get(thinkingGroup.id) === true) {
+            return previous;
+          }
+          const next = new Map(previous);
+          next.set(thinkingGroup.id, true);
+          return next;
+        });
+      }
+      const timeout = setTimeout(
+        () => {
+          viewportRef.current?.scrollToStreamItemTop(activeFindMatch.itemId);
+        },
+        thinkingGroup ? 40 : 0,
+      );
+      return () => {
+        clearTimeout(timeout);
+      };
+    }, [activeFindMatch, pauseBottomAnchoringForNextLayoutChange, thinkingGroupIndex]);
+
     const setInlineDetailsExpanded = useCallback(
       (itemId: string, expanded: boolean) => {
         if (!streamRenderStrategy.shouldDisableParentScrollOnInlineDetailsExpansion()) {
@@ -649,10 +938,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             client={client}
             isFirstInGroup={layoutItem.isFirstInUserGroup}
             isLastInGroup={layoutItem.isLastInUserGroup}
+            findHighlightRanges={getFindHighlightRanges(findHighlights, item.id, FIND_PART_MESSAGE)}
           />
         );
       },
-      [agent.capabilities, agentId, client, resolvedServerId],
+      [agent.capabilities, agentId, client, findHighlights, resolvedServerId],
     );
 
     const renderAssistantMessageItem = useCallback(
@@ -672,11 +962,16 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               serverId={resolvedServerId}
               client={client}
               spacing={layoutItem.assistantSpacing}
+              findHighlightRanges={getFindHighlightRanges(
+                findHighlights,
+                item.id,
+                FIND_PART_MESSAGE,
+              )}
             />
           </AssistantFileLinkResolverProvider>
         );
       },
-      [client, handleInlinePathPress, resolvedServerId, toast, workspaceRoot],
+      [client, findHighlights, handleInlinePathPress, resolvedServerId, toast, workspaceRoot],
     );
 
     const renderThoughtItem = useCallback(
@@ -689,10 +984,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             args={item.text}
             status={item.status === "ready" ? "completed" : "executing"}
             isLastInSequence={layoutItem.isLastInToolSequence}
+            summaryFindHighlightRanges={getFindHighlightRanges(
+              findHighlights,
+              item.id,
+              FIND_PART_MESSAGE,
+            )}
           />
         );
       },
-      [setInlineDetailsExpanded],
+      [findHighlights, setInlineDetailsExpanded],
     );
 
     const renderToolCallItem = useCallback(
@@ -709,7 +1009,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             data.detail.input.trim()
           ) {
             return (
-              <SpeakMessage message={data.detail.input} timestamp={item.timestamp.getTime()} />
+              <SpeakMessage
+                message={data.detail.input}
+                timestamp={item.timestamp.getTime()}
+                findHighlightRanges={getFindHighlightRanges(
+                  findHighlights,
+                  item.id,
+                  FIND_PART_SPEAK_MESSAGE,
+                )}
+              />
             );
           }
 
@@ -725,6 +1033,16 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               metadata={data.metadata}
               isLastInSequence={layoutItem.isLastInToolSequence}
               onOpenFilePath={handleToolCallOpenFile}
+              labelFindHighlightRanges={getFindHighlightRanges(
+                findHighlights,
+                item.id,
+                FIND_PART_TOOL_TITLE,
+              )}
+              summaryFindHighlightRanges={getFindHighlightRanges(
+                findHighlights,
+                item.id,
+                FIND_PART_TOOL_SUMMARY,
+              )}
             />
           );
         }
@@ -740,10 +1058,20 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             status={data.status}
             isLastInSequence={layoutItem.isLastInToolSequence}
             onOpenFilePath={handleToolCallOpenFile}
+            labelFindHighlightRanges={getFindHighlightRanges(
+              findHighlights,
+              item.id,
+              FIND_PART_TOOL_TITLE,
+            )}
+            summaryFindHighlightRanges={getFindHighlightRanges(
+              findHighlights,
+              item.id,
+              FIND_PART_TOOL_SUMMARY,
+            )}
           />
         );
       },
-      [agent.cwd, setInlineDetailsExpanded, handleToolCallOpenFile],
+      [agent.cwd, findHighlights, setInlineDetailsExpanded, handleToolCallOpenFile],
     );
 
     const renderStreamItemContent = useCallback(
@@ -773,7 +1101,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             );
 
           case "todo_list":
-            return <TodoListCard items={item.items} />;
+            return (
+              <TodoListCard
+                items={item.items}
+                findHighlightRangesByIndex={getTodoFindHighlightRanges(findHighlights, item.id)}
+              />
+            );
 
           case "compaction":
             return (
@@ -788,7 +1121,13 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             return null;
         }
       },
-      [renderUserMessageItem, renderAssistantMessageItem, renderThoughtItem, renderToolCallItem],
+      [
+        findHighlights,
+        renderUserMessageItem,
+        renderAssistantMessageItem,
+        renderThoughtItem,
+        renderToolCallItem,
+      ],
     );
 
     const bottomTurnFooterHost = streamLayout.auxiliaryTurnFooter;
@@ -969,6 +1308,25 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const streamScrollEnabled =
       !streamRenderStrategy.shouldDisableParentScrollOnInlineDetailsExpansion() ||
       expandedInlineToolCallIds.size === 0;
+    const findOverlay = (
+      <FindInThreadControls
+        isOpen={isFindOpen}
+        query={findQuery}
+        inputRef={findInputRef}
+        includeThinking={findIncludesThinking}
+        matchesCount={findMatches.length}
+        activeMatchIndex={activeFindMatchIndex}
+        isScanning={isFindScanning}
+        scannedRecordCount={findScannedRecordCount}
+        totalRecordCount={findTotalRecordCount}
+        onOpen={openFind}
+        onClose={closeFind}
+        onNext={moveToNextFindMatch}
+        onPrevious={moveToPreviousFindMatch}
+        onQueryChange={setFindQuery}
+        onIncludeThinkingChange={setFindIncludesThinking}
+      />
+    );
 
     const pinnedUserInputBackdropFadeStart =
       PINNED_USER_INPUT_TOP_PADDING + pinnedUserInputContentHeight;
@@ -1026,6 +1384,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               forwardListContentContainerStyle: stylesheet.forwardListContentContainer,
             })}
           </MessageOuterSpacingProvider>
+          {findOverlay}
           {!isNearBottom && (
             <Animated.View
               style={stylesheet.scrollToBottomContainer}
@@ -1108,6 +1467,7 @@ function agentStreamViewPropsEqual(
   }
   if (left.toast !== right.toast) reasons.push("toast");
   if (left.onOpenWorkspaceFile !== right.onOpenWorkspaceFile) reasons.push("onOpenWorkspaceFile");
+  if (left.isPaneFocused !== right.isPaneFocused) reasons.push("isPaneFocused");
   recordRenderProfileReasons(`AgentStreamView:${right.agentId}`, reasons);
   return reasons.length === 0;
 }
@@ -1133,6 +1493,176 @@ function ToolCallSlot({
     [onInlineDetailsExpandedChangeByItemId, itemId],
   );
   return <ToolCall {...rest} onInlineDetailsExpandedChange={handleExpandedChange} />;
+}
+
+interface FindInThreadControlsProps {
+  isOpen: boolean;
+  query: string;
+  inputRef: React.RefObject<TextInput | null>;
+  includeThinking: boolean;
+  matchesCount: number;
+  activeMatchIndex: number;
+  isScanning: boolean;
+  scannedRecordCount: number;
+  totalRecordCount: number;
+  onOpen: () => void;
+  onClose: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  onQueryChange: (query: string) => void;
+  onIncludeThinkingChange: (includeThinking: boolean) => void;
+}
+
+function FindInThreadControls({
+  isOpen,
+  query,
+  inputRef,
+  includeThinking,
+  matchesCount,
+  activeMatchIndex,
+  isScanning,
+  scannedRecordCount,
+  totalRecordCount,
+  onOpen,
+  onClose,
+  onNext,
+  onPrevious,
+  onQueryChange,
+  onIncludeThinkingChange,
+}: FindInThreadControlsProps) {
+  const { t } = useTranslation();
+  const currentMatchNumber = matchesCount > 0 && activeMatchIndex >= 0 ? activeMatchIndex + 1 : 0;
+  const countLabel = t("agentStream.find.matchCount", {
+    current: currentMatchNumber,
+    total: matchesCount,
+  });
+  const scanningLabel =
+    isScanning && query.length > 0
+      ? t("agentStream.find.scanning", {
+          current: scannedRecordCount,
+          total: totalRecordCount,
+        })
+      : "";
+  const accessibilityState = useMemo(() => ({ checked: includeThinking }), [includeThinking]);
+  const checkboxStyle = useMemo(
+    () => [findInThreadStyles.checkbox, includeThinking && findInThreadStyles.checkboxChecked],
+    [includeThinking],
+  );
+  const handleIncludeThinkingPress = useCallback(() => {
+    onIncludeThinkingChange(!includeThinking);
+  }, [includeThinking, onIncludeThinkingChange]);
+
+  if (!isOpen) {
+    return (
+      <View pointerEvents="box-none" style={findInThreadStyles.host}>
+        <View style={findInThreadStyles.content}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("agentStream.find.open")}
+            onPress={onOpen}
+            testID="find-in-thread-open"
+            style={findInThreadStyles.openButton}
+          >
+            <Search size={16} color={findInThreadStyles.icon.color} />
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View pointerEvents="box-none" style={findInThreadStyles.host}>
+      <View style={findInThreadStyles.content}>
+        <View testID="find-in-thread-root" style={findInThreadStyles.panel}>
+          <Search size={16} color={findInThreadStyles.iconMuted.color} />
+          <TextInput
+            ref={inputRef}
+            value={query}
+            onChangeText={onQueryChange}
+            placeholder={t("agentStream.find.placeholder")}
+            placeholderTextColor={findInThreadStyles.placeholder.color}
+            style={findInThreadStyles.input}
+            autoCapitalize="none"
+            autoCorrect={false}
+            selectTextOnFocus
+            testID="find-in-thread-input"
+            onSubmitEditing={onNext}
+          />
+          <FindIconButton
+            accessibilityLabel={t("agentStream.find.previous")}
+            onPress={onPrevious}
+            disabled={matchesCount === 0}
+          >
+            <ChevronUp size={17} color={findInThreadStyles.icon.color} />
+          </FindIconButton>
+          <FindIconButton
+            accessibilityLabel={t("agentStream.find.next")}
+            onPress={onNext}
+            disabled={matchesCount === 0}
+          >
+            <ChevronDown size={17} color={findInThreadStyles.icon.color} />
+          </FindIconButton>
+          <Text style={findInThreadStyles.countText} numberOfLines={1}>
+            {countLabel}
+          </Text>
+          {scanningLabel ? (
+            <Text style={findInThreadStyles.scanningText} numberOfLines={1}>
+              {scanningLabel}
+            </Text>
+          ) : null}
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={accessibilityState}
+            accessibilityLabel={t("agentStream.find.searchThinking")}
+            onPress={handleIncludeThinkingPress}
+            style={findInThreadStyles.checkboxRow}
+            testID="find-in-thread-thinking"
+          >
+            <View style={checkboxStyle}>
+              {includeThinking ? (
+                <Check size={12} color={findInThreadStyles.checkboxIcon.color} />
+              ) : null}
+            </View>
+            <Text style={findInThreadStyles.checkboxLabel}>
+              {t("agentStream.find.searchThinking")}
+            </Text>
+          </Pressable>
+          <FindIconButton accessibilityLabel={t("agentStream.find.close")} onPress={onClose}>
+            <X size={17} color={findInThreadStyles.icon.color} />
+          </FindIconButton>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function FindIconButton({
+  accessibilityLabel,
+  onPress,
+  disabled = false,
+  children,
+}: {
+  accessibilityLabel: string;
+  onPress: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  const buttonStyle = useMemo(
+    () => [findInThreadStyles.iconButton, disabled && findInThreadStyles.iconButtonDisabled],
+    [disabled],
+  );
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      disabled={disabled}
+      onPress={onPress}
+      style={buttonStyle}
+      hitSlop={4}
+    >
+      {children}
+    </Pressable>
+  );
 }
 
 interface ThinkingGroupRowProps {
@@ -2000,6 +2530,123 @@ const stylesheet = StyleSheet.create((theme) => ({
     width: "100%",
     paddingTop: PINNED_USER_INPUT_TOP_PADDING,
     zIndex: 2,
+  },
+}));
+
+const findInThreadStyles = StyleSheet.create((theme) => ({
+  host: {
+    position: "absolute",
+    top: theme.spacing[3],
+    left: 0,
+    right: 0,
+    zIndex: 5,
+    pointerEvents: "box-none",
+  },
+  content: {
+    width: "100%",
+    maxWidth: MAX_CONTENT_WIDTH,
+    alignSelf: "center",
+    paddingHorizontal: theme.spacing[4],
+    alignItems: "flex-end",
+    pointerEvents: "box-none",
+  },
+  panel: {
+    minHeight: 42,
+    maxWidth: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    paddingVertical: theme.spacing[1],
+    paddingHorizontal: theme.spacing[2],
+    borderRadius: theme.borderRadius.lg,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
+    ...theme.shadow.sm,
+  },
+  openButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.full,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
+    ...theme.shadow.sm,
+  },
+  input: {
+    width: {
+      xs: 128,
+      sm: 180,
+      md: 220,
+    },
+    height: 32,
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: 0,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.borderAccent,
+    backgroundColor: theme.colors.surface0,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
+  placeholder: {
+    color: theme.colors.foregroundMuted,
+  },
+  icon: {
+    color: theme.colors.foreground,
+  },
+  iconMuted: {
+    color: theme.colors.foregroundMuted,
+  },
+  iconButton: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.md,
+  },
+  iconButtonDisabled: {
+    opacity: 0.35,
+  },
+  countText: {
+    minWidth: 54,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontVariant: ["tabular-nums"],
+  },
+  scanningText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  checkboxRow: {
+    minHeight: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    paddingHorizontal: theme.spacing[1],
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: theme.borderRadius.sm,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface0,
+  },
+  checkboxChecked: {
+    borderColor: theme.colors.accent,
+    backgroundColor: theme.colors.accent,
+  },
+  checkboxIcon: {
+    color: theme.colors.accentForeground,
+  },
+  checkboxLabel: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
   },
 }));
 
