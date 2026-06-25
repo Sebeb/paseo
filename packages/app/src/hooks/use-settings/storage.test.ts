@@ -408,6 +408,7 @@ describe("appearance settings", () => {
     expect(result.uiFontSize).toBe(DEFAULT_UI_FONT_SIZE);
     expect(result.codeFontSize).toBe(DEFAULT_CODE_FONT_SIZE);
     expect(result.syntaxTheme).toBe("one");
+    expect(result.promptScrollMarkers).toBe(true);
   });
 
   it("clamps the UI font size into range and rejects non-numeric values", async () => {
@@ -524,6 +525,26 @@ describe("appearance settings", () => {
     });
 
     expect((await loadAppSettingsFromStorage(deps)).syntaxTheme).toBe("one");
+  });
+
+  it("loads the prompt scroll marker preference", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ promptScrollMarkers: false }),
+      }),
+    });
+
+    expect((await loadAppSettingsFromStorage(deps)).promptScrollMarkers).toBe(false);
+  });
+
+  it("drops non-boolean prompt scroll marker values back to the default", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ promptScrollMarkers: "false" }),
+      }),
+    });
+
+    expect((await loadAppSettingsFromStorage(deps)).promptScrollMarkers).toBe(true);
   });
 });
 

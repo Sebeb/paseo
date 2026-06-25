@@ -1257,7 +1257,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
           onGenericFilesDropped={handleGenericFilesDropped}
           disabled={isArchivingCurrentAgent}
         >
-          <View style={styles.container}>
+          <View style={styles.container} testID="agent-chat-space">
             {contentContainer}
 
             {composerSection}

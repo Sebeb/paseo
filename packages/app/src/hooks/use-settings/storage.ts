@@ -42,6 +42,7 @@ export interface AppSettings {
   codeFontSize: number; // clamped px, default 12
   syntaxTheme: SyntaxThemeId; // default "one"
   workspaceTitleSource: WorkspaceTitleSource;
+  promptScrollMarkers: boolean;
 }
 
 export interface Settings extends AppSettings {
@@ -67,6 +68,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   codeFontSize: DEFAULT_CODE_FONT_SIZE,
   syntaxTheme: "one",
   workspaceTitleSource: "title",
+  promptScrollMarkers: true,
 };
 
 export const DEFAULT_APP_SETTINGS: Settings = {
@@ -219,6 +221,9 @@ function pickAppSettings(stored: StoredAppSettings): Partial<AppSettings> {
     VALID_WORKSPACE_TITLE_SOURCES.has(stored.workspaceTitleSource)
   ) {
     result.workspaceTitleSource = stored.workspaceTitleSource;
+  }
+  if (typeof stored.promptScrollMarkers === "boolean") {
+    result.promptScrollMarkers = stored.promptScrollMarkers;
   }
   return result;
 }

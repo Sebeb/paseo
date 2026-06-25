@@ -1550,6 +1550,13 @@ export const ja: TranslationResources = {
         codeSize: "コードサイズ",
         codeSizeAccessibility: "コードフォントサイズ",
       },
+      display: {
+        title: "表示",
+        promptMarkers: "プロンプトマーカー",
+        promptMarkersHint:
+          "デスクトップのチャットスクロールバー横に各ユーザープロンプトの点を表示します",
+        promptMarkersAccessibility: "チャットスクロールバー横にプロンプトマーカーを表示",
+      },
       syntax: {
         title: "構文ハイライト",
         highlightTheme: "ハイライトテーマ",

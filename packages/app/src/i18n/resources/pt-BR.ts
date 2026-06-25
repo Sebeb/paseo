@@ -1556,6 +1556,14 @@ export const ptBR: TranslationResources = {
         codeSize: "Tamanho do código",
         codeSizeAccessibility: "Tamanho da fonte de código",
       },
+      display: {
+        title: "Exibição",
+        promptMarkers: "Marcadores de prompt",
+        promptMarkersHint:
+          "Mostrar pontos ao lado da barra de rolagem do chat no desktop para cada prompt do usuário",
+        promptMarkersAccessibility:
+          "Mostrar marcadores de prompt ao lado da barra de rolagem do chat",
+      },
       syntax: {
         title: "Sintaxe",
         highlightTheme: "Tema de destaque",
