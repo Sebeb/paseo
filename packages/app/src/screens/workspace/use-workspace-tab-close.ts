@@ -18,27 +18,31 @@ import {
   removeTerminalFromPayload,
   type ListTerminalsPayload,
 } from "./terminals/state";
+import {
+  closeDescendantTabsBeforeParent,
+  collectDescendantTabIdsByParentTabId,
+} from "./workspace-tab-close-tree";
 
 const EMPTY_SET = new Set<string>();
 
 interface UseCloseTabsResult {
   closingTabIds: Set<string>;
-  closeTab: (tabId: string, action: () => Promise<void>) => Promise<void>;
+  closeTab: (tabId: string, action: () => Promise<boolean>) => Promise<boolean>;
 }
 
 function useCloseTabs(): UseCloseTabsResult {
   const pendingRef = useRef(new Set<string>());
   const [closingTabIds, setClosingTabIds] = useState<Set<string>>(EMPTY_SET);
 
-  const closeTab = useCallback(async (tabId: string, action: () => Promise<void>) => {
+  const closeTab = useCallback(async (tabId: string, action: () => Promise<boolean>) => {
     const normalized = tabId.trim();
     if (!normalized || pendingRef.current.has(normalized)) {
-      return;
+      return false;
     }
     pendingRef.current.add(normalized);
     setClosingTabIds(new Set(pendingRef.current));
     try {
-      await action();
+      return await action();
     } finally {
       pendingRef.current.delete(normalized);
       setClosingTabIds(new Set(pendingRef.current));
@@ -67,11 +71,20 @@ interface UseWorkspaceTabCloseInput {
   workspaceDirectory?: string | null;
   tabs: readonly WorkspaceTab[];
   orderedTabIds?: readonly string[] | null;
+  parentTabIdByTabId?: Readonly<Record<string, string>> | null;
   onTabClosed?: (tabId: string) => void;
 }
 
 export function useWorkspaceTabClose(input: UseWorkspaceTabCloseInput) {
-  const { serverId, workspaceId, workspaceDirectory, tabs, orderedTabIds, onTabClosed } = input;
+  const {
+    serverId,
+    workspaceId,
+    workspaceDirectory,
+    tabs,
+    orderedTabIds,
+    parentTabIdByTabId,
+    onTabClosed,
+  } = input;
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const client = useHostRuntimeClient(serverId);
@@ -89,6 +102,10 @@ export function useWorkspaceTabClose(input: UseWorkspaceTabCloseInput) {
     [serverId, workspaceDirectory, workspaceId],
   );
   const tabTargetById = useMemo(() => new Map(tabs.map((tab) => [tab.tabId, tab.target])), [tabs]);
+  const descendantTabIdsByParentTabId = useMemo(
+    () => collectDescendantTabIdsByParentTabId({ tabs, parentTabIdByTabId }),
+    [parentTabIdByTabId, tabs],
+  );
 
   const closeWorkspaceTabWithCleanup = useCallback(
     function closeWorkspaceTabWithCleanup(closeInput: CloseWorkspaceTabWithCleanupInput) {
@@ -149,7 +166,7 @@ export function useWorkspaceTabClose(input: UseWorkspaceTabCloseInput) {
   const handleCloseTerminalTab = useCallback(
     async (closeInput: { tabId: string; terminalId: string }) => {
       const { tabId, terminalId } = closeInput;
-      await closeTab(tabId, async () => {
+      return closeTab(tabId, async () => {
         const confirmed = await confirmDialog({
           title: t("workspace.tabs.confirmations.closeTerminalTitle"),
           message: t("workspace.tabs.confirmations.closeTerminalMessage"),
@@ -158,7 +175,7 @@ export function useWorkspaceTabClose(input: UseWorkspaceTabCloseInput) {
           destructive: true,
         });
         if (!confirmed) {
-          return;
+          return false;
         }
 
         removeTerminalFromCache(terminalId);
@@ -168,6 +185,7 @@ export function useWorkspaceTabClose(input: UseWorkspaceTabCloseInput) {
         });
 
         void killTerminal(terminalId).catch(invalidateTerminals);
+        return true;
       });
     },
     [
@@ -180,12 +198,12 @@ export function useWorkspaceTabClose(input: UseWorkspaceTabCloseInput) {
     ],
   );
 
-  const handleCloseAgentTab = useCallback(
+  const handleCloseSingleAgentTab = useCallback(
     async (closeInput: { tabId: string; agentId: string }) => {
       const { tabId, agentId } = closeInput;
-      await closeTab(tabId, async () => {
+      return closeTab(tabId, async () => {
         if (!serverId) {
-          return;
+          return false;
         }
 
         const agent = useSessionStore.getState().sessions[serverId]?.agents?.get(agentId) ?? null;
@@ -201,7 +219,7 @@ export function useWorkspaceTabClose(input: UseWorkspaceTabCloseInput) {
             destructive: true,
           });
           if (!confirmed) {
-            return;
+            return false;
           }
         }
 
@@ -211,11 +229,12 @@ export function useWorkspaceTabClose(input: UseWorkspaceTabCloseInput) {
         });
 
         if (closePolicy.kind === "layout-only") {
-          return;
+          return true;
         }
 
         // Errors (e.g. timeout) are handled by the mutation's onSettled callback.
         void archiveAgent({ serverId, agentId }).catch(() => {});
+        return true;
       });
     },
     [archiveAgent, closeTab, closeWorkspaceTabWithCleanup, serverId, t],
@@ -225,27 +244,61 @@ export function useWorkspaceTabClose(input: UseWorkspaceTabCloseInput) {
     function handleClosePassiveTab(closeInput: {
       tabId: string;
       target?: WorkspaceTabTarget | null;
-    }) {
+    }): boolean {
       closeWorkspaceTabWithCleanup({ tabId: closeInput.tabId, target: closeInput.target });
+      return true;
     },
     [closeWorkspaceTabWithCleanup],
   );
 
-  const handleCloseTabById = useCallback(
-    async (tabId: string) => {
+  const handleCloseSingleTabById = useCallback(
+    async (tabId: string): Promise<boolean> => {
       const target = tabTargetById.get(tabId);
       if (!target) {
-        return;
+        return true;
       }
       if (target.kind === "terminal") {
-        await handleCloseTerminalTab({ tabId, terminalId: target.terminalId });
-        return;
+        return handleCloseTerminalTab({ tabId, terminalId: target.terminalId });
       }
       if (target.kind === "agent") {
-        await handleCloseAgentTab({ tabId, agentId: target.agentId });
-        return;
+        return handleCloseSingleAgentTab({ tabId, agentId: target.agentId });
       }
-      handleClosePassiveTab({ tabId, target });
+      return handleClosePassiveTab({ tabId, target });
+    },
+    [handleClosePassiveTab, handleCloseSingleAgentTab, handleCloseTerminalTab, tabTargetById],
+  );
+
+  const handleCloseAgentTab = useCallback(
+    async (closeInput: { tabId: string; agentId: string }) => {
+      const descendantsClosed = await closeDescendantTabsBeforeParent({
+        parentTabId: closeInput.tabId,
+        descendantTabIdsByParentTabId,
+        closeSingleTabById: handleCloseSingleTabById,
+      });
+      if (!descendantsClosed) {
+        return false;
+      }
+      return handleCloseSingleAgentTab(closeInput);
+    },
+    [descendantTabIdsByParentTabId, handleCloseSingleAgentTab, handleCloseSingleTabById],
+  );
+
+  const handleCloseTabById = useCallback(
+    async (tabId: string): Promise<boolean> => {
+      const target = tabTargetById.get(tabId);
+      if (!target) {
+        return true;
+      }
+      if (target.kind === "terminal") {
+        return handleCloseTerminalTab({ tabId, terminalId: target.terminalId });
+      }
+      if (target.kind === "agent") {
+        return handleCloseAgentTab({
+          tabId,
+          agentId: target.agentId,
+        });
+      }
+      return handleClosePassiveTab({ tabId, target });
     },
     [handleCloseAgentTab, handleClosePassiveTab, handleCloseTerminalTab, tabTargetById],
   );

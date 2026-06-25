@@ -65,7 +65,7 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
     serverId ? state.getEmbeddedRecentTabCount(serverId) : 5,
   );
   const badgeMode = useSidebarViewStore((state) =>
-    serverId ? state.getBadgeMode(serverId) : "diff",
+    serverId ? state.getBadgeMode(serverId) : "status",
   );
   const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
   const setGroupMode = useSidebarViewStore((state) => state.setGroupMode);
@@ -202,7 +202,7 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
             ))}
             <DropdownMenuSeparator />
             <View style={styles.menuHeader}>
-              <Text style={styles.menuHeaderLabel}>Sidebar badge</Text>
+              <Text style={styles.menuHeaderLabel}>Display info</Text>
             </View>
             {BADGE_MODE_ITEMS.map((item) => (
               <BadgeModeMenuItem

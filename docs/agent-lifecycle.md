@@ -65,6 +65,10 @@ The asymmetry is intentional: a subagent's home is the parent's track, not the t
 
 Plain workspace navigation may auto-focus a root agent that requires attention. Explicit tab navigation must opt out of that behavior with `openAttentionAgent: false`; otherwise the attention tab can immediately override the user's selected tab and make the click look ignored.
 
+Same-workspace subagents also open as nested tabs in the sidebar tab list. The client derives this from `agent.parentAgentId` only when the parent and child share the same `workspaceId`; cross-workspace/worktree subagents stay in their own workspace behavior. Parent tab rows are collapsed by default. The row still focuses the parent tab, and the chevron is the only expand/collapse target. When status badge counts are enabled, a parent tab's badge count includes its own status plus descendant tab statuses, including children hidden by the collapsed parent row.
+
+Closing a parent tab closes child tabs first, deepest child before direct child. Each child uses its normal close behavior and confirmation. If any child close is canceled, the parent tab stays open. After all child tabs close, the parent tab follows its normal root/subagent close policy.
+
 ## Workspace activity
 
 Agent lifecycle status stays literal: a parent agent is `idle` when its own turn is idle, even if a child is running.

@@ -915,7 +915,7 @@ function DesktopSidebar({
   const setVerticalTabsSidebarWidth = usePanelStore((state) => state.setVerticalTabsSidebarWidth);
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const badgeMode = useSidebarViewStore((state) =>
-    activeServerId ? state.getBadgeMode(activeServerId) : "diff",
+    activeServerId ? state.getBadgeMode(activeServerId) : "status",
   );
   const { width: viewportWidth } = useWindowDimensions();
   const hostStatusDotStyle = useMemo(

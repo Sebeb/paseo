@@ -128,7 +128,7 @@ afterEach(() => {
 });
 
 describe("workspace subagents integration", () => {
-  it("keeps a child ingested before its parent out of auto-tabs, then exposes it in the parent section", () => {
+  it("opens a same-workspace child under its parent once the parent snapshot is available", () => {
     const workspaceKey = buildWorkspaceTabPersistenceKey({
       serverId: SERVER_ID,
       workspaceId: WORKSPACE_ID,
@@ -155,7 +155,12 @@ describe("workspace subagents integration", () => {
 
     reconcileWorkspaceTabs(workspaceKey!, deriveVisibilityFromSession());
 
-    expect(getWorkspaceTabIds(workspaceKey!)).toEqual(["agent_parent-agent"]);
+    expect(getWorkspaceTabIds(workspaceKey!)).toEqual(["agent_parent-agent", "agent_child-agent"]);
+    expect(
+      useWorkspaceLayoutStore.getState().layoutByWorkspace[workspaceKey!]?.parentTabIdByTabId,
+    ).toEqual({
+      "agent_child-agent": "agent_parent-agent",
+    });
     expect(
       selectSubagentsForParent(
         useSessionStore.getState(),
@@ -188,7 +193,12 @@ describe("workspace subagents integration", () => {
     initializeAgents([parent, child]);
     reconcileWorkspaceTabs(workspaceKey!, deriveVisibilityFromSession());
 
-    expect(getWorkspaceTabIds(workspaceKey!)).toEqual(["agent_parent-agent"]);
+    expect(getWorkspaceTabIds(workspaceKey!)).toEqual(["agent_parent-agent", "agent_child-agent"]);
+    expect(
+      useWorkspaceLayoutStore.getState().layoutByWorkspace[workspaceKey!]?.parentTabIdByTabId,
+    ).toEqual({
+      "agent_child-agent": "agent_parent-agent",
+    });
     expect(
       selectSubagentsForParent(
         useSessionStore.getState(),
@@ -204,6 +214,9 @@ describe("workspace subagents integration", () => {
     reconcileWorkspaceTabs(workspaceKey!, deriveVisibilityFromSession());
 
     expect(getWorkspaceTabIds(workspaceKey!)).toEqual(["agent_parent-agent", "agent_child-agent"]);
+    expect(
+      useWorkspaceLayoutStore.getState().layoutByWorkspace[workspaceKey!]?.parentTabIdByTabId,
+    ).toBeUndefined();
     expect(
       selectSubagentsForParent(
         useSessionStore.getState(),

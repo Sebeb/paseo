@@ -20,7 +20,7 @@ import { Shortcut } from "@/components/ui/shortcut";
 import { AdaptiveRenameModal } from "@/components/rename-modal";
 import { useToast } from "@/contexts/toast-context";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
-import { useCheckoutGitActionsStore } from "@/git/actions-store";
+import { type CheckoutGitAsyncActionId, useCheckoutGitActionsStore } from "@/git/actions-store";
 import { toWorktreeArchiveRisk } from "@/git/worktree-archive-warning";
 import { useWorkspaceArchive } from "@/workspace/use-workspace-archive";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
@@ -37,6 +37,10 @@ import {
   SidebarWorkspaceTrailingActionOverlay,
   SidebarWorkspaceTrailingActionSlot,
 } from "@/components/sidebar/sidebar-workspace-row-content";
+import {
+  SidebarVcOperationBadges,
+  usePendingCheckoutBranchActionIds,
+} from "@/components/sidebar/sidebar-vc-operation-badge";
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -101,6 +105,10 @@ export function SidebarWorkspaceRow({
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const workspaceDirectory = resolveWorkspaceDirectory({
     workspaceDirectory: workspace.workspaceDirectory,
+  });
+  const pendingBranchActionIds = usePendingCheckoutBranchActionIds({
+    serverId: workspace.serverId,
+    cwd: workspace.projectKind === "git" ? workspaceDirectory : null,
   });
   const worktreeArchiveStatus = useCheckoutGitActionsStore((state) =>
     workspaceDirectory
@@ -246,6 +254,7 @@ export function SidebarWorkspaceRow({
         onRename={handleOpenRename}
         onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+        pendingBranchActionIds={pendingBranchActionIds}
       />
       <AdaptiveRenameModal
         visible={isRenameOpen}
@@ -282,6 +291,7 @@ interface WorkspaceRowBodyProps {
   onRename?: () => void;
   onMarkAsRead?: () => void;
   archiveShortcutKeys?: ShortcutKey[][] | null;
+  pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
 }
 
 function WorkspaceRowBody({
@@ -305,6 +315,7 @@ function WorkspaceRowBody({
   onRename,
   onMarkAsRead,
   archiveShortcutKeys,
+  pendingBranchActionIds,
 }: WorkspaceRowBodyProps) {
   const isTouchPlatform = platformIsNative;
   const draggable = Boolean(drag);
@@ -390,6 +401,7 @@ function WorkspaceRowBody({
                   onCopyPath={onCopyPath}
                   onRename={onRename}
                   onMarkAsRead={onMarkAsRead}
+                  pendingBranchActionIds={pendingBranchActionIds}
                 />
               </SidebarWorkspaceRowContent>
             </Pressable>
@@ -416,6 +428,7 @@ function WorkspaceRowTrailingActions({
   onCopyBranchName,
   onCopyPath,
   onRename,
+  pendingBranchActionIds,
 }: {
   workspace: SidebarWorkspaceEntry;
   isHovered: boolean;
@@ -432,12 +445,15 @@ function WorkspaceRowTrailingActions({
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
   onRename?: () => void;
+  pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
 }) {
   const { t } = useTranslation();
   const showShortcut = showShortcutBadge && shortcutNumber !== null;
   const showKebab = Boolean(onArchive && (isHovered || isTouchPlatform));
   const showKebabInSlot = showKebab && !showShortcut;
-  const shouldRenderActionSlot = Boolean(onArchive || workspace.diffStat);
+  const showVcOperationBadges =
+    pendingBranchActionIds.length > 0 && !showKebabInSlot && !showShortcut;
+  const shouldRenderActionSlot = Boolean(onArchive || workspace.diffStat || showVcOperationBadges);
 
   return (
     <>
@@ -447,14 +463,15 @@ function WorkspaceRowTrailingActions({
       {shouldRenderActionSlot ? (
         <SidebarWorkspaceTrailingActionSlot>
           <SidebarWorkspaceTrailingActionBase
-            visible={Boolean(workspace.diffStat && !showKebabInSlot && !showShortcut)}
+            visible={Boolean(
+              (workspace.diffStat || showVcOperationBadges) && !showKebabInSlot && !showShortcut,
+            )}
           >
-            {workspace.diffStat ? (
-              <DiffStat
-                additions={workspace.diffStat.additions}
-                deletions={workspace.diffStat.deletions}
-              />
-            ) : null}
+            <WorkspaceRowBaseMeta
+              workspace={workspace}
+              showVcOperationBadges={showVcOperationBadges}
+              pendingBranchActionIds={pendingBranchActionIds}
+            />
           </SidebarWorkspaceTrailingActionBase>
           <SidebarWorkspaceTrailingActionOverlay visible={showKebabInSlot}>
             {onArchive ? (
@@ -475,6 +492,26 @@ function WorkspaceRowTrailingActions({
         </SidebarWorkspaceTrailingActionSlot>
       ) : null}
     </>
+  );
+}
+
+function WorkspaceRowBaseMeta({
+  workspace,
+  showVcOperationBadges,
+  pendingBranchActionIds,
+}: {
+  workspace: SidebarWorkspaceEntry;
+  showVcOperationBadges: boolean;
+  pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
+}) {
+  if (showVcOperationBadges) {
+    return <SidebarVcOperationBadges actionIds={pendingBranchActionIds} />;
+  }
+  if (!workspace.diffStat) {
+    return null;
+  }
+  return (
+    <DiffStat additions={workspace.diffStat.additions} deletions={workspace.diffStat.deletions} />
   );
 }
 

@@ -1971,6 +1971,19 @@ function shouldShowDesktopPaneFallbackTabs(input: {
   return input.shouldRenderDesktopPaneFallback && !input.embeddedTabsEnabled;
 }
 
+function getWorkspaceParentTabIdByTabId(
+  workspaceLayout: WorkspaceLayout | null,
+): Readonly<Record<string, string>> | null {
+  return workspaceLayout?.parentTabIdByTabId ?? null;
+}
+
+function resolveWorkspaceDesktopContent(input: {
+  desktopSplitContent: ReactNode | null;
+  content: ReactNode;
+}): ReactNode {
+  return input.desktopSplitContent ?? input.content;
+}
+
 function WorkspaceScreenContent({
   serverId,
   workspaceId,
@@ -2201,6 +2214,7 @@ function WorkspaceScreenContent({
   const workspaceLayout = useWorkspaceLayoutStore((state) =>
     persistenceKey ? (state.layoutByWorkspace[persistenceKey] ?? null) : null,
   );
+  const parentTabIdByTabId = getWorkspaceParentTabIdByTabId(workspaceLayout);
   const hasHydratedWorkspaceLayoutStore = useWorkspaceLayoutStoreHydrated();
   const workspaceSetupSnapshot = useWorkspaceSetupStore((state) =>
     persistenceKey ? (state.snapshots[persistenceKey] ?? null) : null,
@@ -2349,8 +2363,15 @@ function WorkspaceScreenContent({
       workspaceDirectory,
       tabs: uiTabs,
       orderedTabIds,
+      parentTabIdByTabId,
       onTabClosed: handleTabClosed,
     });
+  const handleCloseTabByIdVoid = useCallback(
+    (tabId: string) => {
+      void handleCloseTabById(tabId);
+    },
+    [handleCloseTabById],
+  );
   const setFocusedAgentId = useSessionStore((state) => state.setFocusedAgentId);
   const setFocusedTerminalId = useSessionStore((state) => state.setFocusedTerminalId);
   const focusedPaneAgentId = useMemo(() => {
@@ -3634,6 +3655,45 @@ function WorkspaceScreenContent({
     gate: workspaceScreenGate,
     workspaceKey: persistenceKey,
   });
+  const createTerminalDisabled = useMemo(
+    () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,
+    [createTerminalMutation.isPending, pendingTerminalCreateInput],
+  );
+  const showCreateBrowserTab = getIsElectron();
+  const headerSplitMenu = useMemo(
+    () =>
+      renderWorkspaceHeaderSplitMenu({
+        visible: shouldShowWorkspaceHeaderSplitMenu({
+          embeddedTabsEnabled,
+          canRenderDesktopPaneSplits,
+          mainPaneId,
+        }),
+        normalizedServerId,
+        showCreateBrowserTab,
+        createTerminalDisabled,
+        menuNewAgentIcon,
+        menuNewTerminalIcon,
+        menuNewBrowserIcon: MENU_NEW_BROWSER_ICON,
+        onCreateDraftSplit: handleCreateDraftMainPaneSplit,
+        onCreateTerminalSplit: handleCreateTerminalMainPaneSplit,
+        onCreateTerminalProfileSplit: handleCreateTerminalProfileMainPaneSplit,
+        onCreateBrowserSplit: handleCreateBrowserMainPaneSplit,
+      }),
+    [
+      embeddedTabsEnabled,
+      canRenderDesktopPaneSplits,
+      mainPaneId,
+      normalizedServerId,
+      showCreateBrowserTab,
+      createTerminalDisabled,
+      menuNewAgentIcon,
+      menuNewTerminalIcon,
+      handleCreateDraftMainPaneSplit,
+      handleCreateTerminalMainPaneSplit,
+      handleCreateTerminalProfileMainPaneSplit,
+      handleCreateBrowserMainPaneSplit,
+    ],
+  );
 
   const headerRight = useMemo(
     () => (
@@ -3758,6 +3818,7 @@ function WorkspaceScreenContent({
             }}
           </HeaderToggleButton>
         ) : null}
+        {headerSplitMenu}
       </View>
     ),
     [
@@ -3779,6 +3840,7 @@ function WorkspaceScreenContent({
       explorerToggleAccessibilityState,
       explorerToggleStyle,
       t,
+      headerSplitMenu,
     ],
   );
 
@@ -3790,28 +3852,6 @@ function WorkspaceScreenContent({
     () => shouldShowWorkspaceExplorerSidebar({ isRouteFocused, isFocusModeEnabled, isMobile }),
     [isRouteFocused, isFocusModeEnabled, isMobile],
   );
-  const createTerminalDisabled = useMemo(
-    () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,
-    [createTerminalMutation.isPending, pendingTerminalCreateInput],
-  );
-  const showCreateBrowserTab = getIsElectron();
-  const headerSplitMenu = renderWorkspaceHeaderSplitMenu({
-    visible: shouldShowWorkspaceHeaderSplitMenu({
-      embeddedTabsEnabled,
-      canRenderDesktopPaneSplits,
-      mainPaneId,
-    }),
-    normalizedServerId,
-    showCreateBrowserTab,
-    createTerminalDisabled,
-    menuNewAgentIcon,
-    menuNewTerminalIcon,
-    menuNewBrowserIcon: MENU_NEW_BROWSER_ICON,
-    onCreateDraftSplit: handleCreateDraftMainPaneSplit,
-    onCreateTerminalSplit: handleCreateTerminalMainPaneSplit,
-    onCreateTerminalProfileSplit: handleCreateTerminalProfileMainPaneSplit,
-    onCreateBrowserSplit: handleCreateBrowserMainPaneSplit,
-  });
   const focusedPaneIdOrUndefined = useMemo(() => focusedPaneId ?? undefined, [focusedPaneId]);
   const desktopFocusModeEnabled = useMemo(
     () => isFocusModeEnabled && !isMobile,
@@ -3839,7 +3879,7 @@ function WorkspaceScreenContent({
         setHoveredCloseTabKey={setHoveredCloseTabKey}
         closingTabIds={closingTabIds}
         onNavigateTab={navigateToTabId}
-        onCloseTab={handleCloseTabById}
+        onCloseTab={handleCloseTabByIdVoid}
         onCopyResumeCommand={handleCopyResumeCommand}
         onCopyAgentId={handleCopyAgentId}
         onCopyFilePath={handleCopyFilePath}
@@ -3875,7 +3915,7 @@ function WorkspaceScreenContent({
     hoveredCloseTabKey,
     closingTabIds,
     navigateToTabId,
-    handleCloseTabById,
+    handleCloseTabByIdVoid,
     handleCopyResumeCommand,
     handleCopyAgentId,
     handleCopyFilePath,
@@ -3899,7 +3939,7 @@ function WorkspaceScreenContent({
     embeddedTabsEnabled,
     mainPaneId,
   ]);
-  const desktopContent = desktopSplitContent ?? content;
+  const desktopContent = resolveWorkspaceDesktopContent({ desktopSplitContent, content });
 
   const workspaceCenterColumn = (
     <View style={styles.centerColumn}>
@@ -3909,7 +3949,6 @@ function WorkspaceScreenContent({
           left={
             <>
               <SidebarMenuToggle />
-              {headerSplitMenu}
               <WorkspaceHeaderTitleBar
                 isLoading={isWorkspaceHeaderLoading}
                 title={workspaceHeaderTitle}
@@ -3965,7 +4004,7 @@ function WorkspaceScreenContent({
           onCopyFilePath={handleCopyFilePath}
           onReloadAgent={handleReloadAgent}
           onRenameTab={handleRenameTab}
-          onCloseTab={handleCloseTabById}
+          onCloseTab={handleCloseTabByIdVoid}
           onCloseTabsAbove={handleCloseTabsToLeft}
           onCloseTabsBelow={handleCloseTabsToRight}
           onCloseOtherTabs={handleCloseOtherTabs}
@@ -3981,7 +4020,7 @@ function WorkspaceScreenContent({
           normalizedWorkspaceId={normalizedWorkspaceId}
           setHoveredCloseTabKey={setHoveredCloseTabKey}
           onNavigateTab={navigateToTabId}
-          onCloseTab={handleCloseTabById}
+          onCloseTab={handleCloseTabByIdVoid}
           onCopyResumeCommand={handleCopyResumeCommand}
           onCopyAgentId={handleCopyAgentId}
           onCopyFilePath={handleCopyFilePath}

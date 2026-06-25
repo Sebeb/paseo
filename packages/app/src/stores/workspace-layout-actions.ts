@@ -206,6 +206,7 @@ export interface WorkspaceTabSnapshot {
   activeAgentIds: Iterable<string>;
   autoOpenAgentIds: Iterable<string>;
   knownAgentIds: Iterable<string>;
+  parentAgentIdByAgentId?: ReadonlyMap<string, string> | Iterable<readonly [string, string]>;
   knownTerminalIds?: Iterable<string>;
   standaloneTerminalIds: Iterable<string>;
   hasActivePendingDraftCreate?: boolean;
@@ -1507,6 +1508,23 @@ function normalizeStringSet(values: Iterable<string>): Set<string> {
   return next;
 }
 
+function normalizeStringMap(
+  values: ReadonlyMap<string, string> | Iterable<readonly [string, string]> | null | undefined,
+): Map<string, string> {
+  const next = new Map<string, string>();
+  if (!values) {
+    return next;
+  }
+  for (const [rawKey, rawValue] of values) {
+    const key = trimNonEmpty(rawKey);
+    const value = trimNonEmpty(rawValue);
+    if (key && value && key !== value) {
+      next.set(key, value);
+    }
+  }
+  return next;
+}
+
 function normalizeParentTabMap(input: {
   raw: unknown;
   openTabIds: ReadonlySet<string>;
@@ -1637,6 +1655,56 @@ function openEntityTabWithoutFocusing(
   });
 }
 
+function attachParentTabInLayout(input: {
+  layout: WorkspaceLayout;
+  childTabId: string;
+  parentTabId: string;
+}): WorkspaceLayout {
+  return withNormalizedParentTabMap({
+    ...input.layout,
+    parentTabIdByTabId: {
+      ...input.layout.parentTabIdByTabId,
+      [input.childTabId]: input.parentTabId,
+    },
+  });
+}
+
+function pruneStaleAgentParentTabMappings(input: {
+  layout: WorkspaceLayout;
+  parentAgentIdByAgentId: ReadonlyMap<string, string>;
+}): WorkspaceLayout {
+  if (!input.layout.parentTabIdByTabId) {
+    return input.layout;
+  }
+
+  const tabById = new Map(collectAllTabs(input.layout.root).map((tab) => [tab.tabId, tab]));
+  let changed = false;
+  const nextParentTabIdByTabId: Record<string, string> = {};
+
+  for (const [childTabId, parentTabId] of Object.entries(input.layout.parentTabIdByTabId)) {
+    const childTab = tabById.get(childTabId) ?? null;
+    const parentTab = tabById.get(parentTabId) ?? null;
+    if (
+      childTab?.target.kind === "agent" &&
+      parentTab?.target.kind === "agent" &&
+      input.parentAgentIdByAgentId.get(childTab.target.agentId) !== parentTab.target.agentId
+    ) {
+      changed = true;
+      continue;
+    }
+    nextParentTabIdByTabId[childTabId] = parentTabId;
+  }
+
+  if (!changed) {
+    return input.layout;
+  }
+
+  return withNormalizedParentTabMap({
+    ...input.layout,
+    parentTabIdByTabId: nextParentTabIdByTabId,
+  });
+}
+
 interface EntityTabGroup {
   target: WorkspaceTabTarget;
   tabs: WorkspaceTab[];
@@ -1720,12 +1788,14 @@ function addMissingEntityTabs(input: {
   layout: WorkspaceLayout;
   autoOpenAgentIds: Set<string>;
   representedAgentIds: Set<string>;
+  parentAgentIdByAgentId: Map<string, string>;
   standaloneTerminalIds: Set<string>;
   hasActivePendingDraftCreate: boolean;
 }): WorkspaceLayout {
   const {
     autoOpenAgentIds,
     representedAgentIds,
+    parentAgentIdByAgentId,
     standaloneTerminalIds,
     hasActivePendingDraftCreate,
   } = input;
@@ -1738,19 +1808,47 @@ function addMissingEntityTabs(input: {
     currentEntityTabs.filter(isTerminalTab).map((tab) => tab.target.terminalId),
   );
 
+  const visitedAgentIds = new Set<string>();
   const sortedAutoOpenAgentIds = [...autoOpenAgentIds].sort();
-  for (const agentId of sortedAutoOpenAgentIds) {
-    if (currentAgentIds.has(agentId)) {
-      continue;
+
+  function ensureAgentTab(agentId: string): void {
+    if (visitedAgentIds.has(agentId)) {
+      return;
     }
-    if (hasActivePendingDraftCreate && !representedAgentIds.has(agentId)) {
-      continue;
+    visitedAgentIds.add(agentId);
+
+    const parentAgentId = parentAgentIdByAgentId.get(agentId) ?? null;
+    if (parentAgentId && autoOpenAgentIds.has(parentAgentId)) {
+      ensureAgentTab(parentAgentId);
     }
-    nextLayout = openEntityTabWithoutFocusing(nextLayout, {
-      kind: "agent",
-      agentId,
+
+    const alreadyOpen = currentAgentIds.has(agentId);
+    if (!alreadyOpen && hasActivePendingDraftCreate && !representedAgentIds.has(agentId)) {
+      return;
+    }
+    if (!alreadyOpen) {
+      nextLayout = openEntityTabWithoutFocusing(nextLayout, {
+        kind: "agent",
+        agentId,
+      });
+      currentAgentIds.add(agentId);
+    }
+
+    if (!parentAgentId || !currentAgentIds.has(parentAgentId)) {
+      return;
+    }
+    nextLayout = attachParentTabInLayout({
+      layout: nextLayout,
+      childTabId: buildDeterministicWorkspaceTabId({ kind: "agent", agentId }),
+      parentTabId: buildDeterministicWorkspaceTabId({
+        kind: "agent",
+        agentId: parentAgentId,
+      }),
     });
-    currentAgentIds.add(agentId);
+  }
+
+  for (const agentId of sortedAutoOpenAgentIds) {
+    ensureAgentTab(agentId);
   }
 
   const sortedTerminalIds = [...standaloneTerminalIds].sort();
@@ -1780,6 +1878,7 @@ export function reconcileWorkspaceTabs(
   const activeAgentIds = normalizeStringSet(snapshot.activeAgentIds);
   const autoOpenAgentIds = normalizeStringSet(snapshot.autoOpenAgentIds);
   const knownAgentIds = normalizeStringSet(snapshot.knownAgentIds);
+  const parentAgentIdByAgentId = normalizeStringMap(snapshot.parentAgentIdByAgentId);
   const standaloneTerminalIds = normalizeStringSet(snapshot.standaloneTerminalIds);
   const knownTerminalIds = snapshot.knownTerminalIds
     ? normalizeStringSet(snapshot.knownTerminalIds)
@@ -1835,6 +1934,11 @@ export function reconcileWorkspaceTabs(
     }
   }
 
+  nextLayout = pruneStaleAgentParentTabMappings({
+    layout: nextLayout,
+    parentAgentIdByAgentId,
+  });
+
   nextLayout = collapseStaleEntityTabs({
     layout: nextLayout,
     snapshot,
@@ -1846,6 +1950,7 @@ export function reconcileWorkspaceTabs(
     layout: nextLayout,
     autoOpenAgentIds: autoOpenSet,
     representedAgentIds,
+    parentAgentIdByAgentId,
     standaloneTerminalIds,
     hasActivePendingDraftCreate: snapshot.hasActivePendingDraftCreate ?? false,
   });

@@ -193,7 +193,7 @@ function SidebarEntryLeadingStatusBadgeContent({ kind }: { kind: SidebarEntrySta
 function StatusBadgeIcon({ kind }: { kind: SidebarEntryStatusKind }) {
   switch (kind) {
     case "queued_messages":
-      return <ThemedMessageSquareText size={10} uniProps={blackColorMapping} />;
+      return <ThemedMessageSquareText size={10} uniProps={mutedColorMapping} />;
     case "input_required":
       return <ThemedCircleAlert size={10} uniProps={blackColorMapping} />;
     case "failed":
@@ -358,7 +358,7 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
   },
   statusBadgeQueued: {
-    backgroundColor: theme.colors.palette.zinc[300],
+    backgroundColor: "rgba(113, 113, 122, 0.35)",
   },
   statusBadgeInputRequired: {
     backgroundColor: theme.colors.palette.amber[500],

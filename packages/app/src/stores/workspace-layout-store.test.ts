@@ -1490,6 +1490,53 @@ describe("workspace-layout-store actions", () => {
     ).toEqual(["agent_parent-agent"]);
   });
 
+  it("reconcileTabs auto-opens same-workspace subagents under their parent tab", () => {
+    const workspaceKey = createWorkspaceKey();
+
+    workspaceLayoutStore.getState().reconcileTabs(workspaceKey, {
+      agentsHydrated: true,
+      terminalsHydrated: true,
+      activeAgentIds: ["parent-agent", "child-agent"],
+      autoOpenAgentIds: ["parent-agent", "child-agent"],
+      knownAgentIds: ["parent-agent", "child-agent"],
+      parentAgentIdByAgentId: new Map([["child-agent", "parent-agent"]]),
+      standaloneTerminalIds: [],
+      hasActivePendingDraftCreate: false,
+    });
+
+    const layout = workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey];
+
+    expect(collectAllTabs(layout.root).map((tab) => tab.tabId)).toEqual([
+      "agent_parent-agent",
+      "agent_child-agent",
+    ]);
+    expect(layout.parentTabIdByTabId).toEqual({
+      "agent_child-agent": "agent_parent-agent",
+    });
+  });
+
+  it("closeTab removes parent tab mappings when child tabs close", () => {
+    const workspaceKey = createWorkspaceKey();
+    const store = workspaceLayoutStore.getState();
+
+    store.reconcileTabs(workspaceKey, {
+      agentsHydrated: true,
+      terminalsHydrated: true,
+      activeAgentIds: ["parent-agent", "child-agent"],
+      autoOpenAgentIds: ["parent-agent", "child-agent"],
+      knownAgentIds: ["parent-agent", "child-agent"],
+      parentAgentIdByAgentId: new Map([["child-agent", "parent-agent"]]),
+      standaloneTerminalIds: [],
+      hasActivePendingDraftCreate: false,
+    });
+    store.closeTab(workspaceKey, "agent_child-agent");
+
+    const layout = workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey];
+
+    expect(collectAllTabs(layout.root).map((tab) => tab.tabId)).toEqual(["agent_parent-agent"]);
+    expect(layout.parentTabIdByTabId).toBeUndefined();
+  });
+
   it("reconcileTabs keeps manually opened subagent tabs that remain active", () => {
     const workspaceKey = createWorkspaceKey();
     const store = workspaceLayoutStore.getState();
