@@ -32,6 +32,7 @@ These details were previously implemented on `main`, then lost when this feature
 - Vertical tabs render status in a dynamic right-side badge lane. The title consumes the available row width when no badge or hover actions are visible.
 - Vertical status markers render as filled circles in the trailing badge lane instead of replacing or decorating the leading tab icon.
 - Vertical tab hover previews show up to four subtitle lines when a tab descriptor provides preview text.
+- When the top-left/main pane uses vertical tabs, its split-tab creation control moves to the workspace header beside the sidebar toggle. The trigger shows the horizontal split icon by default, switches to the vertical split icon while Command is held on macOS or Control is held on non-macOS platforms, and opens the new-tab menu so the selected agent/browser/terminal/profile is created inside that split.
 
 ## Tab Drop Preview
 

@@ -1091,6 +1091,7 @@ function SplitPaneView({
         onReorderTabs={handleReorderTabs}
         onSplitRight={handleSplitRight}
         onSplitDown={handleSplitDown}
+        showPaneSplitActions={!isTopLeftPane || !isVerticalTabBar}
         tabBarOrientation={tabBarOrientation}
         verticalTabsSelected={isVerticalTabBar}
         onVerticalTabsChange={handleVerticalTabsChange}
