@@ -16,6 +16,7 @@ export interface SidebarTabStatusSummary {
   total: number;
   counts: Record<SidebarTabStatusBucket, number>;
   draft: number;
+  propagatedDraft: number;
 }
 
 export interface SidebarTerminalStatusRecord {
@@ -48,6 +49,7 @@ export function createEmptySidebarTabStatusSummary(): SidebarTabStatusSummary {
       done: 0,
     },
     draft: 0,
+    propagatedDraft: 0,
   };
 }
 
@@ -67,8 +69,12 @@ export function summarizeSidebarTabs(input: {
     const bucket = resolveSidebarTabStatusBucket({ ...input, tab });
     summary.total += 1;
     summary.counts[bucket] += 1;
-    if (resolveSidebarTabHasDraft({ ...input, tab })) {
+    const draftState = resolveSidebarTabDraftState({ ...input, tab });
+    if (draftState.hasDraftBadge) {
       summary.draft += 1;
+    }
+    if (draftState.propagatesToParent) {
+      summary.propagatedDraft += 1;
     }
   }
   return summary;
@@ -83,33 +89,77 @@ export function combineSidebarTabStatusSummaries(
     for (const bucket of SIDEBAR_TAB_STATUS_BUCKETS) {
       combined.counts[bucket] += summary.counts[bucket];
     }
-    combined.draft += summary.draft;
+    combined.draft += summary.propagatedDraft;
+    combined.propagatedDraft += summary.propagatedDraft;
   }
   return combined;
 }
 
-function resolveSidebarTabHasDraft(input: {
+export interface SidebarTabDraftState {
+  hasDraftBadge: boolean;
+  propagatesToParent: boolean;
+}
+
+export function resolveSidebarTabDraftState(input: {
   tab: WorkspaceTab;
   serverId: string;
   draftInputsByKey?: Readonly<Record<string, DraftInput | undefined>>;
-}): boolean {
+}): SidebarTabDraftState {
   const target = input.tab.target;
   if (target.kind === "draft") {
-    return true;
+    const draft = resolveDraftInputForTarget({
+      serverId: input.serverId,
+      target,
+      draftInputsByKey: input.draftInputsByKey,
+    });
+    return {
+      hasDraftBadge: true,
+      propagatesToParent: draft ? hasDraftText(draft) : false,
+    };
   }
   if (target.kind !== "agent") {
-    return false;
+    return { hasDraftBadge: false, propagatesToParent: false };
   }
+  const draft = resolveDraftInputForTarget({
+    serverId: input.serverId,
+    target,
+    draftInputsByKey: input.draftInputsByKey,
+  });
+  if (!draft) {
+    return { hasDraftBadge: false, propagatesToParent: false };
+  }
+  return {
+    hasDraftBadge: hasDraftContent({ text: draft.text, attachments: draft.attachments }),
+    propagatesToParent: hasDraftText(draft),
+  };
+}
+
+function resolveDraftInputForTarget(input: {
+  serverId: string;
+  target: WorkspaceTab["target"];
+  draftInputsByKey?: Readonly<Record<string, DraftInput | undefined>>;
+}): DraftInput | undefined {
   const draftInputsByKey = input.draftInputsByKey;
   if (!draftInputsByKey) {
-    return false;
+    return undefined;
   }
-  const key = buildDraftStoreKey({ serverId: input.serverId, agentId: target.agentId });
-  const draft = draftInputsByKey[key];
-  if (!draft) {
-    return false;
+  if (input.target.kind === "draft") {
+    const key = buildDraftStoreKey({
+      serverId: input.serverId,
+      agentId: "",
+      draftId: input.target.draftId,
+    });
+    return draftInputsByKey[key];
   }
-  return hasDraftContent({ text: draft.text, attachments: draft.attachments });
+  if (input.target.kind === "agent") {
+    const key = buildDraftStoreKey({ serverId: input.serverId, agentId: input.target.agentId });
+    return draftInputsByKey[key];
+  }
+  return undefined;
+}
+
+function hasDraftText(draft: DraftInput): boolean {
+  return draft.text.trim().length > 0;
 }
 
 function resolveSidebarTabStatusBucket(input: {

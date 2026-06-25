@@ -161,6 +161,7 @@ describe("sidebar tab status summary", () => {
         done: 1,
       },
       draft: 1,
+      propagatedDraft: 0,
     });
   });
 
@@ -183,6 +184,7 @@ describe("sidebar tab status summary", () => {
         done: 2,
       },
       draft: 0,
+      propagatedDraft: 0,
     });
   });
 
@@ -218,6 +220,7 @@ describe("sidebar tab status summary", () => {
         done: 1,
       },
       draft: 0,
+      propagatedDraft: 0,
     });
   });
 
@@ -235,5 +238,29 @@ describe("sidebar tab status summary", () => {
     });
 
     expect(result.draft).toBe(1);
+    expect(result.propagatedDraft).toBe(1);
+  });
+
+  it("shows empty draft tabs locally without propagating them to parent summaries", () => {
+    const result = summarize({
+      tabs: [tab({ tabId: "draft-empty", target: { kind: "draft", draftId: "draft-1" } })],
+    });
+
+    expect(result.draft).toBe(1);
+    expect(result.propagatedDraft).toBe(0);
+    expect(combineSidebarTabStatusSummaries([result]).draft).toBe(0);
+  });
+
+  it("propagates draft tabs after their composer has typed text", () => {
+    const result = summarize({
+      tabs: [tab({ tabId: "draft-typed", target: { kind: "draft", draftId: "draft-1" } })],
+      draftInputsByKey: {
+        "draft:srv:draft-1": { text: "hello", attachments: [] },
+      },
+    });
+
+    expect(result.draft).toBe(1);
+    expect(result.propagatedDraft).toBe(1);
+    expect(combineSidebarTabStatusSummaries([result]).draft).toBe(1);
   });
 });

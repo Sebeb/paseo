@@ -143,7 +143,7 @@ import { redirectIfArchivingActiveWorkspace } from "@/utils/sidebar-workspace-ar
 import { openExternalUrl } from "@/utils/open-external-url";
 import { requireWorkspaceDirectory, resolveWorkspaceDirectory } from "@/utils/workspace-directory";
 import { useWorkspaceArchive } from "@/workspace/use-workspace-archive";
-import { generateDraftId } from "@/stores/draft-keys";
+import { buildDraftStoreKey, generateDraftId } from "@/stores/draft-keys";
 import { deriveWorkspacePaneState } from "@/screens/workspace/workspace-pane-state";
 import {
   buildTerminalsQueryKey,
@@ -161,6 +161,7 @@ import {
   combineSidebarTabStatusSummaries,
   createEmptySidebarTabStatusSummary,
   SIDEBAR_TAB_STATUS_BADGE_BUCKETS,
+  resolveSidebarTabDraftState,
   summarizeSidebarTabs,
   type SidebarTabStatusBucket,
   type SidebarTabStatusSummary,
@@ -193,6 +194,7 @@ const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 const ThemedPlus = withUnistyles(Plus);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedX = withUnistyles(X);
+const ThemedSquarePen = withUnistyles(SquarePen);
 
 interface EmbeddedSidebarTabItem {
   descriptor: WorkspaceTabDescriptor;
@@ -508,14 +510,21 @@ function StatusSummaryCountBadge({
   }
   let inner: ReactNode = null;
   if (Icon) {
-    inner = <Icon size={11} color={styles.statusSummaryCountIcon.color} />;
+    inner = <Icon size={11} color={getStatusSummaryCountIconColor(bucket)} />;
   } else if (showCount) {
     inner = <Text style={styles.statusSummaryCountText}>{count}</Text>;
   }
   return <View style={containerStyle}>{inner}</View>;
 }
 
-function SidebarTabStatusSymbol({ bucket }: { bucket: SidebarTabStatusBucket }) {
+function SidebarTabStatusSymbol({ bucket }: { bucket: SidebarTabStatusBucket | "draft" }) {
+  if (bucket === "draft") {
+    return (
+      <View style={styles.embeddedTabStatusSlot}>
+        <ThemedSquarePen size={13} uniProps={foregroundMutedColorMapping} />
+      </View>
+    );
+  }
   if (bucket === "running") {
     return (
       <View style={styles.embeddedTabStatusSlot}>
@@ -545,6 +554,45 @@ function SidebarTabStatusSymbol({ bucket }: { bucket: SidebarTabStatusBucket }) 
     );
   }
   return null;
+}
+
+function getEmbeddedTabStatusVisibility(input: {
+  badgeMode: SidebarBadgeMode;
+  showCloseButton: boolean;
+  statusBucket: SidebarTabStatusBucket;
+  hasDraftBadge: boolean;
+}) {
+  const canShowStatus = input.badgeMode === "status" && !input.showCloseButton;
+  const showRegularStatusSymbol = canShowStatus && input.statusBucket !== "done";
+  const showDraftStatusSymbol = canShowStatus && input.hasDraftBadge;
+  const visibleStatusSymbolCount =
+    (showRegularStatusSymbol ? 1 : 0) + (showDraftStatusSymbol ? 1 : 0);
+
+  return {
+    showRegularStatusSymbol,
+    showDraftStatusSymbol,
+    visibleStatusSymbolCount,
+    showTrailingSlot: input.showCloseButton || visibleStatusSymbolCount > 0,
+  };
+}
+
+function getEmbeddedTabLabelStyle(input: {
+  active: boolean;
+  showTrailingSlot: boolean;
+  visibleStatusSymbolCount: number;
+}) {
+  return [
+    input.active ? styles.embeddedTabLabelActive : styles.embeddedTabLabel,
+    input.visibleStatusSymbolCount > 1
+      ? styles.embeddedTabLabelWithWideTrailingSlot
+      : input.showTrailingSlot && styles.embeddedTabLabelWithTrailingSlot,
+  ];
+}
+
+function getEmbeddedTabTrailingSlotStyle(visibleStatusSymbolCount: number) {
+  return visibleStatusSymbolCount > 1
+    ? styles.embeddedTabCloseSlotWide
+    : styles.embeddedTabCloseSlot;
 }
 
 function isWorkspaceSelected(input: {
@@ -2859,14 +2907,35 @@ function EmbeddedWorkspaceTabRow({
     [active, isDragging],
   );
   const accessibilityState = useMemo(() => ({ selected: active }), [active]);
-  const showStatusSymbol = badgeMode === "status" && !showCloseButton;
-  const showTrailingSlot = showCloseButton || showStatusSymbol;
-  const labelStyle = useMemo(
-    () => [
-      active ? styles.embeddedTabLabelActive : styles.embeddedTabLabel,
-      showTrailingSlot && styles.embeddedTabLabelWithTrailingSlot,
-    ],
-    [active, showTrailingSlot],
+  const draftStoreKey = useMemo(() => {
+    const target = item.tab.target;
+    if (target.kind === "draft") {
+      return buildDraftStoreKey({ serverId, agentId: "", draftId: target.draftId });
+    }
+    if (target.kind === "agent") {
+      return buildDraftStoreKey({ serverId, agentId: target.agentId });
+    }
+    return null;
+  }, [item.tab.target, serverId]);
+  const draftInput = useDraftStore((state) => {
+    if (!draftStoreKey) {
+      return undefined;
+    }
+    const record = state.drafts[draftStoreKey];
+    return record?.lifecycle === "active" ? record.input : undefined;
+  });
+  const draftInputsByKey = useMemo(
+    () => (draftStoreKey && draftInput ? { [draftStoreKey]: draftInput } : undefined),
+    [draftInput, draftStoreKey],
+  );
+  const tabDraftState = useMemo(
+    () =>
+      resolveSidebarTabDraftState({
+        tab: item.tab,
+        serverId,
+        draftInputsByKey,
+      }),
+    [draftInputsByKey, item.tab, serverId],
   );
 
   return (
@@ -2879,6 +2948,20 @@ function EmbeddedWorkspaceTabRow({
         const label =
           presentation.titleState === "loading" ? t("workspace.tabs.loading") : presentation.label;
         const statusBucket = presentation.statusBucket ?? "done";
+        const statusVisibility = getEmbeddedTabStatusVisibility({
+          badgeMode,
+          showCloseButton,
+          statusBucket,
+          hasDraftBadge: tabDraftState.hasDraftBadge,
+        });
+        const labelStyle = getEmbeddedTabLabelStyle({
+          active,
+          showTrailingSlot: statusVisibility.showTrailingSlot,
+          visibleStatusSymbolCount: statusVisibility.visibleStatusSymbolCount,
+        });
+        const trailingSlotStyle = getEmbeddedTabTrailingSlotStyle(
+          statusVisibility.visibleStatusSymbolCount,
+        );
         return (
           <View
             {...(manualSort ? (dragHandleProps?.attributes as object | undefined) : undefined)}
@@ -2911,11 +2994,8 @@ function EmbeddedWorkspaceTabRow({
               <Text style={labelStyle} numberOfLines={1}>
                 {label}
               </Text>
-              {showTrailingSlot ? (
-                <View
-                  style={styles.embeddedTabCloseSlot}
-                  pointerEvents={showCloseButton ? "auto" : "none"}
-                >
+              {statusVisibility.showTrailingSlot ? (
+                <View style={trailingSlotStyle} pointerEvents={showCloseButton ? "auto" : "none"}>
                   {showCloseButton ? (
                     <Pressable
                       accessibilityRole="button"
@@ -2937,7 +3017,12 @@ function EmbeddedWorkspaceTabRow({
                       )}
                     </Pressable>
                   ) : null}
-                  {showStatusSymbol ? <SidebarTabStatusSymbol bucket={statusBucket} /> : null}
+                  {statusVisibility.showRegularStatusSymbol ? (
+                    <SidebarTabStatusSymbol bucket={statusBucket} />
+                  ) : null}
+                  {statusVisibility.showDraftStatusSymbol ? (
+                    <SidebarTabStatusSymbol bucket="draft" />
+                  ) : null}
                 </View>
               ) : null}
             </Pressable>
@@ -4559,6 +4644,9 @@ const styles = StyleSheet.create((theme) => ({
   embeddedTabLabelWithTrailingSlot: {
     marginRight: 22 + theme.spacing[2],
   },
+  embeddedTabLabelWithWideTrailingSlot: {
+    marginRight: 38 + theme.spacing[2],
+  },
   embeddedTabStatusSlot: {
     width: 16,
     height: 22,
@@ -4578,6 +4666,17 @@ const styles = StyleSheet.create((theme) => ({
     right: theme.spacing[3],
     bottom: 0,
     width: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  embeddedTabCloseSlotWide: {
+    position: "absolute",
+    top: 0,
+    right: theme.spacing[3],
+    bottom: 0,
+    width: 38,
+    flexDirection: "row",
+    gap: 2,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -4694,6 +4793,9 @@ const styles = StyleSheet.create((theme) => ({
   statusSummaryCountIcon: {
     color: "#000000",
   },
+  statusSummaryCountDraftIcon: {
+    color: theme.colors.foregroundMuted,
+  },
   statusSummaryCountNeedsInput: {
     backgroundColor: theme.colors.palette.amber[500],
   },
@@ -4710,7 +4812,7 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.statusSuccess,
   },
   statusSummaryCountDraft: {
-    backgroundColor: theme.colors.foregroundMuted,
+    backgroundColor: "transparent",
   },
 }));
 
@@ -4744,4 +4846,11 @@ function getStatusSummaryCountBadgeStyle(bucket: StatusSummaryBadgeBucket) {
     case "draft":
       return styles.statusSummaryCountDraft;
   }
+}
+
+function getStatusSummaryCountIconColor(bucket: StatusSummaryBadgeBucket): string {
+  if (bucket === "draft") {
+    return styles.statusSummaryCountDraftIcon.color;
+  }
+  return styles.statusSummaryCountIcon.color;
 }
