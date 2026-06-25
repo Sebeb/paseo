@@ -481,6 +481,7 @@ export const en = {
         splitDown: "Split pane down",
         terminalProfilesMenu: "Terminal profiles",
         editTerminalProfiles: "Edit profiles…",
+        verticalTabs: "Vertical tabs",
         pinTarget: "Pin",
         unpinTarget: "Unpin",
       },

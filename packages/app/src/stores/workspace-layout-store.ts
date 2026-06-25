@@ -20,6 +20,7 @@ import {
   createDefaultLayout,
   findPaneById,
   findPaneContainingTab,
+  findTopLeftPaneId,
   focusPaneInLayout,
   focusTabInLayout,
   getFocusedBrowserId,
@@ -37,11 +38,13 @@ import {
   reorderPaneTabsInLayout,
   restoreTabInLayout,
   retargetTabInLayout,
+  setPaneTabBarOrientationInLayout,
   splitPaneEmptyInLayout,
   splitPaneInLayout,
   type SplitGroup,
   type SplitNode,
   type SplitPane,
+  type WorkspaceTabBarOrientation,
   type WorkspaceTabReconcileState,
   type WorkspaceTabSnapshot,
   type WorkspaceLayout,
@@ -55,6 +58,7 @@ export {
   createDefaultLayout,
   findPaneById,
   findPaneContainingTab,
+  findTopLeftPaneId,
   getFocusedBrowserId,
   getTreeDepth,
   insertSplit,
@@ -66,6 +70,7 @@ export type {
   SplitGroup,
   SplitNode,
   SplitPane,
+  WorkspaceTabBarOrientation,
   WorkspaceLayout,
   WorkspaceTabReconcileState,
   WorkspaceTabSnapshot,
@@ -75,6 +80,7 @@ interface WorkspaceLayoutStore {
   layoutByWorkspace: Record<string, WorkspaceLayout>;
   splitSizesByWorkspace: Record<string, Record<string, number[]>>;
   recentlyClosedTabsByWorkspace: Record<string, RecentlyClosedWorkspaceTab[]>;
+  topLeftPaneTabBarOrientation: WorkspaceTabBarOrientation;
   pinnedAgentIdsByWorkspace: Record<string, Set<string>>;
   hiddenAgentIdsByWorkspace: Record<string, Set<string>>;
   focusRestorationByWorkspace: Record<string, WorkspaceFocusRestorationState>;
@@ -114,6 +120,11 @@ interface WorkspaceLayoutStore {
   unfocusPane: (workspaceKey: string) => string | null;
   restorePaneFocus: (workspaceKey: string, token: string) => void;
   resizeSplit: (workspaceKey: string, groupId: string, sizes: number[]) => void;
+  setPaneTabBarOrientation: (
+    workspaceKey: string,
+    paneId: string,
+    orientation: WorkspaceTabBarOrientation,
+  ) => void;
   reorderTabsInPane: (workspaceKey: string, paneId: string, tabIds: string[]) => void;
   pinAgent: (workspaceKey: string, agentId: string) => void;
   unpinAgent: (workspaceKey: string, agentId: string) => void;
@@ -339,6 +350,7 @@ export function createWorkspaceLayoutStore(
         layoutByWorkspace: {},
         splitSizesByWorkspace: {},
         recentlyClosedTabsByWorkspace: {},
+        topLeftPaneTabBarOrientation: "horizontal",
         pinnedAgentIdsByWorkspace: {},
         hiddenAgentIdsByWorkspace: {},
         focusRestorationByWorkspace: {},
@@ -935,6 +947,45 @@ export function createWorkspaceLayoutStore(
             },
           }));
         },
+        setPaneTabBarOrientation: (workspaceKey, paneId, orientation) => {
+          const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);
+          const normalizedPaneId = trimNonEmpty(paneId);
+          if (!normalizedWorkspaceKey || !normalizedPaneId) {
+            return;
+          }
+
+          set((state) => {
+            const layout = getWorkspaceLayout(state.layoutByWorkspace, normalizedWorkspaceKey);
+            if (!findPaneById(layout.root, normalizedPaneId)) {
+              return state;
+            }
+
+            if (findTopLeftPaneId(layout.root) === normalizedPaneId) {
+              if (state.topLeftPaneTabBarOrientation === orientation) {
+                return state;
+              }
+              return {
+                topLeftPaneTabBarOrientation: orientation,
+              };
+            }
+
+            const nextLayout = setPaneTabBarOrientationInLayout({
+              layout,
+              paneId: normalizedPaneId,
+              orientation,
+            });
+            if (!nextLayout) {
+              return state;
+            }
+
+            return {
+              layoutByWorkspace: {
+                ...state.layoutByWorkspace,
+                [normalizedWorkspaceKey]: nextLayout,
+              },
+            };
+          });
+        },
         reorderTabsInPane: (workspaceKey, paneId, tabIds) => {
           const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);
           const normalizedPaneId = trimNonEmpty(paneId);
@@ -1128,6 +1179,7 @@ export function createWorkspaceLayoutStore(
                 normalizeRecentlyClosedTabs(entries),
               ]),
             ),
+            topLeftPaneTabBarOrientation: state.topLeftPaneTabBarOrientation,
           };
         },
       },

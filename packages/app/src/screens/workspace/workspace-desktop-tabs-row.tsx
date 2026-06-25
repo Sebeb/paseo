@@ -2,7 +2,6 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type Dispatch,
   type SetStateAction,
@@ -27,7 +26,9 @@ import {
   RotateCw,
   Rows2,
   Globe,
+  MoreVertical,
   Plus,
+  Settings2,
   SquarePen,
   SquareTerminal,
   X,
@@ -48,6 +49,7 @@ import {
   ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  useContextMenu,
 } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
@@ -108,9 +110,11 @@ const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedGlobe = withUnistyles(Globe);
+const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedColumns2 = withUnistyles(Columns2);
 const ThemedRows2 = withUnistyles(Rows2);
 const ThemedPlus = withUnistyles(Plus);
+const ThemedSettings2 = withUnistyles(Settings2);
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
@@ -128,6 +132,10 @@ function newTabActionButtonStyle({ hovered, pressed }: PressableStateCallbackTyp
 
 function inlineAddActionButtonStyle({ hovered, pressed }: PressableStateCallbackType) {
   return [styles.inlineAddActionButton, (hovered || pressed) && styles.newTabActionButtonHovered];
+}
+
+function tabOverflowButtonStyle({ hovered, pressed }: PressableStateCallbackType) {
+  return [styles.tabOverflowButton, (hovered || pressed) && styles.tabCloseButtonActive];
 }
 
 function updateMeasuredWidth(setWidth: Dispatch<SetStateAction<number>>, event: LayoutChangeEvent) {
@@ -377,7 +385,6 @@ function WorkspaceTabRowExtras({
   );
 
   const launchers = usePinnedLaunchers({ serverId: normalizedServerId, onLaunch });
-
   return (
     <>
       <DropdownMenu>
@@ -439,6 +446,51 @@ function WorkspaceTabRowExtras({
       </DropdownMenu>
       <PinnedTargetsRow launchers={launchers} testIdPrefix="workspace-pinned-target" />
     </>
+  );
+}
+
+interface WorkspaceTabDisplayMenuProps {
+  verticalTabsSelected: boolean;
+  onVerticalTabsChange: (selected: boolean) => void;
+}
+
+function WorkspaceTabDisplayMenu({
+  verticalTabsSelected,
+  onVerticalTabsChange,
+}: WorkspaceTabDisplayMenuProps) {
+  const { t } = useTranslation();
+  const handleToggleVerticalTabs = useCallback(() => {
+    onVerticalTabsChange(!verticalTabsSelected);
+  }, [onVerticalTabsChange, verticalTabsSelected]);
+
+  return (
+    <DropdownMenu>
+      <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
+        <TooltipTrigger asChild triggerRefProp="triggerRef">
+          <DropdownMenuTrigger
+            testID="workspace-tab-display-menu-trigger"
+            accessibilityRole="button"
+            accessibilityLabel="Display preferences"
+            style={newTabActionButtonStyle}
+          >
+            <ThemedSettings2 size={14} uniProps={mutedColorMapping} />
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="center" offset={8}>
+          <Text style={styles.newTabTooltipText}>Display preferences</Text>
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent side="bottom" align="end" offset={4} minWidth={200}>
+        <DropdownMenuItem
+          testID="workspace-display-menu-vertical-tabs"
+          selected={verticalTabsSelected}
+          showSelectedCheck
+          onSelect={handleToggleVerticalTabs}
+        >
+          {t("workspace.tabs.actions.verticalTabs")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -559,6 +611,9 @@ interface WorkspaceDesktopTabsRowProps {
   onReorderTabs: (nextTabs: WorkspaceTabDescriptor[]) => void;
   onSplitRight: () => void;
   onSplitDown: () => void;
+  tabBarOrientation?: "horizontal" | "vertical";
+  verticalTabsSelected?: boolean;
+  onVerticalTabsChange?: (selected: boolean) => void;
   externalDndContext?: boolean;
   activeDragTabId?: string | null;
   tabDropPreviewIndex?: number | null;
@@ -585,12 +640,15 @@ function getFallbackTabLabel(
 }
 
 function useMiddleClickClose(onClose: () => void) {
-  const ref = useRef<View>(null);
+  const [node, setNode] = useState<View | null>(null);
+  const ref = useCallback((nextNode: View | null) => {
+    setNode(nextNode);
+  }, []);
 
   useEffect(() => {
     if (isNative) return;
-    const node = ref.current as unknown as HTMLElement | null;
-    if (!node) return;
+    const element = node as unknown as HTMLElement | null;
+    if (!element) return;
 
     function handleAuxClick(event: MouseEvent) {
       if (event.button === 1) {
@@ -599,35 +657,113 @@ function useMiddleClickClose(onClose: () => void) {
       }
     }
 
-    node.addEventListener("auxclick", handleAuxClick);
-    return () => node.removeEventListener("auxclick", handleAuxClick);
-  }, [onClose]);
+    element.addEventListener("auxclick", handleAuxClick);
+    return () => element.removeEventListener("auxclick", handleAuxClick);
+  }, [node, onClose]);
 
   return ref;
+}
+
+function getVerticalStatusBadgeStyle(bucket: WorkspaceTabPresentation["statusBucket"]) {
+  switch (bucket) {
+    case "needs_input":
+      return styles.tabStatusBadgeNeedsInput;
+    case "failed":
+      return styles.tabStatusBadgeFailed;
+    case "running":
+      return styles.tabStatusBadgeRunning;
+    case "attention":
+      return styles.tabStatusBadgeAttention;
+    default:
+      return null;
+  }
+}
+
+function VerticalTabStatusBadge({
+  bucket,
+  visible,
+}: {
+  bucket: WorkspaceTabPresentation["statusBucket"];
+  visible: boolean;
+}) {
+  const badgeStyle = getVerticalStatusBadgeStyle(bucket);
+  const containerStyle = useMemo(() => [styles.tabStatusBadge, badgeStyle], [badgeStyle]);
+  if (!visible || !badgeStyle) {
+    return null;
+  }
+  return <View pointerEvents="none" style={containerStyle} />;
+}
+
+function VerticalTabOverflowButton({ visible, testID }: { visible: boolean; testID: string }) {
+  const menuController = useContextMenu();
+  const handlePress = useCallback(
+    (event: { stopPropagation?: () => void }) => {
+      event.stopPropagation?.();
+      menuController.setOpen(true);
+    },
+    [menuController],
+  );
+  const handlePressIn = useCallback((event: { stopPropagation?: () => void }) => {
+    event.stopPropagation?.();
+  }, []);
+  const buttonOverlayStyle = useMemo(
+    () => [styles.tabOverflowButtonOverlay, !visible && styles.tabCloseButtonHidden],
+    [visible],
+  );
+
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel="Tab actions"
+      onPressIn={handlePressIn}
+      onPress={handlePress}
+      pointerEvents={visible ? "auto" : "none"}
+      style={buttonOverlayStyle}
+    >
+      {({ hovered, pressed }) => (
+        <View style={tabOverflowButtonStyle({ hovered, pressed })}>
+          <ThemedMoreVertical
+            size={12}
+            uniProps={hovered || pressed ? foregroundColorMapping : mutedColorMapping}
+          />
+        </View>
+      )}
+    </Pressable>
+  );
 }
 
 function TabHandleContent({
   presentation,
   isHighlighted,
   showLabel,
+  style,
   tabLabelSkeletonStyle,
   tabLabelStyle,
+  showIconStatusBadge = true,
 }: {
   presentation: WorkspaceTabPresentation;
   isHighlighted: boolean;
   showLabel: boolean;
+  style?: React.ComponentProps<typeof View>["style"];
   tabLabelSkeletonStyle: React.ComponentProps<typeof View>["style"];
   tabLabelStyle: React.ComponentProps<typeof Text>["style"];
+  showIconStatusBadge?: boolean;
 }) {
   const tabHandleDataSet = useMemo(
     () => ({ statusBucket: presentation.statusBucket ?? "none" }),
     [presentation.statusBucket],
   );
+  const tabHandleStyle = useMemo(() => [styles.tabHandle, style], [style]);
 
   return (
-    <View style={styles.tabHandle} dataSet={tabHandleDataSet}>
+    <View style={tabHandleStyle} dataSet={tabHandleDataSet}>
       <View style={styles.tabIcon}>
-        <WorkspaceTabIcon presentation={presentation} active={isHighlighted} />
+        <WorkspaceTabIcon
+          presentation={presentation}
+          active={isHighlighted}
+          showStatusBadge={showIconStatusBadge}
+        />
       </View>
       {showLabel && presentation.titleState === "loading" ? (
         <View style={tabLabelSkeletonStyle} />
@@ -635,6 +771,40 @@ function TabHandleContent({
       {showLabel && presentation.titleState !== "loading" ? (
         <Text style={tabLabelStyle} selectable={false} numberOfLines={1} ellipsizeMode="tail">
           {presentation.label}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function TabTooltipPreview({
+  tab,
+  presentation,
+  tooltipLabel,
+  orientation,
+}: {
+  tab: WorkspaceTabDescriptor;
+  presentation: WorkspaceTabPresentation;
+  tooltipLabel: string;
+  orientation: "horizontal" | "vertical";
+}) {
+  const subtitle = presentation.subtitle.trim();
+  const showSubtitle = subtitle.length > 0 && subtitle !== tooltipLabel;
+  const subtitleLineCount = orientation === "vertical" ? 4 : 1;
+
+  return (
+    <View style={styles.tooltipColumn}>
+      {tab.target.kind === "agent" ? (
+        <View style={styles.tooltipAgentRow}>
+          <Text style={styles.newTabTooltipText}>{tooltipLabel}</Text>
+          <Text style={styles.tooltipAgentId}>{tab.target.agentId.slice(0, 7)}</Text>
+        </View>
+      ) : (
+        <Text style={styles.newTabTooltipText}>{tooltipLabel}</Text>
+      )}
+      {showSubtitle ? (
+        <Text style={styles.tooltipSubtitle} numberOfLines={subtitleLineCount} ellipsizeMode="tail">
+          {subtitle}
         </Text>
       ) : null}
     </View>
@@ -654,6 +824,7 @@ function TabChip({
   presentation,
   tooltipLabel,
   resolvedTab,
+  orientation,
   setHoveredCloseTabKey,
   onNavigateTab,
   onCloseTab,
@@ -671,6 +842,7 @@ function TabChip({
   presentation: WorkspaceTabPresentation;
   tooltipLabel: string;
   resolvedTab: WorkspaceDesktopTabActions;
+  orientation: "horizontal" | "vertical";
   setHoveredCloseTabKey: Dispatch<SetStateAction<string | null>>;
   onNavigateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
@@ -682,6 +854,12 @@ function TabChip({
   );
   const [hovered, setHovered] = useState(false);
   const isHighlighted = isActive || hovered || isCloseHovered;
+  const usesOverlayCloseButton = orientation === "vertical";
+  const showVerticalTrailingActions = orientation === "vertical" && isHighlighted;
+  const hasVerticalStatusBadge = getVerticalStatusBadgeStyle(presentation.statusBucket) !== null;
+  const showVerticalStatusBadge =
+    orientation === "vertical" && !showVerticalTrailingActions && hasVerticalStatusBadge;
+  const closeButtonVisible = showCloseButton && (!usesOverlayCloseButton || isHighlighted);
   const closeButtonDragBlockers = isWeb
     ? ({
         onPointerDown: (event: { stopPropagation?: () => void }) => {
@@ -696,6 +874,7 @@ function TabChip({
   const tabChipStyle = useCallback(
     () => [
       styles.tab,
+      orientation === "vertical" && styles.tabVertical,
       isWeb && isDragging && ({ cursor: "grabbing" } as object),
       {
         minWidth: resolvedTabWidth,
@@ -703,7 +882,7 @@ function TabChip({
         maxWidth: resolvedTabWidth,
       },
     ],
-    [isDragging, resolvedTabWidth],
+    [isDragging, orientation, resolvedTabWidth],
   );
 
   const handleTabHoverIn = useCallback(() => {
@@ -738,35 +917,58 @@ function TabChip({
     [onCloseTab, tab.tabId],
   );
 
+  const setTabTriggerRef = useCallback(
+    (node: View | null) => {
+      middleClickRef(node);
+      dragHandleProps?.setActivatorNodeRef?.(node);
+    },
+    [dragHandleProps, middleClickRef],
+  );
+
   const closeButtonStyle = useCallback(
     ({ hovered: isButtonHovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.tabCloseButton,
-      styles.tabCloseButtonShown,
+      usesOverlayCloseButton && styles.tabCloseButtonOverlay,
+      !closeButtonVisible && styles.tabCloseButtonHidden,
       (Boolean(isButtonHovered) || pressed) && styles.tabCloseButtonActive,
     ],
-    [],
+    [closeButtonVisible, usesOverlayCloseButton],
   );
 
   const tabAccessibilityState = useMemo(() => ({ selected: isActive }), [isActive]);
   const tabFocusIndicatorStyle = useMemo(
-    () => [styles.tabFocusIndicator, !isFocused && styles.tabFocusIndicatorUnfocused],
-    [isFocused],
+    () => [
+      styles.tabFocusIndicator,
+      orientation === "vertical" && styles.tabFocusIndicatorVertical,
+      !isFocused && styles.tabFocusIndicatorUnfocused,
+    ],
+    [isFocused, orientation],
   );
   const tabLabelSkeletonStyle = useMemo(
-    () => [styles.tabLabelSkeleton, showCloseButton && styles.tabLabelSkeletonWithCloseButton],
-    [showCloseButton],
+    () => [
+      styles.tabLabelSkeleton,
+      showCloseButton && !usesOverlayCloseButton && styles.tabLabelSkeletonWithCloseButton,
+    ],
+    [showCloseButton, usesOverlayCloseButton],
   );
   const tabLabelStyle = useMemo(
     () => [
       styles.tabLabel,
       isHighlighted && styles.tabLabelActive,
-      showCloseButton && styles.tabLabelWithCloseButton,
+      showCloseButton && !usesOverlayCloseButton && styles.tabLabelWithCloseButton,
     ],
-    [isHighlighted, showCloseButton],
+    [isHighlighted, showCloseButton, usesOverlayCloseButton],
+  );
+  const tabHandleStyle = useMemo(
+    () => [
+      usesOverlayCloseButton && closeButtonVisible && styles.tabHandleWithOverlayActions,
+      showVerticalStatusBadge && styles.tabHandleWithVerticalStatusBadge,
+    ],
+    [closeButtonVisible, showVerticalStatusBadge, usesOverlayCloseButton],
   );
 
   return (
-    <View ref={middleClickRef}>
+    <View>
       <ContextMenu key={tab.key}>
         <Tooltip delayDuration={400} enabledOnDesktop enabledOnMobile={false}>
           <TooltipTrigger asChild triggerRefProp="triggerRef">
@@ -774,7 +976,7 @@ function TabChip({
               {...(dragHandleProps?.attributes as object | undefined)}
               {...(dragHandleProps?.listeners as object | undefined)}
               testID={`workspace-tab-${buildDeterministicWorkspaceTabId(tab.target)}`}
-              triggerRef={dragHandleProps?.setActivatorNodeRef as unknown as undefined}
+              triggerRef={setTabTriggerRef}
               enabledOnMobile={false}
               style={tabChipStyle}
               onHoverIn={handleTabHoverIn}
@@ -791,9 +993,24 @@ function TabChip({
                 presentation={presentation}
                 isHighlighted={isHighlighted}
                 showLabel={showLabel}
+                style={tabHandleStyle}
                 tabLabelSkeletonStyle={tabLabelSkeletonStyle}
                 tabLabelStyle={tabLabelStyle}
+                showIconStatusBadge={orientation !== "vertical"}
               />
+
+              {orientation === "vertical" ? (
+                <>
+                  <VerticalTabStatusBadge
+                    bucket={presentation.statusBucket}
+                    visible={showVerticalStatusBadge}
+                  />
+                  <VerticalTabOverflowButton
+                    visible={showVerticalTrailingActions}
+                    testID={`${contextMenuTestId}-trigger`}
+                  />
+                </>
+              ) : null}
 
               {showCloseButton ? (
                 <Pressable
@@ -804,6 +1021,7 @@ function TabChip({
                   onHoverIn={handleCloseButtonHoverIn}
                   onHoverOut={handleCloseButtonHoverOut}
                   onPress={handleCloseButtonPress}
+                  pointerEvents={closeButtonVisible ? "auto" : "none"}
                   style={closeButtonStyle}
                 >
                   {({ hovered: closeHovered, pressed }) =>
@@ -827,15 +1045,17 @@ function TabChip({
               ) : null}
             </ContextMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent side="bottom" align="center" offset={8}>
-            {tab.target.kind === "agent" ? (
-              <View style={styles.tooltipAgentRow}>
-                <Text style={styles.newTabTooltipText}>{tooltipLabel}</Text>
-                <Text style={styles.tooltipAgentId}>{tab.target.agentId.slice(0, 7)}</Text>
-              </View>
-            ) : (
-              <Text style={styles.newTabTooltipText}>{tooltipLabel}</Text>
-            )}
+          <TooltipContent
+            side={orientation === "vertical" ? "right" : "bottom"}
+            align="center"
+            offset={8}
+          >
+            <TabTooltipPreview
+              tab={tab}
+              presentation={presentation}
+              tooltipLabel={tooltipLabel}
+              orientation={orientation}
+            />
           </TooltipContent>
         </Tooltip>
 
@@ -881,6 +1101,9 @@ export function WorkspaceDesktopTabsRow({
   onReorderTabs,
   onSplitRight,
   onSplitDown,
+  tabBarOrientation = "horizontal",
+  verticalTabsSelected = false,
+  onVerticalTabsChange,
   externalDndContext = false,
   activeDragTabId = null,
   tabDropPreviewIndex = null,
@@ -894,6 +1117,7 @@ export function WorkspaceDesktopTabsRow({
   const [tabsContainerWidth, setTabsContainerWidth] = useState<number>(0);
   const [tabsActionsWidth, setTabsActionsWidth] = useState<number>(0);
   const [inlineAddButtonWidth, setInlineAddButtonWidth] = useState<number>(0);
+  const isVertical = tabBarOrientation === "vertical";
 
   const handleTabsContainerLayout = useCallback((event: LayoutChangeEvent) => {
     updateMeasuredWidth(setTabsContainerWidth, event);
@@ -960,11 +1184,24 @@ export function WorkspaceDesktopTabsRow({
     [fallbackTabLabels, tabs],
   );
 
-  const { layout } = useWorkspaceTabLayout({
+  const { layout: horizontalLayout } = useWorkspaceTabLayout({
     tabLabelLengths,
     viewportWidthOverride: tabsContainerWidth > 0 ? tabsContainerWidth : null,
     metrics: layoutMetrics,
   });
+  const verticalLayout = useMemo(
+    () => ({
+      items: tabLabelLengths.map(() => ({
+        width: Math.max(60, Math.min(200, tabsContainerWidth || 200)),
+        showLabel: true,
+        labelCharCap: Number.POSITIVE_INFINITY,
+      })),
+      closeButtonPolicy: "all" as const,
+      requiresHorizontalScrollFallback: false,
+    }),
+    [tabLabelLengths, tabsContainerWidth],
+  );
+  const layout = isVertical ? verticalLayout : horizontalLayout;
 
   const handleDragEnd = useCallback(
     (nextTabs: WorkspaceDesktopTabRowItem[]) => {
@@ -1006,6 +1243,12 @@ export function WorkspaceDesktopTabsRow({
   }, [onCreateBrowserTab, paneId]);
 
   const terminalDisabled = disableCreateTerminal || isWaitingOnTerminalReadiness;
+  const handleVerticalTabsChange = useCallback(
+    (selected: boolean) => {
+      onVerticalTabsChange?.(selected);
+    },
+    [onVerticalTabsChange],
+  );
 
   const renderTab = useCallback(
     ({
@@ -1050,6 +1293,7 @@ export function WorkspaceDesktopTabsRow({
           onCloseTab={onCloseTab}
           labels={tabMenuLabels}
           dragHandleProps={dragHandleProps}
+          orientation={tabBarOrientation}
           showDropIndicatorBefore={showDropIndicatorBefore}
           showDropIndicatorAfter={showDropIndicatorAfter}
         />
@@ -1073,6 +1317,7 @@ export function WorkspaceDesktopTabsRow({
       onReloadAgent,
       onRenameTab,
       setHoveredCloseTabKey,
+      tabBarOrientation,
       tabMenuLabels,
       tabDropPreviewIndex,
       tabs.length,
@@ -1082,26 +1327,80 @@ export function WorkspaceDesktopTabsRow({
   const tabsScrollStyle = useMemo(
     () => [
       styles.tabsScroll,
+      isVertical && styles.tabsScrollVertical,
       layout.requiresHorizontalScrollFallback
         ? styles.tabsScrollOverflow
         : styles.tabsScrollFitContent,
     ],
-    [layout.requiresHorizontalScrollFallback],
+    [isVertical, layout.requiresHorizontalScrollFallback],
+  );
+  const tabsContainerStyle = useMemo(
+    () => [styles.tabsContainer, isVertical && styles.tabsContainerVertical],
+    [isVertical],
+  );
+  const tabsContentStyle = useMemo(
+    () => [styles.tabsContent, isVertical && styles.tabsContentVertical],
+    [isVertical],
+  );
+  const tabsActionsStyle = useMemo(
+    () => [styles.tabsActions, isVertical && styles.tabsActionsVertical],
+    [isVertical],
+  );
+  const tabsHeaderStyle = useMemo(
+    () => [styles.tabsHeader, isVertical && styles.tabsHeaderVertical],
+    [isVertical],
+  );
+
+  const tabDisplayMenu = (
+    <WorkspaceTabDisplayMenu
+      verticalTabsSelected={verticalTabsSelected}
+      onVerticalTabsChange={handleVerticalTabsChange}
+    />
+  );
+  const tabRowExtras = (
+    <WorkspaceTabRowExtras
+      onCreateAgentTab={handleCreateAgentTab}
+      onCreateTerminal={handleCreateTerminal}
+      onCreateBrowser={handleCreateBrowser}
+      onCreateTerminalWithProfile={handleCreateTerminalWithProfile}
+      onEditProfiles={handleEditProfiles}
+      normalizedServerId={normalizedServerId}
+      showCreateBrowserTab={showCreateBrowserTab}
+      terminalDisabled={terminalDisabled}
+    />
   );
 
   const row = (
     <View
-      style={styles.tabsContainer}
+      style={tabsContainerStyle}
       testID="workspace-tabs-row"
       onLayout={handleTabsContainerLayout}
     >
+      {isVertical ? (
+        <View style={tabsHeaderStyle}>
+          <WorkspaceInlineAddTabButton
+            shortcutKeys={newTabKeys}
+            recentlyClosedTabs={recentlyClosedTabs}
+            normalizedServerId={normalizedServerId}
+            normalizedWorkspaceId={normalizedWorkspaceId}
+            onCreateAgentTab={handleCreateAgentTab}
+            onRestoreClosedTab={onRestoreClosedTab}
+            onLayout={handleInlineAddButtonLayout}
+          />
+          <View style={styles.tabsHeaderActions}>
+            {tabRowExtras}
+            {tabDisplayMenu}
+          </View>
+        </View>
+      ) : null}
       <ScrollView
-        horizontal
-        scrollEnabled={layout.requiresHorizontalScrollFallback}
+        horizontal={!isVertical}
+        scrollEnabled={isVertical || layout.requiresHorizontalScrollFallback}
         testID="workspace-tabs-scroll"
         style={tabsScrollStyle}
-        contentContainerStyle={styles.tabsContent}
+        contentContainerStyle={tabsContentStyle}
         showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={false}
       >
         <SortableInlineList
           data={tabs}
@@ -1112,29 +1411,28 @@ export function WorkspaceDesktopTabsRow({
           externalDndContext={externalDndContext}
           activeId={activeDragTabId}
           getItemData={getTabDragData}
+          orientation={tabBarOrientation}
           renderItem={renderTab}
         />
-        <WorkspaceInlineAddTabButton
-          shortcutKeys={newTabKeys}
-          recentlyClosedTabs={recentlyClosedTabs}
-          normalizedServerId={normalizedServerId}
-          normalizedWorkspaceId={normalizedWorkspaceId}
-          onCreateAgentTab={handleCreateAgentTab}
-          onRestoreClosedTab={onRestoreClosedTab}
-          onLayout={handleInlineAddButtonLayout}
-        />
+        {isVertical ? null : (
+          <WorkspaceInlineAddTabButton
+            shortcutKeys={newTabKeys}
+            recentlyClosedTabs={recentlyClosedTabs}
+            normalizedServerId={normalizedServerId}
+            normalizedWorkspaceId={normalizedWorkspaceId}
+            onCreateAgentTab={handleCreateAgentTab}
+            onRestoreClosedTab={onRestoreClosedTab}
+            onLayout={handleInlineAddButtonLayout}
+          />
+        )}
       </ScrollView>
-      <View style={styles.tabsActions} onLayout={handleTabsActionsLayout}>
-        <WorkspaceTabRowExtras
-          onCreateAgentTab={handleCreateAgentTab}
-          onCreateTerminal={handleCreateTerminal}
-          onCreateBrowser={handleCreateBrowser}
-          onCreateTerminalWithProfile={handleCreateTerminalWithProfile}
-          onEditProfiles={handleEditProfiles}
-          normalizedServerId={normalizedServerId}
-          showCreateBrowserTab={showCreateBrowserTab}
-          terminalDisabled={terminalDisabled}
-        />
+      <View style={tabsActionsStyle} onLayout={handleTabsActionsLayout}>
+        {isVertical ? null : (
+          <>
+            {tabDisplayMenu}
+            {tabRowExtras}
+          </>
+        )}
         {showPaneSplitActions ? (
           <>
             <SplitActionButton
@@ -1181,6 +1479,7 @@ function ResolvedDesktopTabChip({
   onCloseTab,
   labels,
   dragHandleProps,
+  orientation,
   showDropIndicatorBefore,
   showDropIndicatorAfter,
 }: {
@@ -1207,6 +1506,7 @@ function ResolvedDesktopTabChip({
   onCloseTab: (tabId: string) => Promise<void> | void;
   labels: WorkspaceTabMenuLabels;
   dragHandleProps: DraggableListDragHandleProps | undefined;
+  orientation: "horizontal" | "vertical";
   showDropIndicatorBefore: boolean;
   showDropIndicatorAfter: boolean;
 }) {
@@ -1259,7 +1559,15 @@ function ResolvedDesktopTabChip({
 
         return (
           <View style={styles.tabSlot}>
-            {showDropIndicatorBefore ? <View style={TAB_DROP_INDICATOR_BEFORE_STYLE} /> : null}
+            {showDropIndicatorBefore ? (
+              <View
+                style={
+                  orientation === "vertical"
+                    ? TAB_DROP_INDICATOR_VERTICAL_BEFORE_STYLE
+                    : TAB_DROP_INDICATOR_BEFORE_STYLE
+                }
+              />
+            ) : null}
             <TabChip
               tab={item.tab}
               isActive={item.isActive}
@@ -1273,12 +1581,21 @@ function ResolvedDesktopTabChip({
               presentation={presentation}
               tooltipLabel={tooltipLabel}
               resolvedTab={resolvedTab}
+              orientation={orientation}
               setHoveredCloseTabKey={setHoveredCloseTabKey}
               onNavigateTab={onNavigateTab}
               onCloseTab={onCloseTab}
               dragHandleProps={dragHandleProps}
             />
-            {showDropIndicatorAfter ? <View style={TAB_DROP_INDICATOR_AFTER_STYLE} /> : null}
+            {showDropIndicatorAfter ? (
+              <View
+                style={
+                  orientation === "vertical"
+                    ? TAB_DROP_INDICATOR_VERTICAL_AFTER_STYLE
+                    : TAB_DROP_INDICATOR_AFTER_STYLE
+                }
+              />
+            ) : null}
           </View>
         );
       }}
@@ -1297,8 +1614,22 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     overflow: "visible",
   },
+  tabsContainerVertical: {
+    width: 220,
+    height: "100%",
+    minHeight: 0,
+    borderBottomWidth: 0,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.border,
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
   tabsScroll: {
     minWidth: 0,
+  },
+  tabsScrollVertical: {
+    flex: 1,
+    minHeight: 0,
   },
   tabsScrollFitContent: {
     flex: 1,
@@ -1310,10 +1641,40 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "stretch",
   },
+  tabsContentVertical: {
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
+  tabsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  tabsHeaderVertical: {
+    justifyContent: "space-between",
+    paddingHorizontal: theme.spacing[1],
+    paddingVertical: theme.spacing[1],
+    gap: theme.spacing[1],
+  },
+  tabsHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flexShrink: 1,
+    minWidth: 0,
+    gap: theme.spacing[1],
+  },
   tabsActions: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: theme.spacing[2],
+  },
+  tabsActionsVertical: {
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    paddingHorizontal: theme.spacing[1],
+    paddingVertical: theme.spacing[1],
+    justifyContent: "flex-start",
+    flexWrap: "wrap",
   },
   inlineAddButton: {
     flexDirection: "row",
@@ -1330,6 +1691,11 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[1],
     userSelect: "none",
   },
+  tabVertical: {
+    borderRightWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
   tabSlot: {
     position: "relative",
     overflow: "visible",
@@ -1342,6 +1708,12 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     userSelect: "none",
   },
+  tabHandleWithOverlayActions: {
+    paddingRight: 54,
+  },
+  tabHandleWithVerticalStatusBadge: {
+    paddingRight: 24,
+  },
   tabIcon: {
     flexShrink: 0,
   },
@@ -1352,6 +1724,13 @@ const styles = StyleSheet.create((theme) => ({
     right: 0,
     height: 2,
     backgroundColor: theme.colors.accent,
+  },
+  tabFocusIndicatorVertical: {
+    top: 0,
+    bottom: 0,
+    right: undefined,
+    width: 2,
+    height: undefined,
   },
   tabFocusIndicatorUnfocused: {
     backgroundColor: theme.colors.borderAccent,
@@ -1371,6 +1750,20 @@ const styles = StyleSheet.create((theme) => ({
   },
   tabDropIndicatorAfter: {
     right: -3,
+  },
+  tabDropIndicatorVertical: {
+    left: theme.spacing[2],
+    right: theme.spacing[2],
+    height: 5,
+    width: "auto",
+  },
+  tabDropIndicatorVerticalBefore: {
+    top: -3,
+    bottom: undefined,
+  },
+  tabDropIndicatorVerticalAfter: {
+    top: undefined,
+    bottom: -3,
   },
   tabLabel: {
     flexShrink: 1,
@@ -1407,11 +1800,53 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
   },
-  tabCloseButtonShown: {
-    opacity: 1,
+  tabCloseButtonOverlay: {
+    position: "absolute",
+    top: "50%",
+    right: theme.spacing[3],
+    marginTop: -9,
+  },
+  tabCloseButtonHidden: {
+    opacity: 0,
   },
   tabCloseButtonActive: {
     backgroundColor: theme.colors.surface3,
+  },
+  tabOverflowButtonOverlay: {
+    position: "absolute",
+    top: "50%",
+    right: theme.spacing[3] + 22,
+    marginTop: -9,
+    width: 18,
+    height: 18,
+  },
+  tabOverflowButton: {
+    width: 18,
+    height: 18,
+    borderRadius: theme.borderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabStatusBadge: {
+    position: "absolute",
+    top: "50%",
+    right: theme.spacing[3] + 4,
+    width: 10,
+    height: 10,
+    marginTop: -5,
+    borderRadius: theme.borderRadius.full,
+  },
+  tabStatusBadgeNeedsInput: {
+    backgroundColor: theme.colors.palette.amber[500],
+  },
+  tabStatusBadgeFailed: {
+    backgroundColor: theme.colors.palette.red[500],
+  },
+  tabStatusBadgeRunning: {
+    backgroundColor: theme.colors.palette.blue[500],
+  },
+  tabStatusBadgeAttention: {
+    backgroundColor: theme.colors.palette.green[500],
   },
   newTabActionButton: {
     width: 22,
@@ -1448,6 +1883,15 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
   },
+  tooltipColumn: {
+    maxWidth: 260,
+    gap: theme.spacing[1],
+  },
+  tooltipSubtitle: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    lineHeight: 16,
+  },
   tooltipAgentId: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
@@ -1464,3 +1908,13 @@ const styles = StyleSheet.create((theme) => ({
 
 const TAB_DROP_INDICATOR_BEFORE_STYLE = [styles.tabDropIndicator, styles.tabDropIndicatorBefore];
 const TAB_DROP_INDICATOR_AFTER_STYLE = [styles.tabDropIndicator, styles.tabDropIndicatorAfter];
+const TAB_DROP_INDICATOR_VERTICAL_BEFORE_STYLE = [
+  styles.tabDropIndicator,
+  styles.tabDropIndicatorVertical,
+  styles.tabDropIndicatorVerticalBefore,
+];
+const TAB_DROP_INDICATOR_VERTICAL_AFTER_STYLE = [
+  styles.tabDropIndicator,
+  styles.tabDropIndicatorVertical,
+  styles.tabDropIndicatorVerticalAfter,
+];

@@ -35,6 +35,7 @@ const DEFAULT_STATUS_DOT_SIZE = 7;
 const EMPHASIZED_STATUS_DOT_SIZE = 9;
 const DEFAULT_STATUS_DOT_OFFSET = 0;
 const EMPHASIZED_STATUS_DOT_OFFSET = -1;
+const WORKSPACE_ROW_TRAILING_OVERLAY_WIDTH = 20;
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -100,6 +101,8 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   isCreating = false,
   shortcutNumber = null,
   showShortcutBadge = false,
+  trailingContentPlacement = "inline",
+  trailingOverlayVisible = false,
   children,
 }: {
   workspace: SidebarWorkspaceEntry;
@@ -110,6 +113,8 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   isCreating?: boolean;
   shortcutNumber?: number | null;
   showShortcutBadge?: boolean;
+  trailingContentPlacement?: "inline" | "overlay";
+  trailingOverlayVisible?: boolean;
   children?: ReactNode;
 }) {
   const {
@@ -125,6 +130,22 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
     ],
     [scriptIconKind, isHovered, isCreating],
   );
+  const workspaceTitleRowStyle = useMemo(
+    () => [
+      styles.workspaceTitleRow,
+      trailingContentPlacement === "overlay" &&
+        trailingOverlayVisible &&
+        styles.workspaceTitleRowWithTrailingOverlay,
+    ],
+    [trailingContentPlacement, trailingOverlayVisible],
+  );
+  const trailingOverlayStyle = useMemo(
+    () => [
+      styles.workspaceRowRightOverlay,
+      !trailingOverlayVisible && styles.workspaceRowRightOverlayHidden,
+    ],
+    [trailingOverlayVisible],
+  );
 
   return (
     <View style={styles.workspaceRowContent}>
@@ -135,15 +156,25 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
           loading={isLoading}
         />
         <View style={styles.workspaceContentColumn}>
-          <View style={styles.workspaceTitleRow}>
+          <View style={workspaceTitleRowStyle}>
             <View style={styles.workspaceTitleLeft}>
               <Text style={workspaceBranchTextStyle} numberOfLines={1}>
                 {workspaceLabel}
               </Text>
               {scriptIconKind ? <WorkspaceScriptIcon kind={scriptIconKind} /> : null}
             </View>
-            <View style={styles.workspaceRowRight}>{children}</View>
+            {trailingContentPlacement === "inline" ? (
+              <View style={styles.workspaceRowRight}>{children}</View>
+            ) : null}
           </View>
+          {trailingContentPlacement === "overlay" ? (
+            <View
+              style={trailingOverlayStyle}
+              pointerEvents={trailingOverlayVisible ? "auto" : "none"}
+            >
+              <View style={styles.workspaceRowRight}>{children}</View>
+            </View>
+          ) : null}
           {subtitle ? (
             <Text style={styles.workspaceSubtitle} numberOfLines={1}>
               {subtitle}
@@ -495,6 +526,9 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "space-between",
     gap: theme.spacing[2],
   },
+  workspaceTitleRowWithTrailingOverlay: {
+    paddingRight: WORKSPACE_ROW_TRAILING_OVERLAY_WIDTH,
+  },
   workspaceTitleLeft: {
     flexDirection: "row",
     alignItems: "center",
@@ -503,6 +537,14 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
   },
   workspaceRowRight: sidebarWorkspaceRowStyles.rowRight,
+  workspaceRowRightOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+  },
+  workspaceRowRightOverlayHidden: {
+    opacity: 0,
+  },
   shortcutBadgeOverlay: {
     position: "absolute",
     top: 1,

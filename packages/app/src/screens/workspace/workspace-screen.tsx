@@ -21,6 +21,7 @@ import {
   ArrowLeftToLine,
   ArrowRightToLine,
   ChevronDown,
+  Columns2,
   Copy,
   Ellipsis,
   EllipsisVertical,
@@ -29,6 +30,7 @@ import {
   PanelRight,
   Pencil,
   RotateCw,
+  Rows2,
   Settings,
   SquarePen,
   SquareTerminal,
@@ -45,6 +47,7 @@ import { ScreenTitle } from "@/components/headers/screen-title";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Shortcut } from "@/components/ui/shortcut";
 import type { ShortcutKey } from "@/utils/format-shortcut";
+import { getShortcutOs } from "@/utils/shortcut-platform";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -76,6 +79,7 @@ import {
 import {
   buildWorkspaceTabPersistenceKey,
   collectAllTabs,
+  findTopLeftPaneId,
   getFocusedBrowserId,
   type RecentlyClosedWorkspaceTab,
   type WorkspaceLayout,
@@ -249,6 +253,8 @@ const ThemedGlobe = withUnistyles(Globe);
 const ThemedImport = withUnistyles(ImportIcon);
 const ThemedSettings = withUnistyles(Settings);
 const ThemedPanelRight = withUnistyles(PanelRight);
+const ThemedColumns2 = withUnistyles(Columns2);
+const ThemedRows2 = withUnistyles(Rows2);
 const ThemedSourceControlPanelIcon = withUnistyles(SourceControlPanelIcon);
 
 interface DynamicProviderIconProps {
@@ -1150,6 +1156,247 @@ function WorkspaceHeaderMenu({
   );
 }
 
+type WorkspaceHeaderSplitPlacement = "right" | "bottom";
+
+interface WorkspaceHeaderSplitMenuProps {
+  normalizedServerId: string;
+  showCreateBrowserTab: boolean;
+  createTerminalDisabled: boolean;
+  menuNewAgentIcon: ReactElement;
+  menuNewTerminalIcon: ReactElement;
+  menuNewBrowserIcon: ReactElement;
+  onCreateDraftSplit: (placement: WorkspaceHeaderSplitPlacement) => void;
+  onCreateTerminalSplit: (placement: WorkspaceHeaderSplitPlacement) => void;
+  onCreateTerminalProfileSplit: (
+    placement: WorkspaceHeaderSplitPlacement,
+    profile: TerminalProfileInput,
+  ) => void;
+  onCreateBrowserSplit: (placement: WorkspaceHeaderSplitPlacement) => void;
+}
+
+function useWorkspaceHeaderSplitPlacement(): WorkspaceHeaderSplitPlacement {
+  const [isAlternateSplitHeld, setIsAlternateSplitHeld] = useState(false);
+  const shortcutOs = useMemo(() => getShortcutOs(), []);
+
+  useEffect(() => {
+    if (!isWeb || typeof window === "undefined") {
+      return;
+    }
+
+    const readModifier = (event: KeyboardEvent) =>
+      shortcutOs === "mac" ? event.metaKey : event.ctrlKey;
+    const handleKeyChange = (event: KeyboardEvent) => {
+      setIsAlternateSplitHeld(readModifier(event));
+    };
+    const handleBlur = () => {
+      setIsAlternateSplitHeld(false);
+    };
+
+    window.addEventListener("keydown", handleKeyChange);
+    window.addEventListener("keyup", handleKeyChange);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyChange);
+      window.removeEventListener("keyup", handleKeyChange);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, [shortcutOs]);
+
+  return isAlternateSplitHeld ? "bottom" : "right";
+}
+
+function workspaceHeaderSplitTriggerStyle({
+  hovered = false,
+  pressed = false,
+  open = false,
+}: {
+  hovered?: boolean;
+  pressed?: boolean;
+  open?: boolean;
+}) {
+  return [
+    styles.compactHeaderActionButton,
+    (hovered || pressed || open) && styles.compactHeaderActionButtonHovered,
+  ];
+}
+
+function WorkspaceHeaderSplitMenuTriggerIcon({
+  placement,
+  hovered,
+  open,
+}: {
+  placement: WorkspaceHeaderSplitPlacement;
+  hovered: boolean;
+  open: boolean;
+}) {
+  const colorMapping = hovered || open ? foregroundColorMapping : mutedColorMapping;
+  return placement === "right" ? (
+    <ThemedColumns2 size={16} uniProps={colorMapping} />
+  ) : (
+    <ThemedRows2 size={16} uniProps={colorMapping} />
+  );
+}
+
+function WorkspaceHeaderSplitMenu({
+  normalizedServerId,
+  showCreateBrowserTab,
+  createTerminalDisabled,
+  menuNewAgentIcon,
+  menuNewTerminalIcon,
+  menuNewBrowserIcon,
+  onCreateDraftSplit,
+  onCreateTerminalSplit,
+  onCreateTerminalProfileSplit,
+  onCreateBrowserSplit,
+}: WorkspaceHeaderSplitMenuProps) {
+  const { t } = useTranslation();
+  const router = useRouter();
+  const placement = useWorkspaceHeaderSplitPlacement();
+  const { config } = useDaemonConfig(normalizedServerId);
+  const profiles = useMemo(
+    () => resolveTerminalProfiles(config?.terminalProfiles),
+    [config?.terminalProfiles],
+  );
+  const label =
+    placement === "right"
+      ? t("workspace.tabs.actions.splitRight")
+      : t("workspace.tabs.actions.splitDown");
+
+  const handleCreateDraft = useCallback(() => {
+    onCreateDraftSplit(placement);
+  }, [onCreateDraftSplit, placement]);
+  const handleCreateTerminal = useCallback(() => {
+    onCreateTerminalSplit(placement);
+  }, [onCreateTerminalSplit, placement]);
+  const handleCreateBrowser = useCallback(() => {
+    onCreateBrowserSplit(placement);
+  }, [onCreateBrowserSplit, placement]);
+  const handleCreateTerminalWithProfile = useCallback(
+    (profile: TerminalProfileInput) => {
+      onCreateTerminalProfileSplit(placement, profile);
+    },
+    [onCreateTerminalProfileSplit, placement],
+  );
+  const handleEditProfiles = useCallback(() => {
+    router.push(buildSettingsHostSectionRoute(normalizedServerId, "terminals") as Href);
+  }, [normalizedServerId, router]);
+  const renderTriggerIcon = useCallback(
+    ({ hovered, open }: { hovered: boolean; open: boolean }) => (
+      <WorkspaceHeaderSplitMenuTriggerIcon placement={placement} hovered={hovered} open={open} />
+    ),
+    [placement],
+  );
+
+  return (
+    <DropdownMenu>
+      <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
+        <TooltipTrigger asChild triggerRefProp="triggerRef">
+          <DropdownMenuTrigger
+            testID="workspace-header-split-menu-trigger"
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            style={workspaceHeaderSplitTriggerStyle}
+          >
+            {renderTriggerIcon}
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="center" offset={8}>
+          <Text style={styles.newTabTooltipText}>{label}</Text>
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent
+        side="bottom"
+        align="start"
+        width={220}
+        testID="workspace-header-split-menu"
+      >
+        <DropdownMenuItem
+          testID="workspace-header-split-new-agent"
+          leading={menuNewAgentIcon}
+          onSelect={handleCreateDraft}
+        >
+          {t("workspace.header.actions.newAgent")}
+        </DropdownMenuItem>
+        {showCreateBrowserTab ? (
+          <DropdownMenuItem
+            testID="workspace-header-split-new-browser"
+            leading={menuNewBrowserIcon}
+            onSelect={handleCreateBrowser}
+          >
+            {t("workspace.header.actions.newBrowser")}
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>{t("workspace.tabs.actions.terminalProfilesMenu")}</DropdownMenuLabel>
+        <DropdownMenuItem
+          testID="workspace-header-split-new-terminal"
+          leading={menuNewTerminalIcon}
+          disabled={createTerminalDisabled}
+          onSelect={createTerminalDisabled ? undefined : handleCreateTerminal}
+        >
+          {t("workspace.header.actions.newTerminal")}
+        </DropdownMenuItem>
+        {profiles.map((profile) => (
+          <HeaderMenuProfileItem
+            key={profile.id}
+            profile={profile}
+            disabled={createTerminalDisabled}
+            onCreateTerminalWithProfile={handleCreateTerminalWithProfile}
+          />
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          testID="workspace-header-split-edit-terminal-profiles"
+          onSelect={handleEditProfiles}
+        >
+          {t("workspace.tabs.actions.editTerminalProfiles")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+interface WorkspaceHeaderSplitMenuRenderInput extends WorkspaceHeaderSplitMenuProps {
+  visible: boolean;
+}
+
+function shouldShowWorkspaceHeaderSplitMenu(input: {
+  isMobile: boolean;
+  topLeftPaneTabBarOrientation: "horizontal" | "vertical";
+  canRenderDesktopPaneSplits: boolean;
+  mainPaneId: string | null;
+}): boolean {
+  return (
+    !input.isMobile &&
+    input.topLeftPaneTabBarOrientation === "vertical" &&
+    input.canRenderDesktopPaneSplits &&
+    input.mainPaneId !== null
+  );
+}
+
+function renderWorkspaceHeaderSplitMenu(
+  input: WorkspaceHeaderSplitMenuRenderInput,
+): ReactElement | null {
+  if (!input.visible) {
+    return null;
+  }
+
+  return (
+    <WorkspaceHeaderSplitMenu
+      normalizedServerId={input.normalizedServerId}
+      showCreateBrowserTab={input.showCreateBrowserTab}
+      createTerminalDisabled={input.createTerminalDisabled}
+      menuNewAgentIcon={input.menuNewAgentIcon}
+      menuNewTerminalIcon={input.menuNewTerminalIcon}
+      menuNewBrowserIcon={input.menuNewBrowserIcon}
+      onCreateDraftSplit={input.onCreateDraftSplit}
+      onCreateTerminalSplit={input.onCreateTerminalSplit}
+      onCreateTerminalProfileSplit={input.onCreateTerminalProfileSplit}
+      onCreateBrowserSplit={input.onCreateBrowserSplit}
+    />
+  );
+}
+
 interface WorkspaceHeaderTitleBarProps {
   isLoading: boolean;
   title: string;
@@ -1878,6 +2125,10 @@ function WorkspaceScreenContent({
     () => (workspaceLayout ? collectAllTabs(workspaceLayout.root) : EMPTY_UI_TABS),
     [workspaceLayout],
   );
+  const mainPaneId = useMemo(
+    () => (workspaceLayout ? findTopLeftPaneId(workspaceLayout.root) : null),
+    [workspaceLayout],
+  );
   useSyncWorkspaceActiveBrowser({ workspaceLayout, isRouteFocused });
   const openWorkspaceTabInBackground = useWorkspaceLayoutStore(
     (state) => state.openTabInBackground,
@@ -1894,6 +2145,9 @@ function WorkspaceScreenContent({
   const reconcileWorkspaceTabs = useWorkspaceLayoutStore((state) => state.reconcileTabs);
   const splitWorkspacePane = useWorkspaceLayoutStore((state) => state.splitPane);
   const splitWorkspacePaneEmpty = useWorkspaceLayoutStore((state) => state.splitPaneEmpty);
+  const topLeftPaneTabBarOrientation = useWorkspaceLayoutStore(
+    (state) => state.topLeftPaneTabBarOrientation,
+  );
   const moveWorkspaceTabToPane = useWorkspaceLayoutStore((state) => state.moveTabToPane);
   const paneFocusSuppressedRef = useRef(false);
   const resizeWorkspaceSplit = useWorkspaceLayoutStore((state) => state.resizeSplit);
@@ -2491,6 +2745,62 @@ function WorkspaceScreenContent({
       handleCreateDraftTab({ paneId });
     },
     [handleCreateDraftTab, persistenceKey, splitWorkspacePaneEmpty],
+  );
+
+  const handleCreateMainPaneSplit = useCallback(
+    (placement: WorkspaceHeaderSplitPlacement, createInPane: (paneId: string) => void) => {
+      if (!persistenceKey || !mainPaneId) {
+        return;
+      }
+
+      const paneId = splitWorkspacePaneEmpty(persistenceKey, {
+        targetPaneId: mainPaneId,
+        position: placement,
+      });
+      if (!paneId) {
+        return;
+      }
+
+      focusWorkspacePane(persistenceKey, paneId);
+      createInPane(paneId);
+    },
+    [focusWorkspacePane, mainPaneId, persistenceKey, splitWorkspacePaneEmpty],
+  );
+
+  const handleCreateDraftMainPaneSplit = useCallback(
+    (placement: WorkspaceHeaderSplitPlacement) => {
+      handleCreateMainPaneSplit(placement, (paneId) => {
+        handleCreateDraftTab({ paneId });
+      });
+    },
+    [handleCreateDraftTab, handleCreateMainPaneSplit],
+  );
+
+  const handleCreateTerminalMainPaneSplit = useCallback(
+    (placement: WorkspaceHeaderSplitPlacement) => {
+      handleCreateMainPaneSplit(placement, (paneId) => {
+        createTerminal({ paneId });
+      });
+    },
+    [createTerminal, handleCreateMainPaneSplit],
+  );
+
+  const handleCreateTerminalProfileMainPaneSplit = useCallback(
+    (placement: WorkspaceHeaderSplitPlacement, profile: TerminalProfileInput) => {
+      handleCreateMainPaneSplit(placement, (paneId) => {
+        createTerminal({ paneId, profile });
+      });
+    },
+    [createTerminal, handleCreateMainPaneSplit],
+  );
+
+  const handleCreateBrowserMainPaneSplit = useCallback(
+    (placement: WorkspaceHeaderSplitPlacement) => {
+      handleCreateMainPaneSplit(placement, (paneId) => {
+        handleCreateBrowserTab({ paneId });
+      });
+    },
+    [handleCreateBrowserTab, handleCreateMainPaneSplit],
   );
 
   const killTerminalAsync = killTerminalMutation.mutateAsync;
@@ -3438,6 +3748,24 @@ function WorkspaceScreenContent({
     [createTerminalMutation.isPending, pendingTerminalCreateInput],
   );
   const showCreateBrowserTab = getIsElectron();
+  const headerSplitMenu = renderWorkspaceHeaderSplitMenu({
+    visible: shouldShowWorkspaceHeaderSplitMenu({
+      isMobile,
+      topLeftPaneTabBarOrientation,
+      canRenderDesktopPaneSplits,
+      mainPaneId,
+    }),
+    normalizedServerId,
+    showCreateBrowserTab,
+    createTerminalDisabled,
+    menuNewAgentIcon,
+    menuNewTerminalIcon,
+    menuNewBrowserIcon: MENU_NEW_BROWSER_ICON,
+    onCreateDraftSplit: handleCreateDraftMainPaneSplit,
+    onCreateTerminalSplit: handleCreateTerminalMainPaneSplit,
+    onCreateTerminalProfileSplit: handleCreateTerminalProfileMainPaneSplit,
+    onCreateBrowserSplit: handleCreateBrowserMainPaneSplit,
+  });
   const focusedPaneIdOrUndefined = useMemo(() => focusedPaneId ?? undefined, [focusedPaneId]);
   const desktopFocusModeEnabled = useMemo(
     () => isFocusModeEnabled && !isMobile,
@@ -3536,6 +3864,7 @@ function WorkspaceScreenContent({
           left={
             <>
               <SidebarMenuToggle />
+              {headerSplitMenu}
               <WorkspaceHeaderTitleBar
                 isLoading={isWorkspaceHeaderLoading}
                 title={workspaceHeaderTitle}
@@ -3788,6 +4117,9 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.lg,
     alignItems: "center",
     justifyContent: "center",
+  },
+  compactHeaderActionButtonHovered: {
+    backgroundColor: theme.colors.surface2,
   },
   compactHeaderMenuCluster: {
     flexDirection: "row",

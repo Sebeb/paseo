@@ -486,6 +486,7 @@ export const ja: TranslationResources = {
         splitDown: "下にペインを分割",
         terminalProfilesMenu: "ターミナルプロファイル",
         editTerminalProfiles: "プロファイルを編集…",
+        verticalTabs: "縦型タブ",
         pinTarget: "ピン留め",
         unpinTarget: "ピン留めを解除",
       },
