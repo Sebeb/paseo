@@ -26,6 +26,7 @@ import {
   RotateCw,
   Rows2,
   Globe,
+  MoreVertical,
   Plus,
   Settings2,
   SquarePen,
@@ -47,6 +48,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  useContextMenu,
 } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
@@ -106,6 +108,7 @@ const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedGlobe = withUnistyles(Globe);
+const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedColumns2 = withUnistyles(Columns2);
 const ThemedRows2 = withUnistyles(Rows2);
 const ThemedPlus = withUnistyles(Plus);
@@ -127,6 +130,10 @@ function newTabActionButtonStyle({ hovered, pressed }: PressableStateCallbackTyp
 
 function inlineAddActionButtonStyle({ hovered, pressed }: PressableStateCallbackType) {
   return [styles.inlineAddActionButton, (hovered || pressed) && styles.newTabActionButtonHovered];
+}
+
+function tabOverflowButtonStyle({ hovered, pressed }: PressableStateCallbackType) {
+  return [styles.tabOverflowButton, (hovered || pressed) && styles.tabCloseButtonActive];
 }
 
 function updateMeasuredWidth(setWidth: Dispatch<SetStateAction<number>>, event: LayoutChangeEvent) {
@@ -532,6 +539,75 @@ function useMiddleClickClose(onClose: () => void) {
   return ref;
 }
 
+function getVerticalStatusBadgeStyle(bucket: WorkspaceTabPresentation["statusBucket"]) {
+  switch (bucket) {
+    case "needs_input":
+      return styles.tabStatusBadgeNeedsInput;
+    case "failed":
+      return styles.tabStatusBadgeFailed;
+    case "running":
+      return styles.tabStatusBadgeRunning;
+    case "attention":
+      return styles.tabStatusBadgeAttention;
+    default:
+      return null;
+  }
+}
+
+function VerticalTabStatusBadge({
+  bucket,
+  visible,
+}: {
+  bucket: WorkspaceTabPresentation["statusBucket"];
+  visible: boolean;
+}) {
+  const badgeStyle = getVerticalStatusBadgeStyle(bucket);
+  const containerStyle = useMemo(() => [styles.tabStatusBadge, badgeStyle], [badgeStyle]);
+  if (!visible || !badgeStyle) {
+    return null;
+  }
+  return <View pointerEvents="none" style={containerStyle} />;
+}
+
+function VerticalTabOverflowButton({ visible, testID }: { visible: boolean; testID: string }) {
+  const menuController = useContextMenu();
+  const handlePress = useCallback(
+    (event: { stopPropagation?: () => void }) => {
+      event.stopPropagation?.();
+      menuController.setOpen(true);
+    },
+    [menuController],
+  );
+  const handlePressIn = useCallback((event: { stopPropagation?: () => void }) => {
+    event.stopPropagation?.();
+  }, []);
+  const buttonOverlayStyle = useMemo(
+    () => [styles.tabOverflowButtonOverlay, !visible && styles.tabCloseButtonHidden],
+    [visible],
+  );
+
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel="Tab actions"
+      onPressIn={handlePressIn}
+      onPress={handlePress}
+      pointerEvents={visible ? "auto" : "none"}
+      style={buttonOverlayStyle}
+    >
+      {({ hovered, pressed }) => (
+        <View style={tabOverflowButtonStyle({ hovered, pressed })}>
+          <ThemedMoreVertical
+            size={12}
+            uniProps={hovered || pressed ? foregroundColorMapping : mutedColorMapping}
+          />
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
 function TabHandleContent({
   presentation,
   isHighlighted,
@@ -539,6 +615,7 @@ function TabHandleContent({
   style,
   tabLabelSkeletonStyle,
   tabLabelStyle,
+  showIconStatusBadge = true,
 }: {
   presentation: WorkspaceTabPresentation;
   isHighlighted: boolean;
@@ -546,6 +623,7 @@ function TabHandleContent({
   style?: React.ComponentProps<typeof View>["style"];
   tabLabelSkeletonStyle: React.ComponentProps<typeof View>["style"];
   tabLabelStyle: React.ComponentProps<typeof Text>["style"];
+  showIconStatusBadge?: boolean;
 }) {
   const tabHandleDataSet = useMemo(
     () => ({ statusBucket: presentation.statusBucket ?? "none" }),
@@ -556,7 +634,11 @@ function TabHandleContent({
   return (
     <View style={tabHandleStyle} dataSet={tabHandleDataSet}>
       <View style={styles.tabIcon}>
-        <WorkspaceTabIcon presentation={presentation} active={isHighlighted} />
+        <WorkspaceTabIcon
+          presentation={presentation}
+          active={isHighlighted}
+          showStatusBadge={showIconStatusBadge}
+        />
       </View>
       {showLabel && presentation.titleState === "loading" ? (
         <View style={tabLabelSkeletonStyle} />
@@ -564,6 +646,40 @@ function TabHandleContent({
       {showLabel && presentation.titleState !== "loading" ? (
         <Text style={tabLabelStyle} selectable={false} numberOfLines={1} ellipsizeMode="tail">
           {presentation.label}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function TabTooltipPreview({
+  tab,
+  presentation,
+  tooltipLabel,
+  orientation,
+}: {
+  tab: WorkspaceTabDescriptor;
+  presentation: WorkspaceTabPresentation;
+  tooltipLabel: string;
+  orientation: "horizontal" | "vertical";
+}) {
+  const subtitle = presentation.subtitle.trim();
+  const showSubtitle = subtitle.length > 0 && subtitle !== tooltipLabel;
+  const subtitleLineCount = orientation === "vertical" ? 4 : 1;
+
+  return (
+    <View style={styles.tooltipColumn}>
+      {tab.target.kind === "agent" ? (
+        <View style={styles.tooltipAgentRow}>
+          <Text style={styles.newTabTooltipText}>{tooltipLabel}</Text>
+          <Text style={styles.tooltipAgentId}>{tab.target.agentId.slice(0, 7)}</Text>
+        </View>
+      ) : (
+        <Text style={styles.newTabTooltipText}>{tooltipLabel}</Text>
+      )}
+      {showSubtitle ? (
+        <Text style={styles.tooltipSubtitle} numberOfLines={subtitleLineCount} ellipsizeMode="tail">
+          {subtitle}
         </Text>
       ) : null}
     </View>
@@ -614,6 +730,10 @@ function TabChip({
   const [hovered, setHovered] = useState(false);
   const isHighlighted = isActive || hovered || isCloseHovered;
   const usesOverlayCloseButton = orientation === "vertical";
+  const showVerticalTrailingActions = orientation === "vertical" && isHighlighted;
+  const hasVerticalStatusBadge = getVerticalStatusBadgeStyle(presentation.statusBucket) !== null;
+  const showVerticalStatusBadge =
+    orientation === "vertical" && !showVerticalTrailingActions && hasVerticalStatusBadge;
   const closeButtonVisible = showCloseButton && (!usesOverlayCloseButton || isHighlighted);
   const closeButtonDragBlockers = isWeb
     ? ({
@@ -715,8 +835,11 @@ function TabChip({
     [isHighlighted, showCloseButton, usesOverlayCloseButton],
   );
   const tabHandleStyle = useMemo(
-    () => [usesOverlayCloseButton && closeButtonVisible && styles.tabHandleWithOverlayCloseButton],
-    [closeButtonVisible, usesOverlayCloseButton],
+    () => [
+      usesOverlayCloseButton && closeButtonVisible && styles.tabHandleWithOverlayActions,
+      showVerticalStatusBadge && styles.tabHandleWithVerticalStatusBadge,
+    ],
+    [closeButtonVisible, showVerticalStatusBadge, usesOverlayCloseButton],
   );
 
   return (
@@ -748,7 +871,21 @@ function TabChip({
                 style={tabHandleStyle}
                 tabLabelSkeletonStyle={tabLabelSkeletonStyle}
                 tabLabelStyle={tabLabelStyle}
+                showIconStatusBadge={orientation !== "vertical"}
               />
+
+              {orientation === "vertical" ? (
+                <>
+                  <VerticalTabStatusBadge
+                    bucket={presentation.statusBucket}
+                    visible={showVerticalStatusBadge}
+                  />
+                  <VerticalTabOverflowButton
+                    visible={showVerticalTrailingActions}
+                    testID={`${contextMenuTestId}-trigger`}
+                  />
+                </>
+              ) : null}
 
               {showCloseButton ? (
                 <Pressable
@@ -788,14 +925,12 @@ function TabChip({
             align="center"
             offset={8}
           >
-            {tab.target.kind === "agent" ? (
-              <View style={styles.tooltipAgentRow}>
-                <Text style={styles.newTabTooltipText}>{tooltipLabel}</Text>
-                <Text style={styles.tooltipAgentId}>{tab.target.agentId.slice(0, 7)}</Text>
-              </View>
-            ) : (
-              <Text style={styles.newTabTooltipText}>{tooltipLabel}</Text>
-            )}
+            <TabTooltipPreview
+              tab={tab}
+              presentation={presentation}
+              tooltipLabel={tooltipLabel}
+              orientation={orientation}
+            />
           </TooltipContent>
         </Tooltip>
 
@@ -1095,6 +1230,18 @@ export function WorkspaceDesktopTabsRow({
       onVerticalTabsChange={handleVerticalTabsChange}
     />
   );
+  const tabRowExtras = (
+    <WorkspaceTabRowExtras
+      onCreateAgentTab={handleCreateAgentTab}
+      onCreateTerminal={handleCreateTerminal}
+      onCreateBrowser={handleCreateBrowser}
+      onCreateTerminalWithProfile={handleCreateTerminalWithProfile}
+      onEditProfiles={handleEditProfiles}
+      normalizedServerId={normalizedServerId}
+      showCreateBrowserTab={showCreateBrowserTab}
+      terminalDisabled={terminalDisabled}
+    />
+  );
 
   const row = (
     <View
@@ -1109,7 +1256,10 @@ export function WorkspaceDesktopTabsRow({
             onCreateAgentTab={handleCreateAgentTab}
             onLayout={handleInlineAddButtonLayout}
           />
-          {tabDisplayMenu}
+          <View style={styles.tabsHeaderActions}>
+            {tabRowExtras}
+            {tabDisplayMenu}
+          </View>
         </View>
       ) : null}
       <ScrollView
@@ -1142,17 +1292,12 @@ export function WorkspaceDesktopTabsRow({
         )}
       </ScrollView>
       <View style={tabsActionsStyle} onLayout={handleTabsActionsLayout}>
-        {isVertical ? null : tabDisplayMenu}
-        <WorkspaceTabRowExtras
-          onCreateAgentTab={handleCreateAgentTab}
-          onCreateTerminal={handleCreateTerminal}
-          onCreateBrowser={handleCreateBrowser}
-          onCreateTerminalWithProfile={handleCreateTerminalWithProfile}
-          onEditProfiles={handleEditProfiles}
-          normalizedServerId={normalizedServerId}
-          showCreateBrowserTab={showCreateBrowserTab}
-          terminalDisabled={terminalDisabled}
-        />
+        {isVertical ? null : (
+          <>
+            {tabDisplayMenu}
+            {tabRowExtras}
+          </>
+        )}
         {showPaneSplitActions ? (
           <>
             <SplitActionButton
@@ -1373,8 +1518,15 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "space-between",
     paddingHorizontal: theme.spacing[1],
     paddingVertical: theme.spacing[1],
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    gap: theme.spacing[1],
+  },
+  tabsHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flexShrink: 1,
+    minWidth: 0,
+    gap: theme.spacing[1],
   },
   tabsActions: {
     flexDirection: "row",
@@ -1421,8 +1573,11 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     userSelect: "none",
   },
-  tabHandleWithOverlayCloseButton: {
-    paddingRight: 30,
+  tabHandleWithOverlayActions: {
+    paddingRight: 54,
+  },
+  tabHandleWithVerticalStatusBadge: {
+    paddingRight: 24,
   },
   tabIcon: {
     flexShrink: 0,
@@ -1522,6 +1677,42 @@ const styles = StyleSheet.create((theme) => ({
   tabCloseButtonActive: {
     backgroundColor: theme.colors.surface3,
   },
+  tabOverflowButtonOverlay: {
+    position: "absolute",
+    top: "50%",
+    right: theme.spacing[3] + 22,
+    marginTop: -9,
+    width: 18,
+    height: 18,
+  },
+  tabOverflowButton: {
+    width: 18,
+    height: 18,
+    borderRadius: theme.borderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabStatusBadge: {
+    position: "absolute",
+    top: "50%",
+    right: theme.spacing[3] + 4,
+    width: 10,
+    height: 10,
+    marginTop: -5,
+    borderRadius: theme.borderRadius.full,
+  },
+  tabStatusBadgeNeedsInput: {
+    backgroundColor: theme.colors.palette.amber[500],
+  },
+  tabStatusBadgeFailed: {
+    backgroundColor: theme.colors.palette.red[500],
+  },
+  tabStatusBadgeRunning: {
+    backgroundColor: theme.colors.palette.blue[500],
+  },
+  tabStatusBadgeAttention: {
+    backgroundColor: theme.colors.palette.green[500],
+  },
   newTabActionButton: {
     width: 22,
     height: 22,
@@ -1556,6 +1747,15 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
+  },
+  tooltipColumn: {
+    maxWidth: 260,
+    gap: theme.spacing[1],
+  },
+  tooltipSubtitle: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    lineHeight: 16,
   },
   tooltipAgentId: {
     color: theme.colors.foregroundMuted,

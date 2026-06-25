@@ -20,6 +20,19 @@ This branch adds support for displaying workspace pane tabs vertically. It exten
 - Updates split-container layout so pane content and tab bars size correctly when a tab bar is vertical.
 - Adds localized copy for the vertical-tabs action.
 
+## Restored Main Polish
+
+These details were previously implemented on `main`, then lost when this feature was split out. They are part of this branch's intended behavior and should be preserved when rebasing or batching the feature again.
+
+- The vertical tab bar header includes the primary new-tab button, the same new-tab dropdown used by horizontal tab bars, and a tab-specific display preferences button.
+- The vertical tab bar header does not draw a divider between the header controls and the tab list.
+- The lower vertical action strip is reserved for pane split actions; new-tab type selection lives in the header.
+- Vertical tabs can be right-clicked to open the same context menu as the tab action menu.
+- Vertical tabs show a three-dot context action button in the right hover action area, next to the close button.
+- Vertical tabs render status in a dynamic right-side badge lane. The title consumes the available row width when no badge or hover actions are visible.
+- Vertical status markers render as filled circles in the trailing badge lane instead of replacing or decorating the leading tab icon.
+- Vertical tab hover previews show up to four subtitle lines when a tab descriptor provides preview text.
+
 ## Tab Drop Preview
 
 ### `packages/app/src/components/split-container-tab-drop-preview.ts`
