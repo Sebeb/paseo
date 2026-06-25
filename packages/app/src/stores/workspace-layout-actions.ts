@@ -706,7 +706,11 @@ function reorderTabsForPane(input: ReorderTabsForPaneInput): SplitPaneInternal {
 function removePaneByPath(root: SplitNodeInternal, path: number[]): SplitNodeInternal {
   if (path.length === 0) {
     invariant(root.kind === "pane", "Expected pane at root while removing pane");
-    return createPaneNode({ id: root.pane.id, createdAt: root.pane.createdAt });
+    return createPaneNode({
+      id: root.pane.id,
+      tabBarOrientation: root.pane.tabBarOrientation,
+      createdAt: root.pane.createdAt,
+    });
   }
 
   const parentPath = path.slice(0, -1);

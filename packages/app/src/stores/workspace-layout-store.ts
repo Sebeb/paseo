@@ -959,10 +959,6 @@ export function createWorkspaceLayoutStore(
 
           set((state) => {
             const layout = getWorkspaceLayout(state.layoutByWorkspace, normalizedWorkspaceKey);
-            if (!findPaneById(layout.root, normalizedPaneId)) {
-              return state;
-            }
-
             if (findTopLeftPaneId(layout.root) === normalizedPaneId) {
               if (state.topLeftPaneTabBarOrientation === orientation) {
                 return state;

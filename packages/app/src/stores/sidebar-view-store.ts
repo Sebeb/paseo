@@ -6,12 +6,14 @@ export type SidebarGroupMode = "project" | "status";
 export type SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated" | "status";
 export type SidebarEmbeddedRecentTabCount = 3 | 5 | 10 | "all";
 export type SidebarBadgeMode = "diff" | "status" | "none";
+export type SidebarTabBarBadgeMode = "status" | "none";
 
 interface SidebarViewStoreState {
   groupModeByServerId: Record<string, SidebarGroupMode>;
   embeddedTabSortModeByServerId: Record<string, SidebarEmbeddedTabSortMode>;
   embeddedRecentTabCountByServerId: Record<string, SidebarEmbeddedRecentTabCount>;
   badgeModeByServerId: Record<string, SidebarBadgeMode>;
+  tabBarBadgeModeByServerId: Record<string, SidebarTabBarBadgeMode>;
   autoCollapseWorkspaces: boolean;
   getGroupMode: (serverId: string) => SidebarGroupMode;
   setGroupMode: (serverId: string, mode: SidebarGroupMode) => void;
@@ -21,6 +23,8 @@ interface SidebarViewStoreState {
   setEmbeddedRecentTabCount: (serverId: string, count: SidebarEmbeddedRecentTabCount) => void;
   getBadgeMode: (serverId: string) => SidebarBadgeMode;
   setBadgeMode: (serverId: string, mode: SidebarBadgeMode) => void;
+  getTabBarBadgeMode: (serverId: string) => SidebarTabBarBadgeMode;
+  setTabBarBadgeMode: (serverId: string, mode: SidebarTabBarBadgeMode) => void;
   setAutoCollapseWorkspaces: (enabled: boolean) => void;
 }
 
@@ -38,6 +42,10 @@ function normalizeBadgeMode(value: unknown): SidebarBadgeMode {
   return value === "status" || value === "none" || value === "diff" ? value : "status";
 }
 
+function normalizeTabBarBadgeMode(value: unknown): SidebarTabBarBadgeMode {
+  return value === "status" || value === "none" ? value : "status";
+}
+
 export const useSidebarViewStore = create<SidebarViewStoreState>()(
   persist(
     (set, get) => ({
@@ -45,6 +53,7 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
       embeddedTabSortModeByServerId: {},
       embeddedRecentTabCountByServerId: {},
       badgeModeByServerId: {},
+      tabBarBadgeModeByServerId: {},
       autoCollapseWorkspaces: false,
       getGroupMode: (serverId) => {
         const key = serverId.trim();
@@ -106,6 +115,21 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
           },
         }));
       },
+      getTabBarBadgeMode: (serverId) => {
+        const key = serverId.trim();
+        if (!key) return "status";
+        return normalizeTabBarBadgeMode(get().tabBarBadgeModeByServerId[key]);
+      },
+      setTabBarBadgeMode: (serverId, mode) => {
+        const key = serverId.trim();
+        if (!key) return;
+        set((state) => ({
+          tabBarBadgeModeByServerId: {
+            ...state.tabBarBadgeModeByServerId,
+            [key]: normalizeTabBarBadgeMode(mode),
+          },
+        }));
+      },
       setAutoCollapseWorkspaces: (enabled) => {
         set({ autoCollapseWorkspaces: enabled });
       },
@@ -118,6 +142,7 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
         embeddedTabSortModeByServerId: state.embeddedTabSortModeByServerId,
         embeddedRecentTabCountByServerId: state.embeddedRecentTabCountByServerId,
         badgeModeByServerId: state.badgeModeByServerId,
+        tabBarBadgeModeByServerId: state.tabBarBadgeModeByServerId,
         autoCollapseWorkspaces: state.autoCollapseWorkspaces,
       }),
     },

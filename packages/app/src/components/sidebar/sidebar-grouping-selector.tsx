@@ -17,6 +17,7 @@ import {
   type SidebarEmbeddedRecentTabCount,
   type SidebarEmbeddedTabSortMode,
   type SidebarGroupMode,
+  type SidebarTabBarBadgeMode,
 } from "@/stores/sidebar-view-store";
 import { isWeb as platformIsWeb } from "@/constants/platform";
 
@@ -48,6 +49,11 @@ const BADGE_MODE_ITEMS: Array<{ value: SidebarBadgeMode; label: string }> = [
   { value: "none", label: "None" },
 ];
 
+const TAB_BAR_BADGE_MODE_ITEMS: Array<{ value: SidebarTabBarBadgeMode; label: string }> = [
+  { value: "status", label: "Status" },
+  { value: "none", label: "None" },
+];
+
 const WORKSPACE_TITLE_SOURCE_ITEMS: Array<{ value: WorkspaceTitleSource; label: string }> = [
   { value: "title", label: "Title" },
   { value: "branch", label: "Branch name" },
@@ -58,23 +64,13 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
   const groupMode = useSidebarViewStore((state) =>
     serverId ? state.getGroupMode(serverId) : "project",
   );
-  const tabSortMode = useSidebarViewStore((state) =>
-    serverId ? state.getEmbeddedTabSortMode(serverId) : "manual",
-  );
-  const recentTabCount = useSidebarViewStore((state) =>
-    serverId ? state.getEmbeddedRecentTabCount(serverId) : 5,
-  );
-  const badgeMode = useSidebarViewStore((state) =>
-    serverId ? state.getBadgeMode(serverId) : "status",
-  );
   const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
   const setGroupMode = useSidebarViewStore((state) => state.setGroupMode);
-  const setTabSortMode = useSidebarViewStore((state) => state.setEmbeddedTabSortMode);
-  const setRecentTabCount = useSidebarViewStore((state) => state.setEmbeddedRecentTabCount);
-  const setBadgeMode = useSidebarViewStore((state) => state.setBadgeMode);
   const setAutoCollapseWorkspaces = useSidebarViewStore((state) => state.setAutoCollapseWorkspaces);
-  const showTabControls = settings.tabLayoutMode !== "horizontal";
-  const closeOnSelect = !showTabControls;
+  const showSidebarSpecificControls = settings.tabLayoutMode !== "horizontal";
+  const showTabControls = settings.tabLayoutMode === "sidebar";
+  const showSidebarBadge = settings.tabLayoutMode !== "horizontal";
+  const closeOnSelect = !showSidebarSpecificControls;
 
   const handleSelect = useCallback(
     (mode: SidebarGroupMode) => {
@@ -82,30 +78,6 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
       setGroupMode(serverId, mode);
     },
     [serverId, setGroupMode],
-  );
-
-  const handleTabSortSelect = useCallback(
-    (mode: SidebarEmbeddedTabSortMode) => {
-      if (!serverId) return;
-      setTabSortMode(serverId, mode);
-    },
-    [serverId, setTabSortMode],
-  );
-
-  const handleRecentTabCountSelect = useCallback(
-    (count: SidebarEmbeddedRecentTabCount) => {
-      if (!serverId) return;
-      setRecentTabCount(serverId, count);
-    },
-    [serverId, setRecentTabCount],
-  );
-
-  const handleBadgeModeSelect = useCallback(
-    (mode: SidebarBadgeMode) => {
-      if (!serverId) return;
-      setBadgeMode(serverId, mode);
-    },
-    [serverId, setBadgeMode],
   );
 
   const handleAutoCollapseSelect = useCallback(() => {
@@ -150,7 +122,7 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
             onSelect={handleSelect}
           />
         ))}
-        {showTabControls ? (
+        {showSidebarSpecificControls ? (
           <>
             <DropdownMenuSeparator />
             <View style={styles.menuHeader}>
@@ -174,49 +146,154 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
             >
               Auto collapse workspaces
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <View style={styles.menuHeader}>
-              <Text style={styles.menuHeaderLabel}>Tab sort</Text>
-            </View>
-            {TAB_SORT_ITEMS.map((item) => (
-              <TabSortMenuItem
-                key={item.value}
-                item={item}
-                isSelected={tabSortMode === item.value}
-                closeOnSelect={false}
-                onSelect={handleTabSortSelect}
-              />
-            ))}
-            <DropdownMenuSeparator />
-            <View style={styles.menuHeader}>
-              <Text style={styles.menuHeaderLabel}>Recent tab count</Text>
-            </View>
-            {RECENT_TAB_COUNT_ITEMS.map((item) => (
-              <RecentTabCountMenuItem
-                key={String(item.value)}
-                item={item}
-                isSelected={recentTabCount === item.value}
-                closeOnSelect={false}
-                onSelect={handleRecentTabCountSelect}
-              />
-            ))}
-            <DropdownMenuSeparator />
-            <View style={styles.menuHeader}>
-              <Text style={styles.menuHeaderLabel}>Display info</Text>
-            </View>
-            {BADGE_MODE_ITEMS.map((item) => (
-              <BadgeModeMenuItem
-                key={item.value}
-                item={item}
-                isSelected={badgeMode === item.value}
-                closeOnSelect={false}
-                onSelect={handleBadgeModeSelect}
-              />
-            ))}
           </>
         ) : null}
+        <SidebarDisplayPreferencesMenuSections
+          serverId={serverId}
+          showTabControls={showTabControls}
+          showSidebarBadge={showSidebarBadge}
+          closeOnSelect={false}
+          leadingSeparator={showSidebarSpecificControls}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+export function SidebarDisplayPreferencesMenuSections({
+  serverId,
+  showTabControls,
+  showRecentTabCount = showTabControls,
+  showSidebarBadge,
+  badgePreference = "sidebar",
+  closeOnSelect = false,
+  leadingSeparator = false,
+}: {
+  serverId: string | null;
+  showTabControls: boolean;
+  showRecentTabCount?: boolean;
+  showSidebarBadge: boolean;
+  badgePreference?: "sidebar" | "tabBar";
+  closeOnSelect?: boolean;
+  leadingSeparator?: boolean;
+}) {
+  const tabSortMode = useSidebarViewStore((state) =>
+    serverId ? state.getEmbeddedTabSortMode(serverId) : "manual",
+  );
+  const recentTabCount = useSidebarViewStore((state) =>
+    serverId ? state.getEmbeddedRecentTabCount(serverId) : 5,
+  );
+  const badgeMode = useSidebarViewStore((state) =>
+    serverId ? state.getBadgeMode(serverId) : "status",
+  );
+  const tabBarBadgeMode = useSidebarViewStore((state) =>
+    serverId ? state.getTabBarBadgeMode(serverId) : "status",
+  );
+  const setTabSortMode = useSidebarViewStore((state) => state.setEmbeddedTabSortMode);
+  const setRecentTabCount = useSidebarViewStore((state) => state.setEmbeddedRecentTabCount);
+  const setBadgeMode = useSidebarViewStore((state) => state.setBadgeMode);
+  const setTabBarBadgeMode = useSidebarViewStore((state) => state.setTabBarBadgeMode);
+
+  const handleTabSortSelect = useCallback(
+    (mode: SidebarEmbeddedTabSortMode) => {
+      if (!serverId) return;
+      setTabSortMode(serverId, mode);
+    },
+    [serverId, setTabSortMode],
+  );
+
+  const handleRecentTabCountSelect = useCallback(
+    (count: SidebarEmbeddedRecentTabCount) => {
+      if (!serverId) return;
+      setRecentTabCount(serverId, count);
+    },
+    [serverId, setRecentTabCount],
+  );
+
+  const handleBadgeModeSelect = useCallback(
+    (mode: SidebarBadgeMode) => {
+      if (!serverId) return;
+      setBadgeMode(serverId, mode);
+    },
+    [serverId, setBadgeMode],
+  );
+
+  const handleTabBarBadgeModeSelect = useCallback(
+    (mode: SidebarTabBarBadgeMode) => {
+      if (!serverId) return;
+      setTabBarBadgeMode(serverId, mode);
+    },
+    [serverId, setTabBarBadgeMode],
+  );
+
+  if (!showTabControls && !showRecentTabCount && !showSidebarBadge) {
+    return null;
+  }
+
+  return (
+    <>
+      {leadingSeparator ? <DropdownMenuSeparator /> : null}
+      {showTabControls ? (
+        <>
+          <View style={styles.menuHeader}>
+            <Text style={styles.menuHeaderLabel}>Tab sort</Text>
+          </View>
+          {TAB_SORT_ITEMS.map((item) => (
+            <TabSortMenuItem
+              key={item.value}
+              item={item}
+              isSelected={tabSortMode === item.value}
+              closeOnSelect={closeOnSelect}
+              onSelect={handleTabSortSelect}
+            />
+          ))}
+        </>
+      ) : null}
+      {showRecentTabCount ? (
+        <>
+          <DropdownMenuSeparator />
+          <View style={styles.menuHeader}>
+            <Text style={styles.menuHeaderLabel}>Recent tab count</Text>
+          </View>
+          {RECENT_TAB_COUNT_ITEMS.map((item) => (
+            <RecentTabCountMenuItem
+              key={String(item.value)}
+              item={item}
+              isSelected={recentTabCount === item.value}
+              closeOnSelect={closeOnSelect}
+              onSelect={handleRecentTabCountSelect}
+            />
+          ))}
+        </>
+      ) : null}
+      {showSidebarBadge ? (
+        <>
+          {showTabControls || showRecentTabCount ? <DropdownMenuSeparator /> : null}
+          <View style={styles.menuHeader}>
+            <Text style={styles.menuHeaderLabel}>Sidebar badge</Text>
+          </View>
+          {badgePreference === "tabBar"
+            ? TAB_BAR_BADGE_MODE_ITEMS.map((item) => (
+                <TabBarBadgeModeMenuItem
+                  key={item.value}
+                  item={item}
+                  isSelected={tabBarBadgeMode === item.value}
+                  closeOnSelect={closeOnSelect}
+                  onSelect={handleTabBarBadgeModeSelect}
+                />
+              ))
+            : BADGE_MODE_ITEMS.map((item) => (
+                <BadgeModeMenuItem
+                  key={item.value}
+                  item={item}
+                  isSelected={badgeMode === item.value}
+                  closeOnSelect={closeOnSelect}
+                  onSelect={handleBadgeModeSelect}
+                />
+              ))}
+        </>
+      ) : null}
+    </>
   );
 }
 
@@ -331,6 +408,30 @@ function BadgeModeMenuItem({
   return (
     <DropdownMenuItem
       testID={`sidebar-badge-mode-${item.value}`}
+      selected={isSelected}
+      closeOnSelect={closeOnSelect}
+      onSelect={handleSelect}
+    >
+      {item.label}
+    </DropdownMenuItem>
+  );
+}
+
+function TabBarBadgeModeMenuItem({
+  item,
+  isSelected,
+  closeOnSelect,
+  onSelect,
+}: {
+  item: { value: SidebarTabBarBadgeMode; label: string };
+  isSelected: boolean;
+  closeOnSelect: boolean;
+  onSelect: (mode: SidebarTabBarBadgeMode) => void;
+}) {
+  const handleSelect = useCallback(() => onSelect(item.value), [item.value, onSelect]);
+  return (
+    <DropdownMenuItem
+      testID={`tab-bar-badge-mode-${item.value}`}
       selected={isSelected}
       closeOnSelect={closeOnSelect}
       onSelect={handleSelect}

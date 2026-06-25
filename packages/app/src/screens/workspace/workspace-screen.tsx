@@ -84,6 +84,7 @@ import {
   buildWorkspaceTabPersistenceKey,
   collectAllTabs,
   findMainPane,
+  findTopLeftPaneId,
   getFocusedBrowserId,
   type RecentlyClosedWorkspaceTab,
   type WorkspaceLayout,
@@ -1377,10 +1378,25 @@ interface WorkspaceHeaderSplitMenuRenderInput extends WorkspaceHeaderSplitMenuPr
 
 function shouldShowWorkspaceHeaderSplitMenu(input: {
   embeddedTabsEnabled: boolean;
+  topLeftPaneTabBarOrientation: "horizontal" | "vertical";
   canRenderDesktopPaneSplits: boolean;
-  mainPaneId: string | null;
+  headerSplitPaneId: string | null;
 }): boolean {
-  return input.embeddedTabsEnabled && input.canRenderDesktopPaneSplits && input.mainPaneId !== null;
+  if (!input.canRenderDesktopPaneSplits || input.headerSplitPaneId === null) {
+    return false;
+  }
+  return input.embeddedTabsEnabled || input.topLeftPaneTabBarOrientation === "vertical";
+}
+
+function getWorkspaceHeaderSplitPaneId(input: {
+  embeddedTabsEnabled: boolean;
+  mainPaneId: string | null;
+  topLeftPaneId: string | null;
+}): string | null {
+  if (input.embeddedTabsEnabled) {
+    return input.mainPaneId;
+  }
+  return input.topLeftPaneId;
 }
 
 function renderWorkspaceHeaderSplitMenu(
@@ -1957,10 +1973,10 @@ function useDesktopEmbeddedTabsEnabled(isMobile: boolean): boolean {
 }
 
 function getWorkspaceTabNavigationSortMode(input: {
-  embeddedTabsEnabled: boolean;
+  tabSortingEnabled: boolean;
   tabSortMode: SidebarEmbeddedTabSortMode;
 }): SidebarEmbeddedTabSortMode {
-  if (input.embeddedTabsEnabled) {
+  if (input.tabSortingEnabled) {
     return input.tabSortMode;
   }
   return "manual";
@@ -2231,6 +2247,9 @@ function WorkspaceScreenContent({
   const tabSortMode = useSidebarViewStore((state) =>
     state.getEmbeddedTabSortMode(normalizedServerId),
   );
+  const topLeftPaneTabBarOrientation = useWorkspaceLayoutStore(
+    (state) => state.topLeftPaneTabBarOrientation,
+  );
   const browsersById = useBrowserStore((state) => state.browsersById);
   const draftRecords = useDraftStore((state) => state.drafts);
   const showWorkspaceSetup = shouldShowWorkspaceSetup(workspaceSetupSnapshot);
@@ -2242,6 +2261,15 @@ function WorkspaceScreenContent({
     () => (workspaceLayout ? (findMainPane(workspaceLayout.root)?.id ?? null) : null),
     [workspaceLayout],
   );
+  const topLeftPaneId = useMemo(
+    () => (workspaceLayout ? findTopLeftPaneId(workspaceLayout.root) : null),
+    [workspaceLayout],
+  );
+  const headerSplitPaneId = getWorkspaceHeaderSplitPaneId({
+    embeddedTabsEnabled,
+    mainPaneId,
+    topLeftPaneId,
+  });
   useSyncWorkspaceActiveBrowser({ workspaceLayout, isRouteFocused });
   const openWorkspaceTabInBackground = useWorkspaceLayoutStore(
     (state) => state.openTabInBackground,
@@ -2354,7 +2382,7 @@ function WorkspaceScreenContent({
     workspaceAgents,
   ]);
   const effectiveTabSortMode = getWorkspaceTabNavigationSortMode({
-    embeddedTabsEnabled,
+    tabSortingEnabled: !isMobile,
     tabSortMode,
   });
   const orderedTabIds = useMemo(
@@ -2959,12 +2987,12 @@ function WorkspaceScreenContent({
 
   const handleCreateMainPaneSplit = useCallback(
     (placement: WorkspaceHeaderSplitPlacement, createInPane: (paneId: string) => void) => {
-      if (!persistenceKey || !mainPaneId) {
+      if (!persistenceKey || !headerSplitPaneId) {
         return;
       }
 
       const paneId = splitWorkspacePaneEmpty(persistenceKey, {
-        targetPaneId: mainPaneId,
+        targetPaneId: headerSplitPaneId,
         position: placement,
       });
       if (!paneId) {
@@ -2974,7 +3002,7 @@ function WorkspaceScreenContent({
       focusWorkspacePane(persistenceKey, paneId);
       createInPane(paneId);
     },
-    [focusWorkspacePane, mainPaneId, persistenceKey, splitWorkspacePaneEmpty],
+    [focusWorkspacePane, headerSplitPaneId, persistenceKey, splitWorkspacePaneEmpty],
   );
 
   const handleCreateDraftMainPaneSplit = useCallback(
@@ -3211,9 +3239,9 @@ function WorkspaceScreenContent({
 
   const handleCloseTabsToLeft = useCallback(
     async (tabId: string) => {
-      await handleCloseTabsToLeftInPane(tabId, tabs);
+      await handleCloseTabsToLeftInPane(tabId, navigationTabs);
     },
-    [handleCloseTabsToLeftInPane, tabs],
+    [handleCloseTabsToLeftInPane, navigationTabs],
   );
 
   const handleCloseTabsToRightInPane = useCallback(
@@ -3233,9 +3261,9 @@ function WorkspaceScreenContent({
 
   const handleCloseTabsToRight = useCallback(
     async (tabId: string) => {
-      await handleCloseTabsToRightInPane(tabId, tabs);
+      await handleCloseTabsToRightInPane(tabId, navigationTabs);
     },
-    [handleCloseTabsToRightInPane, tabs],
+    [handleCloseTabsToRightInPane, navigationTabs],
   );
 
   const handleCloseOtherTabsInPane = useCallback(
@@ -3582,13 +3610,13 @@ function WorkspaceScreenContent({
 
   const desktopTabRowItems = useMemo<WorkspaceDesktopTabRowItem[]>(
     () =>
-      tabs.map((tab) => ({
+      navigationTabs.map((tab) => ({
         tab,
         isActive: tab.tabId === activeTabDescriptor?.tabId,
         isCloseHovered: hoveredCloseTabKey === tab.key,
         isClosingTab: closingTabIds.has(tab.tabId),
       })),
-    [activeTabDescriptor?.tabId, closingTabIds, hoveredCloseTabKey, tabs],
+    [activeTabDescriptor?.tabId, closingTabIds, hoveredCloseTabKey, navigationTabs],
   );
 
   const handleFocusPane = useStableEvent(function handleFocusPane(paneId: string) {
@@ -3694,8 +3722,9 @@ function WorkspaceScreenContent({
       renderWorkspaceHeaderSplitMenu({
         visible: shouldShowWorkspaceHeaderSplitMenu({
           embeddedTabsEnabled,
+          topLeftPaneTabBarOrientation,
           canRenderDesktopPaneSplits,
-          mainPaneId,
+          headerSplitPaneId,
         }),
         normalizedServerId,
         showCreateBrowserTab,
@@ -3710,8 +3739,9 @@ function WorkspaceScreenContent({
       }),
     [
       embeddedTabsEnabled,
+      topLeftPaneTabBarOrientation,
       canRenderDesktopPaneSplits,
-      mainPaneId,
+      headerSplitPaneId,
       normalizedServerId,
       showCreateBrowserTab,
       createTerminalDisabled,
@@ -3905,6 +3935,9 @@ function WorkspaceScreenContent({
         isWorkspaceFocused={isRouteFocused}
         uiTabs={uiTabs}
         recentlyClosedTabs={recentlyClosedTabs}
+        tabSortMode={effectiveTabSortMode}
+        workspaceAgents={workspaceAgents}
+        statusSummariesByTabId={statusSummariesByTabId}
         hoveredCloseTabKey={hoveredCloseTabKey}
         setHoveredCloseTabKey={setHoveredCloseTabKey}
         closingTabIds={closingTabIds}
@@ -3944,6 +3977,9 @@ function WorkspaceScreenContent({
     isRouteFocused,
     uiTabs,
     recentlyClosedTabs,
+    effectiveTabSortMode,
+    workspaceAgents,
+    statusSummariesByTabId,
     hoveredCloseTabKey,
     closingTabIds,
     navigateToTabId,
@@ -4073,6 +4109,7 @@ function WorkspaceScreenContent({
           onReorderTabs={handleReorderTabsInFocusedPane}
           onSplitRight={noop}
           onSplitDown={noop}
+          disableReorderTabs={effectiveTabSortMode !== "manual"}
           showPaneSplitActions={false}
         />
       ) : null}
