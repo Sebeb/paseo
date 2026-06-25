@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Primary commit before this writeup: `c0d85bb61 feat(app): embed workspace tabs in sidebar`
+Anchor commit: 25ff932af152990c2bd54ce1d96ea3a6ea62e9e6 — feat(app): unify sidebar entry rows with per-kind status counts
 
 ## Purpose
 
@@ -19,16 +19,19 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
   - project/status grouping
   - workspace title source
   - auto-collapse workspaces
-  - embedded tab sort mode
+  - embedded tab sort mode (manual, created, lastUpdated, **status**)
   - recent tab count
   - sidebar badge mode
-- Adds status count badges for workspace tabs.
+- Adds per-kind status count badges for workspace tabs (queued messages, draft, input required, unread, in-progress, failed).
 - Adds workspace expansion/collapse behavior for showing or hiding embedded tabs.
 - Adds shift-click workspace expansion controls.
 - Prevents attention-driven navigation from overriding explicit navigation.
 - Moves close-tab cleanup into a reusable workspace hook.
 - Keeps tab close/rename/split actions available while the tab is represented in the sidebar.
 - Updates sidebar docs/design notes for the new lifecycle/presentation behavior.
+- Adds right-click context menu on workspace rows in the status-group list.
+- Shows provider icon on draft tabs when badge mode is "status".
+- Adds a split-pane creation button to the workspace header that uses horizontal/vertical split depending on modifier key held.
 
 ## Restored Main Polish
 
@@ -53,7 +56,7 @@ This new persisted zustand store owns sidebar-specific display preferences.
 #### Types
 
 - `SidebarGroupMode = "project" | "status"`
-- `SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated"`
+- `SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated" | "status"`
 - `SidebarEmbeddedRecentTabCount = 3 | 5 | 10 | "all"`
 - `SidebarBadgeMode = "diff" | "status" | "none"`
 
@@ -63,7 +66,7 @@ This new persisted zustand store owns sidebar-specific display preferences.
 
 Returns a valid tab sort mode:
 
-- accepts `"created"`, `"lastUpdated"`, and `"manual"`
+- accepts `"created"`, `"lastUpdated"`, `"manual"`, and `"status"`
 - falls back to `"manual"`
 
 ##### `normalizeRecentTabCount(value)`
@@ -134,6 +137,8 @@ Implementation details:
 - Uses `closeOnSelect = !showTabControls` so simple grouping closes the menu, while multi-control embedded tab settings can stay open.
 - Preserves the current `workspaceTitleSource` setting by writing through `updateSettings`.
 
+The tab sort mode menu includes four options: Manual, Created, Last Updated, and **Status** (sorts by most urgent status, with recency as a tiebreaker).
+
 #### Menu Item Components
 
 The selector defines typed item components for:
@@ -146,78 +151,225 @@ The selector defines typed item components for:
 
 Each component creates a stable `handleSelect` callback that passes its typed value back to the parent.
 
-## Embedded Tab Ordering
+## Sidebar Entry Row
 
-### `packages/app/src/components/sidebar/embedded-tabs-order.ts`
+### `packages/app/src/components/sidebar/sidebar-entry-row.tsx`
 
-#### `EmbeddedTabOrderItem`
+A new unified row component used by both workspace rows and embedded tab rows in the sidebar.
 
-Represents an item in the embedded sidebar tab list:
+#### Constants
 
-- `mainPane`: whether the tab belongs to the main pane.
-- `tab.tabId`: tab id used for ordering.
+- `SIDEBAR_ENTRY_ROW_HEIGHT = 36` — fixed row height used by both workspace and embedded tab rows.
 
-#### `mergeEmbeddedVisibleTabOrder({ mainPaneItems, nextVisibleItems })`
+#### `SidebarEntryRowContent` (memo)
 
-Merges a drag-reordered visible subset back into the full main-pane order.
+Props:
 
-Implementation details:
+- `leading: ReactNode` — primary leading icon slot.
+- `hoverLeading?: ReactNode` — alternative leading shown when `showHoverLeading` is true.
+- `showHoverLeading?: boolean` — cross-fades `hoverLeading` over `leading` when true (original dims to opacity 0, overlay appears absolutely positioned).
+- `leadingStatus?: SidebarEntryStatusKind | null` — renders a `SidebarEntryLeadingStatusBadge` over the lower-right corner of the leading slot when set.
+- `label: string` — primary text, single line with tail truncation.
+- `subtitle?: string | null` — secondary text below label, muted color, xs size.
+- `rightContext?: ReactNode` — trailing content slot (badges, actions).
+- `hoverRightContext?: ReactNode` — trailing content shown when `showHoverRightContext` is true.
+- `showHoverRightContext?: boolean` — switches between `rightContext` and `hoverRightContext`.
+- `shortcutBadge?: ReactNode` — absolutely positioned shortcut chip in the lower-right corner.
 
-- Extracts reordered visible ids from `nextVisibleItems`, keeping only items where `mainPane` is true.
-- Builds a set of visible ids.
-- Iterates the full `mainPaneItems`.
-- For hidden/non-visible items, preserves the original tab id in place.
-- For visible items, consumes the next reordered visible id.
-- Falls back to the original id if the reordered visible list is unexpectedly short.
+Layout: 36 px tall row, leading slot is `iconSize.md` × `iconSize.md` with `position: relative` for the status badge overlay. Text column is flex 1, right context is flex-shrink 0 and capped at 70% width.
 
-This lets users reorder the currently visible embedded tabs without losing hidden tabs from the full pane order.
+#### `SidebarEntryStatusBadges` (exported)
+
+Renders a row of per-kind status badges for a given `SidebarTabStatusSummary`.
+
+- Calls `getVisibleSidebarEntryStatusKinds(summary)` to get the ordered list of non-zero kinds.
+- Renders a `SidebarEntryStatusBadge` for each.
+- Returns null when no kinds are visible.
+
+#### `SidebarEntryPrimaryStatusBadge` (exported)
+
+Renders a single `SidebarEntryLeadingStatusBadge` for the highest-priority non-zero kind in the summary.
+
+- Calls `getPrimarySidebarEntryStatusKind(summary)`.
+- Returns null when all counts are zero.
+
+#### `SidebarEntryStatusBadge` (internal)
+
+Per-kind badge variant logic:
+
+- `count <= 0` → null.
+- `count === 1 && definition.singleIcon` → renders a `SingleStatusIcon` (amber CircleAlert for `input_required`, red CircleX for `failed`).
+- `kind === "draft"` → plain slot with a muted SquarePen icon (no counter).
+- `kind === "in_progress"` → plain slot with a blue SyncedLoader; count floats bottom-right when `shouldShowStatusCount` returns true.
+- Otherwise → filled circle badge (`statusBadge` style) with either a count text or a `StatusBadgeIcon`.
+
+#### `shouldShowStatusCount(kind, count)`
+
+- `countMode === "always"` → true.
+- `countMode === "off"` → false.
+- `countMode === "onePlus"` → true only when `count > 1`.
+
+#### `getStatusBadgeColorStyle(kind)`
+
+Returns the appropriate fill style:
+
+| Kind              | Style                  |
+| ----------------- | ---------------------- |
+| `queued_messages` | zinc[300] background   |
+| `input_required`  | amber[500] background  |
+| `unread`          | green[500] background  |
+| `in_progress`     | blue[500] background   |
+| `failed`          | red[500] background    |
+| `draft`           | transparent background |
+
+#### `SidebarEntryLeadingStatusBadge` (internal)
+
+Small 8 × 8 px badge in the lower-right corner of the leading slot with a surface-colored border to separate it from the icon. Displays a tiny SquarePen for `draft` and a tiny SyncedLoader for `in_progress`; otherwise renders nothing inside the frame.
 
 ## Sidebar Tab Status Summaries
 
 ### `packages/app/src/utils/sidebar-tab-status-summary.ts`
 
-This new module computes aggregate status badges for workspace tabs.
+This module computes aggregate status badges for workspace tabs at both the bucket level and the per-kind entry level.
 
-#### Buckets
+#### Types
 
-`SIDEBAR_TAB_STATUS_BUCKETS`:
+```ts
+type SidebarTabStatusBucket = SidebarStateBucket; // "needs_input" | "failed" | "running" | "attention" | "done"
+type SidebarEntryStatusKind =
+  | "queued_messages"
+  | "draft"
+  | "input_required"
+  | "unread"
+  | "in_progress"
+  | "failed";
+type SidebarEntryStatusCountMode = "always" | "off" | "onePlus";
+type SidebarEntryStatusSingleIcon = "input_required" | "failed";
+```
 
-- `needs_input`
-- `failed`
-- `running`
-- `attention`
-- `done`
+#### `SidebarEntryStatusDefinition`
 
-`SIDEBAR_TAB_STATUS_BADGE_BUCKETS` excludes `done` because the badge display focuses on actionable/non-idle states.
+```ts
+interface SidebarEntryStatusDefinition {
+  kind: SidebarEntryStatusKind;
+  countMode: SidebarEntryStatusCountMode;
+  propagateUp: boolean;
+  singleIcon?: SidebarEntryStatusSingleIcon;
+}
+```
+
+#### `SidebarTabStatusSummary`
+
+```ts
+interface SidebarTabStatusSummary {
+  total: number;
+  counts: Record<SidebarTabStatusBucket, number>;
+  draft: number;
+  propagatedDraft: number;
+  entryCounts: Record<SidebarEntryStatusKind, number>;
+  propagatedEntryCounts: Record<SidebarEntryStatusKind, number>;
+}
+```
+
+- `counts` tracks per-bucket tab counts (old bucket-level badging path).
+- `entryCounts` tracks per-kind counts that appear in entry row badges.
+- `propagatedEntryCounts` tracks the subset of `entryCounts` that propagate up to parent rows (controlled by `propagateUp` on each definition). Used by `combineSidebarTabStatusSummaries` so a parent only reflects children that opted in.
+- `draft` / `propagatedDraft` track draft-content tabs separately because draft propagation depends on whether the draft has actual text.
+
+#### Constants
+
+`SIDEBAR_TAB_STATUS_BUCKETS`: `["needs_input", "failed", "running", "attention", "done"]`
+
+`SIDEBAR_TAB_STATUS_BADGE_BUCKETS`: same except `"done"` — used for badge display.
+
+`SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER`: `["queued_messages", "draft", "input_required", "unread", "in_progress", "failed"]` — controls left-to-right badge rendering order.
+
+`SIDEBAR_ENTRY_STATUS_SORT_ORDER`: `["draft", "input_required", "failed", "unread", "in_progress"]` — priority order for sort-by-status (excludes `queued_messages`).
+
+`SIDEBAR_ENTRY_STATUS_DEFINITIONS`:
+
+| Kind              | countMode | propagateUp | singleIcon       |
+| ----------------- | --------- | ----------- | ---------------- |
+| `queued_messages` | always    | true        | —                |
+| `draft`           | off       | true        | —                |
+| `input_required`  | onePlus   | true        | `input_required` |
+| `unread`          | onePlus   | true        | —                |
+| `in_progress`     | onePlus   | true        | —                |
+| `failed`          | onePlus   | true        | `failed`         |
 
 #### `createEmptySidebarTabStatusSummary()`
 
-Returns:
-
-- `total: 0`
-- zero counts for every bucket
+Returns a zeroed-out summary with all bucket counts and entry counts at zero.
 
 #### `summarizeSidebarTabs(input)`
 
 Builds a status summary for a workspace tab list.
 
+Input fields:
+
+- `tabs`, `serverId`, `workspaceId`, `agents`, `pendingCreatesByDraftId`, `setupSnapshots`, `browsersById`, `terminalsById`
+- `draftInputsByKey?: Record<string, DraftInput | undefined>` — used to compute draft badge propagation.
+- `queuedMessageCountsByAgentId?: ReadonlyMap<string, number>` — used to compute queued message counts per agent tab.
+
 Implementation details:
 
 - Starts with `createEmptySidebarTabStatusSummary`.
-- Iterates tabs in order.
-- Resolves each tab bucket with `resolveSidebarTabStatusBucket`.
-- Increments `total`.
-- Increments the selected bucket count.
+- Iterates tabs.
+- Resolves bucket via `resolveSidebarTabStatusBucket`.
+- Increments `total` and `counts[bucket]`.
+- Converts bucket to entry statuses via `sidebarEntryStatusesFromBucket`.
+- For each entry status, calls `addEntryStatus(summary, kind, true)` (propagates).
+- Resolves queued message count for agent tabs via `resolveQueuedMessageCount`; if > 0, calls `addEntryStatus(summary, "queued_messages", true, count)`.
+- Resolves draft state via `resolveSidebarTabDraftState`; if `hasDraftBadge`, increments `draft` and calls `addEntryStatus(summary, "draft", propagatesToParent)`.
+- If draft propagates, increments `propagatedDraft`.
 
 #### `combineSidebarTabStatusSummaries(summaries)`
 
-Combines summaries across workspaces or groups.
+Combines per-workspace summaries up to a project row.
 
 Implementation details:
 
 - Starts with an empty summary.
-- Adds each summary's `total`.
-- Adds each bucket count using `SIDEBAR_TAB_STATUS_BUCKETS`.
+- For each child summary: adds `total`; adds bucket counts; adds `propagatedEntryCounts` into both `entryCounts` and `propagatedEntryCounts` of the combined result (only propagated counts bubble up); adds `propagatedDraft` into both `draft` and `propagatedDraft`.
+
+#### `getSidebarEntryStatusCount(summary, kind)`
+
+Returns `summary.entryCounts[kind]`.
+
+#### `getVisibleSidebarEntryStatusKinds(summary)`
+
+Returns the subset of `SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER` where `entryCounts[kind] > 0`.
+
+#### `getPrimarySidebarEntryStatusKind(summary)`
+
+Returns the first non-zero kind in priority order: `input_required`, `failed`, `unread`, `in_progress`, `queued_messages`, `draft`. Returns null when all counts are zero.
+
+#### `getSidebarEntryStatusSortRank(summary)`
+
+Returns the 0-based index of the first non-zero kind in `SIDEBAR_ENTRY_STATUS_SORT_ORDER`, or `SIDEBAR_ENTRY_STATUS_SORT_ORDER.length` when all are zero. Lower rank = higher urgency.
+
+#### `resolveSidebarTabDraftState(input)`
+
+```ts
+interface SidebarTabDraftState {
+  hasDraftBadge: boolean;
+  propagatesToParent: boolean;
+}
+```
+
+For `draft` targets:
+
+- Always `hasDraftBadge: true`.
+- `propagatesToParent` = whether the draft record has non-empty trimmed text.
+
+For `agent` targets:
+
+- Looks up the draft record by `buildDraftStoreKey({ serverId, agentId })`.
+- If no record, `hasDraftBadge: false`.
+- `hasDraftBadge` = `hasDraftContent({ text, attachments })` (true when text or attachments present).
+- `propagatesToParent` = whether the text is non-empty.
+
+All other target kinds: `{ hasDraftBadge: false, propagatesToParent: false }`.
 
 #### `resolveSidebarTabStatusBucket(input)`
 
@@ -247,6 +399,32 @@ Returns `running` when the pending create attempt is for the current server and 
 #### `resolveSetupTabStatus(...)`
 
 Builds the workspace tab persistence key from server/workspace ids, reads the setup snapshot, and returns `running` only when the snapshot status is `running`.
+
+## Embedded Tab Ordering
+
+### `packages/app/src/components/sidebar/embedded-tabs-order.ts`
+
+#### `EmbeddedTabOrderItem`
+
+Represents an item in the embedded sidebar tab list:
+
+- `mainPane`: whether the tab belongs to the main pane.
+- `tab.tabId`: tab id used for ordering.
+
+#### `mergeEmbeddedVisibleTabOrder({ mainPaneItems, nextVisibleItems })`
+
+Merges a drag-reordered visible subset back into the full main-pane order.
+
+Implementation details:
+
+- Extracts reordered visible ids from `nextVisibleItems`, keeping only items where `mainPane` is true.
+- Builds a set of visible ids.
+- Iterates the full `mainPaneItems`.
+- For hidden/non-visible items, preserves the original tab id in place.
+- For visible items, consumes the next reordered visible id.
+- Falls back to the original id if the reordered visible list is unexpectedly short.
+
+This lets users reorder the currently visible embedded tabs without losing hidden tabs from the full pane order.
 
 ## Workspace Tab Close Hook
 
@@ -347,7 +525,7 @@ The hook returns `closingTabIds`, raw `closeTab`, `closeWorkspaceTabWithCleanup`
 
 ### `packages/app/src/components/sidebar-workspace-list.tsx`
 
-The sidebar list now supports embedded tabs under workspace rows.
+The sidebar list now supports embedded tabs under workspace rows, per-kind status badges, and context menus on project rows.
 
 Key behavior:
 
@@ -358,18 +536,57 @@ Key behavior:
 - Supports workspace collapse/expand and auto-collapse behavior.
 - Supports status-mode grouping via `SidebarStatusWorkspaceList`.
 - Supports drag/drop where available.
-- Uses `SidebarWorkspaceRowContent` for row presentation.
+- Uses `SidebarWorkspaceRowContent` for workspace row presentation and `SidebarEntryRowContent` for embedded tab rows.
 - Provides context menu actions for workspace and embedded tabs.
+
+#### `useSidebarTabStatusSummaries`
+
+Now also reads `queuedMessages` from the session store and `draftInputsByKey` from the draft store, passing both into `summarizeSidebarTabs`. This enables queued-message badges and draft-text propagation in workspace-level status summaries.
+
+- `queuedMessageCountsByAgentId` is derived by mapping agent queues from session state to a `Map<agentId, queue.length>`.
+- `draftInputsByKey` is derived by iterating active draft records and extracting their `input` values.
+
+#### `sortEmbeddedTabs`
+
+Added `"status"` sort mode:
+
+- Looks up each tab's `SidebarTabStatusSummary` from `statusSummariesByTabId`.
+- Compares by `getSidebarEntryStatusSortRank` (lower rank = higher priority).
+- Ties are broken by `lastUpdatedAt` descending.
+
+Old `SidebarStatusSummaryBadges`, `StatusSummaryCountBadge`, and `SidebarTabStatusSymbol` local components were removed. Callers now use `SidebarEntryStatusBadges` from `sidebar-entry-row.tsx`.
+
+`ProjectHeaderTrailingContent` was removed. Project rows build their trailing content inline and pass `SidebarEntryStatusBadges` directly.
+
+Added `ProjectContextMenuContent` — a `ContextMenuContent` panel mirroring the project kebab menu, wrapping the project row with `ContextMenu`/`ContextMenuTrigger`.
 
 ### `packages/app/src/components/sidebar/sidebar-workspace-row-content.tsx`
 
-The row content component now owns the visual composition for workspace rows, embedded tab rows, status badges, shortcut badges, and trailing actions.
+`SidebarWorkspaceRowContent` was refactored to delegate to `SidebarEntryRowContent`.
 
-Tests cover row content behavior and status/shortcut rendering.
+Changes:
+
+- Removed `isCreating` prop (was only used for a muted label style; replaced by leading status badge).
+- Added `leadingStatusKind?: SidebarEntryStatusKind | null` — passed through as `leadingStatus` to `SidebarEntryRowContent`.
+- Layout is now fully owned by `SidebarEntryRowContent` instead of a local flex hierarchy.
+- `WorkspaceLeadingVisual` is passed as the `leading` prop via `createElement`.
+- `scriptIconKind` and `children` are composed into a single `rightContext` `View` via `createElement` — avoiding JSX to satisfy the memo equality contract at the call sites.
+- Shortcut badge is passed as `shortcutBadge` prop.
 
 ### `packages/app/src/components/sidebar/sidebar-status-list.tsx`
 
-The status-group list is updated to account for embedded workspace tab status summaries and revised row layout.
+The status-group list now wraps workspace rows with a `ContextMenu` and shows a `StatusWorkspaceContextMenuContent` panel.
+
+Changes:
+
+- `StatusWorkspaceRowWithMenu` changed from a `<>` fragment to a `<ContextMenu>` wrapper.
+- The inner `<Pressable>` in `StatusWorkspaceRowInner` was replaced with `<ContextMenuTrigger>`.
+- Added `StatusWorkspaceContextMenuContent` — a `ContextMenuContent` component with the same menu items as the kebab `StatusKebabMenu`:
+  - Copy path (when handler present).
+  - Copy branch name (for git projects only).
+  - Rename workspace.
+  - Mark as read (when handler present).
+  - Archive (always, with shortcut badge when workspace is selected).
 
 ## Workspace Layout And Navigation Store Changes
 
@@ -395,11 +612,62 @@ Adds panel state needed for resizable/sidebar-aware workspace tab presentation.
 
 ### `packages/app/src/screens/workspace/workspace-screen.tsx`
 
-The workspace screen now uses the shared close hook and exposes tab actions needed by sidebar embedded tab controls.
+The workspace screen now uses the shared close hook and exposes tab actions needed by sidebar embedded tab controls. It also adds split-pane creation controls to the workspace header.
 
-### `packages/app/src/screens/workspace/use-workspace-tab-close.ts`
+#### `useDesktopEmbeddedTabsEnabled(isMobile)`
 
-The new close hook is imported by workspace screen and can also be used by sidebar tab controls.
+Returns `true` when `appSettings.tabLayoutMode !== "horizontal"` and not mobile. Used to gate split-menu and embedded-tab presentation.
+
+#### `WorkspaceHeaderSplitMenu`
+
+New header component for split-pane creation.
+
+Props: `normalizedServerId`, `showCreateBrowserTab`, `createTerminalDisabled`, icon props, and four creation callbacks:
+
+- `onCreateDraftSplit(placement)` — creates a draft tab in a new split.
+- `onCreateTerminalSplit(placement)` — creates a terminal tab in a new split.
+- `onCreateTerminalProfileSplit(placement, profile)` — creates a terminal with a specific profile.
+- `onCreateBrowserSplit(placement)` — creates a browser tab in a new split.
+
+The `placement` argument is either `"right"` (default) or `"bottom"` and is driven by `useWorkspaceHeaderSplitPlacement`.
+
+#### `useWorkspaceHeaderSplitPlacement()`
+
+Returns `"bottom"` when the platform modifier key (Command on macOS, Control elsewhere) is held; otherwise `"right"`. Uses `keydown`/`keyup`/`blur` listeners on `window` — web only, guarded by `isWeb`.
+
+#### `shouldShowWorkspaceHeaderSplitMenu(input)`
+
+Returns true only when: `embeddedTabsEnabled && canRenderDesktopPaneSplits && mainPaneId !== null`.
+
+#### `renderWorkspaceHeaderSplitMenu(input)`
+
+Returns null when `input.visible` is false; otherwise renders the `WorkspaceHeaderSplitMenu`.
+
+#### `WorkspaceHeaderSplitMenuTriggerIcon`
+
+Shows `ThemedColumns2` (horizontal split) or `ThemedRows2` (vertical split) based on current placement. Color follows hover/open state.
+
+## Split Container
+
+### `packages/app/src/components/split-container.tsx`
+
+Added `embeddedMainPaneId?: string | null` prop to `SplitContainerProps`.
+
+When `embeddedMainPaneId` equals the current pane's id, the pane's tab row (`WorkspaceDesktopTabsRow`) is suppressed entirely. This allows the workspace screen to hide the redundant tab row for the primary pane while the sidebar shows it instead.
+
+## Agent Panel
+
+### `packages/app/src/panels/agent-panel.tsx`
+
+`useDraftPanelDescriptor` now uses the provider icon instead of a plain `SquarePen` when badge mode is `"status"`.
+
+Changes:
+
+- The `target` parameter now accepts an optional `setup?: WorkspaceDraftTabSetup` field.
+- Reads `getBadgeMode` from `useSidebarViewStore`.
+- Reads `preferences.provider` from `useFormPreferences` as a fallback provider.
+- Resolves `draftProvider` as `target.setup?.provider ?? preferences.provider ?? "codex"`.
+- When `badgeMode === "status"`, uses `getProviderIcon(draftProvider)` as the icon; otherwise uses `SquarePen`.
 
 ## Styling And UI Foundation Changes
 
@@ -447,6 +715,7 @@ The docs describe tab/archive semantics and the visual conventions used by the n
 New and updated tests include:
 
 - `packages/app/src/components/sidebar/embedded-tabs-order.test.ts`
+- `packages/app/src/components/sidebar/sidebar-entry-row.test.tsx`
 - `packages/app/src/components/sidebar/sidebar-workspace-row-content.test.tsx`
 - `packages/app/src/stores/sidebar-view-store.test.ts`
 - `packages/app/src/stores/workspace-layout-store.find-main-pane.test.ts`
@@ -454,11 +723,11 @@ New and updated tests include:
 - navigation and collapsed-section store tests
 - workspace layout store tests
 
-These cover ordering, row rendering, persisted sidebar preferences, main-pane lookup, tab status summaries, navigation behavior, and collapsed-section state.
+These cover ordering, row rendering, persisted sidebar preferences, main-pane lookup, tab status summaries (including draft state and queued message counts), navigation behavior, and collapsed-section state.
 
 ## Verification
 
-The branch commit was created with the repo pre-commit hook enabled.
+The branch commits were created with the repo pre-commit hook enabled.
 
 The hook ran:
 
@@ -466,4 +735,4 @@ The hook ran:
 - `npm run format:check:files` on changed files.
 - `npm run typecheck` across workspaces.
 
-All passed for the implementation commit.
+All passed for each implementation commit.
