@@ -4,12 +4,17 @@
 import React from "react";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SidebarWorkspaceRowContent } from "@/components/sidebar/sidebar-workspace-row-content";
+import {
+  SidebarWorkspaceRowContent,
+  SidebarWorkspaceTrailingActionOverlay,
+  SidebarWorkspaceTrailingActionSlot,
+} from "@/components/sidebar/sidebar-workspace-row-content";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 
 const { theme } = vi.hoisted(() => ({
   theme: {
     spacing: { 1: 4, 2: 8 },
+    iconSize: { md: 16 },
     borderRadius: { sm: 4, full: 999 },
     fontSize: { xs: 11, sm: 13 },
     fontWeight: { normal: "400", medium: "500" },
@@ -23,6 +28,7 @@ const { theme } = vi.hoisted(() => ({
         green: { 500: "#22c55e" },
         purple: { 500: "#a855f7" },
         red: { 500: "#ef4444" },
+        zinc: { 300: "#d4d4d8" },
       },
     },
     colorScheme: "dark",
@@ -77,6 +83,7 @@ vi.mock("lucide-react-native", () => {
     React.createElement("span", { ...props, "data-icon": name });
   return {
     CircleAlert: createIcon("CircleAlert"),
+    CircleX: createIcon("CircleX"),
     ChevronDown: createIcon("ChevronDown"),
     ChevronRight: createIcon("ChevronRight"),
     ExternalLink: createIcon("ExternalLink"),
@@ -84,7 +91,9 @@ vi.mock("lucide-react-native", () => {
     FolderGit2: createIcon("FolderGit2"),
     GitPullRequest: createIcon("GitPullRequest"),
     Globe: createIcon("Globe"),
+    MessageSquareText: createIcon("MessageSquareText"),
     Monitor: createIcon("Monitor"),
+    SquarePen: createIcon("SquarePen"),
     SquareTerminal: createIcon("SquareTerminal"),
   };
 });
@@ -166,6 +175,24 @@ describe("SidebarWorkspaceRowContent", () => {
 
     expect(queryByTestId("workspace-row-right")).toBeNull();
     expect(queryByTestId("hidden-trailing-control")).toBeNull();
+  });
+
+  it("centers trailing action overlays inside a fixed-height slot", () => {
+    const { getByTestId } = render(
+      <SidebarWorkspaceTrailingActionSlot>
+        <SidebarWorkspaceTrailingActionOverlay visible>
+          <span data-testid="workspace-trailing-action" />
+        </SidebarWorkspaceTrailingActionOverlay>
+      </SidebarWorkspaceTrailingActionSlot>,
+    );
+
+    const slot = getByTestId("workspace-trailing-action").parentElement?.parentElement;
+    const overlay = getByTestId("workspace-trailing-action").parentElement;
+
+    expect(slot?.getAttribute("style")).toContain("height: 24px");
+    expect(slot?.getAttribute("style")).toContain("justify-content: center");
+    expect(overlay?.getAttribute("style")).toContain("bottom: 0px");
+    expect(overlay?.getAttribute("style")).toContain("justify-content: center");
   });
 
   it("keeps the normal workspace icon when right-side status badges own status display", () => {

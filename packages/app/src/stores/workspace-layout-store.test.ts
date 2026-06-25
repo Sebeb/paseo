@@ -467,6 +467,37 @@ describe("workspace-layout-store actions", () => {
     expect(pane.focusedTabId).toBe(rightTabId);
   });
 
+  it("closing a focused tab selects the successor from the provided tab order", () => {
+    const workspaceKey = createWorkspaceKey();
+    const firstTabId = "draft-1";
+    const closedTabId = "draft-2";
+    const rightTabId = "draft-3";
+
+    workspaceLayoutStore.setState((state) => ({
+      ...state,
+      layoutByWorkspace: {
+        ...state.layoutByWorkspace,
+        [workspaceKey]: {
+          root: createPane({
+            id: "main",
+            tabIds: [firstTabId, closedTabId, rightTabId],
+            focusedTabId: closedTabId,
+          }),
+          focusedPaneId: "main",
+        },
+      },
+    }));
+
+    workspaceLayoutStore
+      .getState()
+      .closeTab(workspaceKey, closedTabId, [closedTabId, firstTabId, rightTabId]);
+    const layout = workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey];
+    const pane = findPaneById(layout.root, "main")!;
+
+    expect(pane.tabIds).toEqual([firstTabId, rightTabId]);
+    expect(pane.focusedTabId).toBe(firstTabId);
+  });
+
   it("closing a focused child tab returns to its parent before using tab-strip order", () => {
     const workspaceKey = createWorkspaceKey();
     const store = workspaceLayoutStore.getState();

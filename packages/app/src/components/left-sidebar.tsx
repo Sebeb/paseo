@@ -1338,8 +1338,6 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 37,
     justifyContent: "center",
     paddingHorizontal: theme.spacing[4],
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
   },
   verticalTabsTitle: {
     color: theme.colors.foregroundMuted,

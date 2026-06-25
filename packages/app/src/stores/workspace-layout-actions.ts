@@ -8,6 +8,7 @@ import {
   normalizeWorkspaceTabTarget,
   workspaceTabTargetsEqual,
 } from "@/workspace-tabs/identity";
+import { mergeTabNavigationOrder } from "@/workspace-tabs/tab-navigation";
 
 export interface SplitPane {
   id: string;
@@ -140,6 +141,7 @@ interface ReorderFocusedPaneTabsInLayoutInput {
 interface CloseTabInLayoutInput {
   layout: WorkspaceLayout;
   tabId: string;
+  orderedTabIds?: readonly string[] | null;
 }
 
 interface SplitPaneInLayoutInput {
@@ -1157,6 +1159,7 @@ export function closeTabInLayout(input: CloseTabInLayoutInput): WorkspaceLayout 
   const closeSuccessorTabId = getCloseSuccessorTabId({
     pane,
     tabId: input.tabId,
+    orderedTabIds: input.orderedTabIds,
     openTabIds: new Set(collectAllTabs(internalLayout.root).map((tab) => tab.tabId)),
     parentTabIdByTabId: input.layout.parentTabIdByTabId,
   });
@@ -1548,6 +1551,7 @@ function withNormalizedParentTabMap(layout: WorkspaceLayout): WorkspaceLayout {
 function getCloseSuccessorTabId(input: {
   pane: SplitPane;
   tabId: string;
+  orderedTabIds?: readonly string[] | null;
   openTabIds: ReadonlySet<string>;
   parentTabIdByTabId?: Record<string, string>;
 }): string | null {
@@ -1555,15 +1559,19 @@ function getCloseSuccessorTabId(input: {
     return null;
   }
 
-  const tabIndex = input.pane.tabIds.indexOf(input.tabId);
+  const orderedPaneTabIds = mergeTabNavigationOrder({
+    fallbackTabIds: input.pane.tabIds,
+    orderedTabIds: input.orderedTabIds,
+  });
+  const tabIndex = orderedPaneTabIds.indexOf(input.tabId);
   const parentTabId = input.parentTabIdByTabId?.[input.tabId] ?? null;
   if (parentTabId && input.openTabIds.has(parentTabId)) {
     return parentTabId;
   }
 
   return (
-    input.pane.tabIds[tabIndex + 1] ??
-    (tabIndex > 0 ? input.pane.tabIds[tabIndex - 1] : null) ??
+    orderedPaneTabIds[tabIndex + 1] ??
+    (tabIndex > 0 ? orderedPaneTabIds[tabIndex - 1] : null) ??
     null
   );
 }

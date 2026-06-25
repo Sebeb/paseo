@@ -93,6 +93,7 @@ import type { WorkspaceTab, WorkspaceTabTarget } from "@/stores/workspace-tabs-s
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
+import { useSidebarViewStore, type SidebarEmbeddedTabSortMode } from "@/stores/sidebar-view-store";
 import {
   buildDeterministicWorkspaceTabId,
   normalizeWorkspaceTabTarget,
@@ -114,7 +115,8 @@ import { checkoutStatusQueryKey } from "@/git/query-keys";
 import { fetchCheckoutStatus } from "@/git/checkout-status-cache";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { useStableEvent } from "@/hooks/use-stable-event";
-import { createWorkspaceBrowser } from "@/stores/browser-store";
+import { createWorkspaceBrowser, useBrowserStore } from "@/stores/browser-store";
+import { useDraftStore, type DraftInput } from "@/stores/draft-store";
 import { getDesktopHost } from "@/desktop/host";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { generateDraftId } from "@/stores/draft-keys";
@@ -189,6 +191,13 @@ import {
 } from "@/screens/workspace/terminals/use-workspace-terminals";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useAppSettings } from "@/hooks/use-settings";
+import {
+  summarizeSidebarTabs,
+  type SidebarTabStatusSummary,
+  type SidebarTerminalStatusRecord,
+} from "@/utils/sidebar-tab-status-summary";
+import { sortSidebarWorkspaceTabs } from "@/utils/sidebar-tab-sort";
+import { getRelativeTabId } from "@/workspace-tabs/tab-navigation";
 import {
   getTerminalProfileIcon,
   resolveTerminalProfiles,
@@ -1945,6 +1954,16 @@ function useDesktopEmbeddedTabsEnabled(isMobile: boolean): boolean {
   return appSettings.tabLayoutMode !== "horizontal" && !isMobile;
 }
 
+function getWorkspaceTabNavigationSortMode(input: {
+  embeddedTabsEnabled: boolean;
+  tabSortMode: SidebarEmbeddedTabSortMode;
+}): SidebarEmbeddedTabSortMode {
+  if (input.embeddedTabsEnabled) {
+    return input.tabSortMode;
+  }
+  return "manual";
+}
+
 function shouldShowDesktopPaneFallbackTabs(input: {
   shouldRenderDesktopPaneFallback: boolean;
   embeddedTabsEnabled: boolean;
@@ -2187,6 +2206,17 @@ function WorkspaceScreenContent({
     persistenceKey ? (state.snapshots[persistenceKey] ?? null) : null,
   );
   const ensureWorkspaceSetupStatus = useWorkspaceSetupStore((state) => state.ensureSetupStatus);
+  const workspaceAgents = useSessionStore(
+    (state) => state.sessions[normalizedServerId]?.agents ?? null,
+  );
+  const queuedMessages = useSessionStore(
+    (state) => state.sessions[normalizedServerId]?.queuedMessages ?? null,
+  );
+  const tabSortMode = useSidebarViewStore((state) =>
+    state.getEmbeddedTabSortMode(normalizedServerId),
+  );
+  const browsersById = useBrowserStore((state) => state.browsersById);
+  const draftRecords = useDraftStore((state) => state.drafts);
   const showWorkspaceSetup = shouldShowWorkspaceSetup(workspaceSetupSnapshot);
   const uiTabs = useMemo(
     () => (workspaceLayout ? collectAllTabs(workspaceLayout.root) : EMPTY_UI_TABS),
@@ -2222,14 +2252,6 @@ function WorkspaceScreenContent({
   const handleTabClosed = useCallback((tabId: string) => {
     setHoveredCloseTabKey((current) => (current === tabId ? null : current));
   }, []);
-  const { closingTabIds, closeTab, closeWorkspaceTabWithCleanup, handleCloseTabById } =
-    useWorkspaceTabClose({
-      serverId: normalizedServerId,
-      workspaceId: normalizedWorkspaceId,
-      workspaceDirectory,
-      tabs: uiTabs,
-      onTabClosed: handleTabClosed,
-    });
   const { onLayout: onHeaderLayout, isBelow: showCompactButtonLabels } =
     useContainerWidthBelow(700);
 
@@ -2241,6 +2263,94 @@ function WorkspaceScreenContent({
       }),
     [uiTabs, workspaceLayout],
   );
+  const draftInputsByKey = useMemo<Record<string, DraftInput>>(() => {
+    const inputs: Record<string, DraftInput> = {};
+    for (const [key, record] of Object.entries(draftRecords)) {
+      if (record.lifecycle === "active") {
+        inputs[key] = record.input;
+      }
+    }
+    return inputs;
+  }, [draftRecords]);
+  const queuedMessageCountsByAgentId = useMemo(
+    () =>
+      queuedMessages
+        ? new Map(
+            Array.from(queuedMessages.entries()).map(([agentId, queue]) => [agentId, queue.length]),
+          )
+        : undefined,
+    [queuedMessages],
+  );
+  const setupSnapshotsByKey = useMemo(
+    () =>
+      persistenceKey && workspaceSetupSnapshot ? { [persistenceKey]: workspaceSetupSnapshot } : {},
+    [persistenceKey, workspaceSetupSnapshot],
+  );
+  const terminalsById = useMemo(
+    () =>
+      new Map<string, SidebarTerminalStatusRecord>(
+        terminals.map((terminal) => [
+          terminal.id,
+          { id: terminal.id, activity: terminal.activity ?? null },
+        ]),
+      ),
+    [terminals],
+  );
+  const statusSummariesByTabId = useMemo(() => {
+    const summaries = new Map<string, SidebarTabStatusSummary>();
+    for (const tab of uiTabs) {
+      summaries.set(
+        tab.tabId,
+        summarizeSidebarTabs({
+          tabs: [tab],
+          serverId: normalizedServerId,
+          workspaceId: normalizedWorkspaceId,
+          agents: workspaceAgents,
+          pendingCreatesByDraftId: pendingByDraftId,
+          setupSnapshots: setupSnapshotsByKey,
+          browsersById,
+          terminalsById,
+          draftInputsByKey,
+          queuedMessageCountsByAgentId,
+        }),
+      );
+    }
+    return summaries;
+  }, [
+    browsersById,
+    draftInputsByKey,
+    normalizedServerId,
+    normalizedWorkspaceId,
+    pendingByDraftId,
+    queuedMessageCountsByAgentId,
+    setupSnapshotsByKey,
+    terminalsById,
+    uiTabs,
+    workspaceAgents,
+  ]);
+  const effectiveTabSortMode = getWorkspaceTabNavigationSortMode({
+    embeddedTabsEnabled,
+    tabSortMode,
+  });
+  const orderedTabIds = useMemo(
+    () =>
+      sortSidebarWorkspaceTabs({
+        tabs: uiTabs,
+        sortMode: effectiveTabSortMode,
+        agents: workspaceAgents,
+        statusSummariesByTabId,
+      }).map((tab) => tab.tabId),
+    [effectiveTabSortMode, statusSummariesByTabId, uiTabs, workspaceAgents],
+  );
+  const { closingTabIds, closeTab, closeWorkspaceTabWithCleanup, handleCloseTabById } =
+    useWorkspaceTabClose({
+      serverId: normalizedServerId,
+      workspaceId: normalizedWorkspaceId,
+      workspaceDirectory,
+      tabs: uiTabs,
+      orderedTabIds,
+      onTabClosed: handleTabClosed,
+    });
   const setFocusedAgentId = useSessionStore((state) => state.setFocusedAgentId);
   const setFocusedTerminalId = useSessionStore((state) => state.setFocusedTerminalId);
   const focusedPaneAgentId = useMemo(() => {
@@ -2355,6 +2465,32 @@ function WorkspaceScreenContent({
     () => focusedPaneTabState.tabs.map((tab) => tab.descriptor),
     [focusedPaneTabState.tabs],
   );
+  const navigationTabs = useMemo<WorkspaceTabDescriptor[]>(() => {
+    if (effectiveTabSortMode === "manual") {
+      return tabs;
+    }
+
+    const tabById = new Map(tabs.map((tab) => [tab.tabId, tab]));
+    const nextTabs: WorkspaceTabDescriptor[] = [];
+    const addedTabIds = new Set<string>();
+    for (const tabId of orderedTabIds) {
+      const tab = tabById.get(tabId);
+      if (!tab || addedTabIds.has(tabId)) {
+        continue;
+      }
+      addedTabIds.add(tabId);
+      nextTabs.push(tab);
+    }
+    for (const tab of tabs) {
+      if (addedTabIds.has(tab.tabId)) {
+        continue;
+      }
+      addedTabIds.add(tab.tabId);
+      nextTabs.push(tab);
+    }
+    return nextTabs;
+  }, [effectiveTabSortMode, orderedTabIds, tabs]);
+  const navigationTabIds = useMemo(() => navigationTabs.map((tab) => tab.tabId), [navigationTabs]);
   const hasSetupTab = useMemo(
     () =>
       uiTabs.some(
@@ -3094,21 +3230,20 @@ function WorkspaceScreenContent({
           }
           return true;
         case "workspace.tab.navigate-index": {
-          const next = tabs[action.index - 1] ?? null;
+          const next = navigationTabs[action.index - 1] ?? null;
           if (next?.tabId) {
             navigateToTabId(next.tabId);
           }
           return true;
         }
         case "workspace.tab.navigate-relative": {
-          if (tabs.length > 0) {
-            const currentIndex = tabs.findIndex((tab) => tab.tabId === activeTabId);
-            const fromIndex = currentIndex >= 0 ? currentIndex : 0;
-            const nextIndex = (fromIndex + action.delta + tabs.length) % tabs.length;
-            const next = tabs[nextIndex] ?? null;
-            if (next?.tabId) {
-              navigateToTabId(next.tabId);
-            }
+          const nextTabId = getRelativeTabId({
+            tabIds: navigationTabIds,
+            activeTabId,
+            delta: action.delta,
+          });
+          if (nextTabId) {
+            navigateToTabId(nextTabId);
           }
           return true;
         }
@@ -3122,7 +3257,8 @@ function WorkspaceScreenContent({
       handleCreateDraftTab,
       handleCreateTerminal,
       navigateToTabId,
-      tabs,
+      navigationTabIds,
+      navigationTabs,
     ],
   );
 

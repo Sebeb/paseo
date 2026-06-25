@@ -59,12 +59,11 @@ export const SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER: SidebarEntryStatusKind[] = [
   "queued_messages",
   "draft",
   "input_required",
-  "unread",
   "in_progress",
+  "unread",
   "failed",
 ];
 export const SIDEBAR_ENTRY_STATUS_SORT_ORDER: SidebarEntryStatusKind[] = [
-  "draft",
   "input_required",
   "failed",
   "unread",

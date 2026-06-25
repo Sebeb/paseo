@@ -57,7 +57,6 @@ vi.mock("lucide-react-native", () => {
   return {
     CircleAlert: createIcon("CircleAlert"),
     CircleX: createIcon("CircleX"),
-    Mail: createIcon("Mail"),
     MessageSquareText: createIcon("MessageSquareText"),
     SquarePen: createIcon("SquarePen"),
   };
@@ -94,11 +93,42 @@ describe("SidebarEntryStatusBadges", () => {
     summary.entryCounts.input_required = 2;
     summary.entryCounts.failed = 3;
 
-    const { getByText, queryByTestId } = render(<SidebarEntryStatusBadges summary={summary} />);
+    const { getByTestId, getByText } = render(<SidebarEntryStatusBadges summary={summary} />);
 
     expect(getByText("2")).not.toBeNull();
     expect(getByText("3")).not.toBeNull();
-    expect(queryByTestId("sidebar-entry-status-badge-input_required")).not.toBeNull();
-    expect(queryByTestId("sidebar-entry-status-badge-failed")).not.toBeNull();
+    expect(
+      getByTestId("sidebar-entry-status-badge-input_required").getAttribute("style"),
+    ).toContain("width: 14px");
+    expect(getByTestId("sidebar-entry-status-badge-failed").getAttribute("style")).toContain(
+      "width: 14px",
+    );
+  });
+
+  it("renders unread single status as a dot without a mail icon", () => {
+    const summary = createEmptySidebarTabStatusSummary();
+    summary.entryCounts.unread = 1;
+
+    const { getByTestId } = render(<SidebarEntryStatusBadges summary={summary} />);
+
+    const unreadBadge = getByTestId("sidebar-entry-status-badge-unread");
+
+    expect(unreadBadge.querySelector("[data-icon='Mail']")).toBeNull();
+    expect(unreadBadge.getAttribute("style")).toContain("width: 14px");
+    expect(unreadBadge.getAttribute("style")).toContain("background-color: rgb(34, 197, 94)");
+  });
+
+  it("renders multi in-progress counts as centered blue text", () => {
+    const summary = createEmptySidebarTabStatusSummary();
+    summary.entryCounts.in_progress = 2;
+
+    const { getByTestId, getByText } = render(<SidebarEntryStatusBadges summary={summary} />);
+
+    const inProgressBadge = getByTestId("sidebar-entry-status-badge-in_progress");
+    const count = getByText("2");
+
+    expect(inProgressBadge.querySelector("[data-icon='SyncedLoader']")).toBeNull();
+    expect(inProgressBadge.getAttribute("style")).toContain("width: 14px");
+    expect(count.getAttribute("style")).toContain("color: rgb(59, 130, 246)");
   });
 });

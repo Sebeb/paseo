@@ -66,11 +66,12 @@ interface UseWorkspaceTabCloseInput {
   workspaceId: string;
   workspaceDirectory?: string | null;
   tabs: readonly WorkspaceTab[];
+  orderedTabIds?: readonly string[] | null;
   onTabClosed?: (tabId: string) => void;
 }
 
 export function useWorkspaceTabClose(input: UseWorkspaceTabCloseInput) {
-  const { serverId, workspaceId, workspaceDirectory, tabs, onTabClosed } = input;
+  const { serverId, workspaceId, workspaceDirectory, tabs, orderedTabIds, onTabClosed } = input;
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const client = useHostRuntimeClient(serverId);
@@ -105,10 +106,17 @@ export function useWorkspaceTabClose(input: UseWorkspaceTabCloseInput) {
         useBrowserStore.getState().removeBrowser(browserId);
         void getDesktopHost()?.browser?.clearPartition?.(browserId);
       }
-      closeWorkspaceTab(persistenceKey, normalizedTabId);
+      closeWorkspaceTab(persistenceKey, normalizedTabId, orderedTabIds);
       onTabClosed?.(normalizedTabId);
     },
-    [closeWorkspaceTab, hideWorkspaceAgent, onTabClosed, persistenceKey, unpinWorkspaceAgent],
+    [
+      closeWorkspaceTab,
+      hideWorkspaceAgent,
+      onTabClosed,
+      orderedTabIds,
+      persistenceKey,
+      unpinWorkspaceAgent,
+    ],
   );
 
   const invalidateTerminals = useCallback(() => {

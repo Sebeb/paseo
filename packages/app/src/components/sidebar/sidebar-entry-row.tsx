@@ -1,7 +1,7 @@
 import { memo, useMemo, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { CircleAlert, CircleX, Mail, MessageSquareText, SquarePen } from "lucide-react-native";
+import { CircleAlert, CircleX, MessageSquareText, SquarePen } from "lucide-react-native";
 import { SyncedLoader } from "@/components/synced-loader";
 import type {
   SidebarEntryStatusKind,
@@ -18,7 +18,6 @@ import type { Theme } from "@/styles/theme";
 
 const ThemedCircleAlert = withUnistyles(CircleAlert);
 const ThemedCircleX = withUnistyles(CircleX);
-const ThemedMail = withUnistyles(Mail);
 const ThemedMessageSquareText = withUnistyles(MessageSquareText);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
@@ -133,12 +132,19 @@ function SidebarEntryStatusBadge({ kind, count }: { kind: SidebarEntryStatusKind
     );
   }
   if (kind === "in_progress") {
+    if (shouldShowStatusCount(kind, count)) {
+      return (
+        <View
+          style={styles.statusBadgeInProgressCount}
+          testID={`sidebar-entry-status-badge-${kind}`}
+        >
+          <Text style={styles.statusBadgeInProgressCountText}>{count}</Text>
+        </View>
+      );
+    }
     return (
       <View style={styles.statusBadgePlain} testID={`sidebar-entry-status-badge-${kind}`}>
         <ThemedSyncedLoader size={12} uniProps={blueColorMapping} />
-        {shouldShowStatusCount(kind, count) ? (
-          <Text style={styles.statusBadgeCountFloating}>{count}</Text>
-        ) : null}
       </View>
     );
   }
@@ -190,10 +196,9 @@ function StatusBadgeIcon({ kind }: { kind: SidebarEntryStatusKind }) {
       return <ThemedMessageSquareText size={10} uniProps={blackColorMapping} />;
     case "input_required":
       return <ThemedCircleAlert size={10} uniProps={blackColorMapping} />;
-    case "unread":
-      return <ThemedMail size={10} uniProps={blackColorMapping} />;
     case "failed":
       return <ThemedCircleX size={10} uniProps={blackColorMapping} />;
+    case "unread":
     case "draft":
     case "in_progress":
       return null;
@@ -299,8 +304,8 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
   },
   statusBadge: {
-    width: 16,
-    height: 16,
+    width: 14,
+    height: 14,
     borderRadius: theme.borderRadius.full,
     alignItems: "center",
     justifyContent: "center",
@@ -323,18 +328,22 @@ const styles = StyleSheet.create((theme) => ({
   },
   statusBadgeCount: {
     color: "#000000",
-    fontSize: theme.fontSize.xs,
+    fontSize: 10,
     fontWeight: theme.fontWeight.medium,
-    lineHeight: 14,
+    lineHeight: 12,
   },
-  statusBadgeCountFloating: {
-    position: "absolute",
-    right: -1,
-    bottom: -2,
-    color: "#000000",
-    fontSize: 9,
+  statusBadgeInProgressCount: {
+    width: 14,
+    height: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  statusBadgeInProgressCountText: {
+    color: theme.colors.palette.blue[500],
+    fontSize: 10,
     fontWeight: theme.fontWeight.medium,
-    lineHeight: 10,
+    lineHeight: 12,
   },
   leadingStatusBadge: {
     position: "absolute",
