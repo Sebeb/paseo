@@ -489,6 +489,10 @@ export const fr: TranslationResources = {
         pinTarget: "Épingler",
         unpinTarget: "Détacher",
       },
+      recentlyClosed: {
+        title: "Onglets récemment fermés",
+        empty: "Aucun onglet récemment fermé",
+      },
       explorer: {
         open: "Ouvrir l'explorateur",
         close: "Fermer l'explorateur",
@@ -1618,6 +1622,7 @@ export const fr: TranslationResources = {
         archiveWorktree: "Arbre de travail d'archivage",
         newTab: "Nouvel onglet",
         closeCurrentTab: "Fermer l'onglet actuel",
+        restoreLastClosedTab: "Restaurer le dernier onglet fermé",
         jumpToWorkspace: "Accéder à l'espace de travail",
         jumpToTab: "Aller à l'onglet",
         previousWorkspace: "Espace de travail précédent",

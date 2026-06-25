@@ -489,6 +489,10 @@ export const ja: TranslationResources = {
         pinTarget: "ピン留め",
         unpinTarget: "ピン留めを解除",
       },
+      recentlyClosed: {
+        title: "最近閉じたタブ",
+        empty: "最近閉じたタブはありません",
+      },
       explorer: {
         open: "エクスプローラーを開く",
         close: "エクスプローラーを閉じる",
@@ -1590,6 +1594,7 @@ export const ja: TranslationResources = {
         archiveWorktree: "ワークツリーをアーカイブ",
         newTab: "新しいタブ",
         closeCurrentTab: "現在のタブを閉じる",
+        restoreLastClosedTab: "最後に閉じたタブを復元",
         jumpToWorkspace: "ワークスペースにジャンプ",
         jumpToTab: "タブにジャンプ",
         previousWorkspace: "前のワークスペース",

@@ -488,6 +488,10 @@ export const ptBR: TranslationResources = {
         pinTarget: "Fixar",
         unpinTarget: "Desafixar",
       },
+      recentlyClosed: {
+        title: "Abas fechadas recentemente",
+        empty: "Nenhuma aba fechada recentemente",
+      },
       explorer: {
         open: "Abrir explorador",
         close: "Fechar explorador",
@@ -1597,6 +1601,7 @@ export const ptBR: TranslationResources = {
         archiveWorktree: "Arquivar worktree",
         newTab: "Nova aba",
         closeCurrentTab: "Fechar aba atual",
+        restoreLastClosedTab: "Restaurar última aba fechada",
         jumpToWorkspace: "Ir para workspace",
         jumpToTab: "Ir para aba",
         previousWorkspace: "Workspace anterior",
