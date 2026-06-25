@@ -823,6 +823,16 @@ export const es: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "Contraer espacio de trabajo",
+        expand: "Expandir espacio de trabajo",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "Mostrar todo",
+        showAllLabel: "Mostrar todas las pestañas",
+        showLess: "Mostrar menos",
+        showLessLabel: "Mostrar menos pestañas",
+      },
       status: {
         scriptsAvailable: "Guiones disponibles",
         creating: "Creando...",
@@ -1525,6 +1535,16 @@ export const es: TranslationResources = {
           claude: "claudio",
           ghostty: "fantasmal",
           auto: "Sistema",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

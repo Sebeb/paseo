@@ -815,6 +815,16 @@ export const ru: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "Свернуть рабочее пространство",
+        expand: "Развернуть рабочее пространство",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "Показать все",
+        showAllLabel: "Показать все вкладки",
+        showLess: "Показать меньше",
+        showLessLabel: "Показать меньше вкладок",
+      },
       status: {
         scriptsAvailable: "Доступны скрипты",
         creating: "Создание...",
@@ -1516,6 +1526,16 @@ export const ru: TranslationResources = {
           claude: "Клод",
           ghostty: "Призрачный",
           auto: "Система",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

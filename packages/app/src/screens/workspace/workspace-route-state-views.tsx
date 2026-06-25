@@ -1,7 +1,7 @@
 import { Text, View } from "react-native";
 import { ArrowLeftToLine, RotateCw, Settings } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -69,12 +69,11 @@ function getWorkspaceHostStateTitle(
 }
 
 function WorkspaceConnecting({ hostName }: { hostName: string }) {
-  const { theme } = useUnistyles();
   const { t } = useTranslation();
 
   return (
     <View style={styles.emptyState}>
-      <LoadingSpinner size="small" color={theme.colors.foregroundMuted} />
+      <LoadingSpinner size="small" />
       <View style={styles.textStack}>
         <Text style={styles.title}>{t("workspace.route.loading")}</Text>
         <Text style={styles.description}>{hostName}</Text>
@@ -84,12 +83,11 @@ function WorkspaceConnecting({ hostName }: { hostName: string }) {
 }
 
 function WorkspaceRestoring({ hostName }: { hostName: string }) {
-  const { theme } = useUnistyles();
   const { t } = useTranslation();
 
   return (
     <View style={styles.emptyState}>
-      <LoadingSpinner size="small" color={theme.colors.foregroundMuted} />
+      <LoadingSpinner size="small" />
       <View style={styles.textStack}>
         <Text style={styles.title}>{t("workspace.route.restoring")}</Text>
         <Text style={styles.description}>{hostName}</Text>
@@ -107,14 +105,13 @@ function WorkspaceUnreachable({
   onRetry: () => void;
   onManageHost: () => void;
 }) {
-  const { theme } = useUnistyles();
   const { t } = useTranslation();
   const canRetry = state.connectionStatus === "offline" || state.connectionStatus === "error";
 
   return (
     <View style={styles.emptyState}>
       {state.connectionStatus === "connecting" || state.connectionStatus === "idle" ? (
-        <LoadingSpinner size="small" color={theme.colors.foregroundMuted} />
+        <LoadingSpinner size="small" />
       ) : null}
       <View style={styles.textStack}>
         <Text style={styles.title}>{getWorkspaceHostStateTitle(state, t)}</Text>

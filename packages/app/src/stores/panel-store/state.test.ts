@@ -7,7 +7,9 @@ import {
 import {
   buildOpenFileExplorerPatch,
   buildToggleFileExplorerPatch,
+  DEFAULT_VERTICAL_TABS_SIDEBAR_WIDTH,
   migratePanelState,
+  MAX_VERTICAL_TABS_SIDEBAR_WIDTH,
   selectIsAgentListOpen,
   selectIsFileExplorerOpen,
   selectPanelVisibility,
@@ -102,6 +104,22 @@ describe("panel-store migration", () => {
     const state = migratePanelState({}, 10, { isWeb: false });
 
     expect(state.explorerShowHiddenFiles).toBe(true);
+  });
+
+  it("defaults vertical tab sidebar width for older persisted state", () => {
+    const state = migratePanelState({}, 11, { isWeb: false });
+
+    expect(state.verticalTabsSidebarWidth).toBe(DEFAULT_VERTICAL_TABS_SIDEBAR_WIDTH);
+  });
+
+  it("clamps vertical tab sidebar width on current persisted state", () => {
+    const state = migratePanelState(
+      { verticalTabsSidebarWidth: MAX_VERTICAL_TABS_SIDEBAR_WIDTH + 100 },
+      12,
+      { isWeb: false },
+    );
+
+    expect(state.verticalTabsSidebarWidth).toBe(MAX_VERTICAL_TABS_SIDEBAR_WIDTH);
   });
 });
 

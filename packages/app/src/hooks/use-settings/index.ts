@@ -31,6 +31,7 @@ import {
   sanitizeFontFamily,
   saveAppSettings as saveAppSettingsPure,
   type AppSettings,
+  type AppTabLayoutMode,
   type DesktopSettingsBridge,
   type KeyValueStorage,
   type ReleaseChannel,
@@ -60,6 +61,7 @@ export {
 };
 export type {
   AppSettings,
+  AppTabLayoutMode,
   AppLanguage,
   DesktopSettingsBridge,
   KeyValueStorage,
@@ -149,6 +151,9 @@ export function useSettings(): UseSettingsReturn {
       }
       if (updates.language !== undefined) {
         appUpdates.language = updates.language;
+      }
+      if (updates.tabLayoutMode !== undefined) {
+        appUpdates.tabLayoutMode = updates.tabLayoutMode;
       }
       if (updates.sendBehavior !== undefined) {
         appUpdates.sendBehavior = updates.sendBehavior;

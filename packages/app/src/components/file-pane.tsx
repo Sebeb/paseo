@@ -1,16 +1,11 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { FileReadResult } from "@getpaseo/client/internal/daemon-client";
-import {
-  ActivityIndicator,
-  Image as RNImage,
-  ScrollView as RNScrollView,
-  Text,
-  View,
-} from "react-native";
+import { Image as RNImage, ScrollView as RNScrollView, Text, View } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { MarkdownRenderer } from "@/components/markdown/renderer";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useSessionStore, type ExplorerFile } from "@/stores/session-store";
 import { useWebScrollViewScrollbar } from "@/components/use-web-scrollbar";
@@ -251,7 +246,7 @@ function FilePreviewBody({
   if (isLoading && !preview) {
     return (
       <View style={styles.centerState}>
-        <ActivityIndicator size="small" />
+        <LoadingSpinner size="small" />
         <Text style={styles.loadingText}>{t("panels.file.loading")}</Text>
       </View>
     );
@@ -344,7 +339,7 @@ function FilePreviewBody({
     if (!imagePreviewUri) {
       return (
         <View style={styles.centerState}>
-          <ActivityIndicator size="small" />
+          <LoadingSpinner size="small" />
           <Text style={styles.loadingText}>{t("panels.file.loading")}</Text>
         </View>
       );

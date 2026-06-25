@@ -123,6 +123,7 @@ interface SplitContainerProps {
   onReorderTabsInPane: (paneId: string, tabIds: string[]) => void;
   renderPaneEmptyState?: () => ReactNode;
   focusModeEnabled?: boolean;
+  embeddedMainPaneId?: string | null;
 }
 
 interface WorkspaceTabDragData {
@@ -403,6 +404,7 @@ export function SplitContainer({
   onReorderTabsInPane,
   renderPaneEmptyState = () => null,
   focusModeEnabled,
+  embeddedMainPaneId = null,
 }: SplitContainerProps) {
   const [activeDragTabId, setActiveDragTabId] = useState<string | null>(null);
   const [dropPreview, setDropPreview] = useState<SplitDropZoneHover | null>(null);
@@ -638,6 +640,7 @@ export function SplitContainer({
           dropPreview={dropPreview}
           tabDropPreview={tabDropPreview}
           topLeftPaneId={topLeftPaneId}
+          embeddedMainPaneId={embeddedMainPaneId}
         />
         <DragOverlay dropAnimation={null}>
           {activeDragTabId ? (
@@ -782,6 +785,7 @@ function SplitNodeView({
   dropPreview,
   tabDropPreview,
   topLeftPaneId,
+  embeddedMainPaneId,
 }: SplitNodeViewProps) {
   const groupId = node.kind === "group" ? node.group.id : null;
   const groupDirection = node.kind === "group" ? node.group.direction : null;
@@ -836,6 +840,7 @@ function SplitNodeView({
         showDropZones={showDropZones}
         dropPreview={dropPreview}
         tabDropPreview={tabDropPreview}
+        embeddedMainPaneId={embeddedMainPaneId}
       />
     );
   }
@@ -884,6 +889,7 @@ function SplitNodeView({
               dropPreview={dropPreview}
               tabDropPreview={tabDropPreview}
               topLeftPaneId={topLeftPaneId}
+              embeddedMainPaneId={embeddedMainPaneId}
             />
           </SplitGroupChild>
           {index < node.group.children.length - 1 ? (
@@ -937,6 +943,7 @@ function SplitPaneView({
   showDropZones,
   dropPreview,
   tabDropPreview,
+  embeddedMainPaneId,
 }: SplitPaneViewProps) {
   const { theme: _theme } = useUnistyles();
   const paneRef = useRef<View | null>(null);
@@ -949,8 +956,9 @@ function SplitPaneView({
     (state) => state.setPaneTabBarOrientation,
   );
   const isTopLeftPane = pane.id === topLeftPaneId;
+  const isEmbeddedMainPane = embeddedMainPaneId === pane.id;
   const tabBarOrientation = isTopLeftPane ? topLeftPaneTabBarOrientation : pane.tabBarOrientation;
-  const isVerticalTabBar = tabBarOrientation === "vertical";
+  const isVerticalTabBar = !isEmbeddedMainPane && tabBarOrientation === "vertical";
   const paneState = useMemo(
     () =>
       deriveWorkspacePaneState({
@@ -1064,7 +1072,7 @@ function SplitPaneView({
     () => [styles.paneBody, isVerticalTabBar && styles.paneBodyVertical],
     [isVerticalTabBar],
   );
-  const tabRow = (
+  const tabRow = isEmbeddedMainPane ? null : (
     <View style={paneTabsStyle}>
       <TitlebarDragRegion />
       <WorkspaceDesktopTabsRow

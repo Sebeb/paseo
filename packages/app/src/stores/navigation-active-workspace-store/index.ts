@@ -19,6 +19,7 @@ export type { ActiveWorkspaceSelection } from "@/stores/last-workspace-selection
 
 interface NavigateToWorkspaceOptions {
   currentPathname?: string | null;
+  openAttentionAgent?: boolean;
 }
 
 const LAST_WORKSPACE_SELECTION_STORAGE_KEY = "paseo:last-workspace-route-selection";
@@ -60,9 +61,11 @@ export function getIsLastWorkspaceSelectionHydrated(): boolean {
 export function navigateToWorkspace(
   serverId: string,
   workspaceId: string,
-  _options: NavigateToWorkspaceOptions = {},
+  options: NavigateToWorkspaceOptions = {},
 ) {
-  navigateToWorkspacePure(serverId, workspaceId, navigateDeps());
+  navigateToWorkspacePure(serverId, workspaceId, navigateDeps(), {
+    openAttentionAgent: options.openAttentionAgent,
+  });
 }
 
 export function navigateToLastWorkspace(): boolean {

@@ -63,6 +63,8 @@ Closing a tab on a **subagent** (any agent with `parentAgentId`) is **layout-onl
 
 The asymmetry is intentional: a subagent's home is the parent's track, not the tab. Tabs are ephemeral viewing slots; the track is the persistent record of the parent's children.
 
+Plain workspace navigation may auto-focus a root agent that requires attention. Explicit tab navigation must opt out of that behavior with `openAttentionAgent: false`; otherwise the attention tab can immediately override the user's selected tab and make the click look ignored.
+
 ## Workspace activity
 
 Agent lifecycle status stays literal: a parent agent is `idle` when its own turn is idle, even if a child is running.

@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { Mic, MicOff, Square } from "lucide-react-native";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { FOOTER_HEIGHT } from "@/constants/layout";
 import { useVoiceTelemetry } from "@/contexts/voice-context";
 import { VolumeMeter } from "./volume-meter";
@@ -75,7 +76,7 @@ export function RealtimeVoiceOverlay({
           style={stopButtonStyle}
         >
           {isSwitching ? (
-            <ActivityIndicator size="small" color={theme.colors.palette.white} />
+            <LoadingSpinner size="small" />
           ) : (
             <Square
               size={theme.iconSize.lg}

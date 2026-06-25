@@ -1,12 +1,6 @@
 import { type ReactElement, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  ActivityIndicator,
-  Pressable,
-  Text,
-  View,
-  type PressableStateCallbackType,
-} from "react-native";
+import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { Check, ChevronDown } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -18,6 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
 import { useCheckoutStatusQuery } from "@/git/use-status-query";
 import { useIsLocalDaemon } from "@/hooks/use-is-local-daemon";
@@ -45,13 +40,11 @@ interface OpenTarget {
   onOpen: () => Promise<void> | void;
 }
 
-const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
 const ThemedEditorAppIcon = withUnistyles(EditorAppIcon);
 const ThemedGitHubIcon = withUnistyles(GitHubIcon);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedCheckIcon = withUnistyles(Check);
 
-const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 interface OpenTargetMenuItemProps {
@@ -221,11 +214,7 @@ export function WorkspaceOpenInEditorButton({
           }
         >
           {openMutation.isPending ? (
-            <ThemedActivityIndicator
-              size="small"
-              uniProps={foregroundColorMapping}
-              style={styles.splitButtonSpinnerOnly}
-            />
+            <LoadingSpinner size="small" style={styles.splitButtonSpinnerOnly} />
           ) : (
             <View style={styles.splitButtonContent}>
               {primaryOption.icon}

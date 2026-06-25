@@ -20,6 +20,7 @@ import {
   createDefaultLayout,
   findPaneById,
   findPaneContainingTab,
+  findMainPane,
   findTopLeftPaneId,
   focusPaneInLayout,
   focusTabInLayout,
@@ -56,6 +57,7 @@ export {
   createDefaultLayout,
   findPaneById,
   findPaneContainingTab,
+  findMainPane,
   findTopLeftPaneId,
   getFocusedBrowserId,
   getTreeDepth,
@@ -88,7 +90,7 @@ interface WorkspaceLayoutStore {
     parentTabId: string,
   ) => string | null;
   openTabInBackground: (workspaceKey: string, target: WorkspaceTabTarget) => string | null;
-  closeTab: (workspaceKey: string, tabId: string) => void;
+  closeTab: (workspaceKey: string, tabId: string, orderedTabIds?: readonly string[] | null) => void;
   focusTab: (workspaceKey: string, tabId: string) => void;
   retargetTab: (workspaceKey: string, tabId: string, target: WorkspaceTabTarget) => string | null;
   convertDraftToAgent: (workspaceKey: string, tabId: string, agentId: string) => string | null;
@@ -341,7 +343,7 @@ export function createWorkspaceLayoutStore(
 
           return result.tabId;
         },
-        closeTab: (workspaceKey, tabId) => {
+        closeTab: (workspaceKey, tabId, orderedTabIds) => {
           const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);
           const normalizedTabId = trimNonEmpty(tabId);
           if (!normalizedWorkspaceKey || !normalizedTabId) {
@@ -352,6 +354,7 @@ export function createWorkspaceLayoutStore(
             const nextLayout = closeTabInLayout({
               layout: getWorkspaceLayout(state.layoutByWorkspace, normalizedWorkspaceKey),
               tabId: normalizedTabId,
+              orderedTabIds,
             });
             if (!nextLayout) {
               return state;
@@ -745,10 +748,6 @@ export function createWorkspaceLayoutStore(
 
           set((state) => {
             const layout = getWorkspaceLayout(state.layoutByWorkspace, normalizedWorkspaceKey);
-            if (!findPaneById(layout.root, normalizedPaneId)) {
-              return state;
-            }
-
             if (findTopLeftPaneId(layout.root) === normalizedPaneId) {
               if (state.topLeftPaneTabBarOrientation === orientation) {
                 return state;

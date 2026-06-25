@@ -4,7 +4,6 @@ import {
   View,
   Text,
   Pressable,
-  ActivityIndicator,
   type GestureResponderEvent,
   type PressableStateCallbackType,
 } from "react-native";
@@ -16,6 +15,7 @@ import { AlertTriangle, ChevronRight, Search, Settings, Star } from "lucide-reac
 import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 import type { SheetHeader } from "@/components/adaptive-modal-sheet";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
 import { Button } from "@/components/ui/button";
 const IS_WEB = platformIsWeb;
@@ -316,11 +316,7 @@ function GroupProviderButton({ provider, onDrillDown }: GroupProviderButtonProps
   } else if (selection.kind === "loading") {
     stateNode = (
       <View style={styles.rowStateInline}>
-        <ActivityIndicator
-          size="small"
-          color={theme.colors.foregroundMuted}
-          style={styles.rowSpinner}
-        />
+        <LoadingSpinner size="small" style={styles.rowSpinner} />
         <Text style={styles.drillDownCount}>{t("modelSelector.loadingShort")}</Text>
       </View>
     );
@@ -503,11 +499,7 @@ function SelectorContent({
     if (drillSelection.kind === "loading") {
       return (
         <View style={styles.emptyState}>
-          <ActivityIndicator
-            size="small"
-            color={theme.colors.foregroundMuted}
-            style={styles.rowSpinner}
-          />
+          <LoadingSpinner size="small" style={styles.rowSpinner} />
           <Text style={styles.emptyStateText}>{t("modelSelector.loadingShort")}</Text>
         </View>
       );
@@ -844,7 +836,7 @@ export function CombinedModelSelector({
           />
         ) : (
           <View style={styles.sheetLoadingState}>
-            <ActivityIndicator size="small" color={theme.colors.foregroundMuted} />
+            <LoadingSpinner size="small" />
             <Text style={styles.sheetLoadingText}>{t("modelSelector.loadingSelector")}</Text>
           </View>
         )}

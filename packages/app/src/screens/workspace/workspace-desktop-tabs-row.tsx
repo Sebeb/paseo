@@ -80,6 +80,8 @@ import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-
 import type { Theme } from "@/styles/theme";
 import { RenderProfile } from "@/utils/render-profiler";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
+import { useAppSettings } from "@/hooks/use-settings";
+import { SidebarDisplayPreferencesMenuSections } from "@/components/sidebar/sidebar-grouping-selector";
 import {
   getTerminalProfileIcon,
   resolveTerminalProfiles,
@@ -327,15 +329,19 @@ function WorkspaceTabRowExtras({
 }
 
 interface WorkspaceTabDisplayMenuProps {
+  normalizedServerId: string;
   verticalTabsSelected: boolean;
   onVerticalTabsChange: (selected: boolean) => void;
 }
 
 function WorkspaceTabDisplayMenu({
+  normalizedServerId,
   verticalTabsSelected,
   onVerticalTabsChange,
 }: WorkspaceTabDisplayMenuProps) {
   const { t } = useTranslation();
+  const { settings } = useAppSettings();
+  const showVerticalDisplaySections = settings.tabLayoutMode === "vertical";
   const handleToggleVerticalTabs = useCallback(() => {
     onVerticalTabsChange(!verticalTabsSelected);
   }, [onVerticalTabsChange, verticalTabsSelected]);
@@ -366,6 +372,17 @@ function WorkspaceTabDisplayMenu({
         >
           {t("workspace.tabs.actions.verticalTabs")}
         </DropdownMenuItem>
+        {showVerticalDisplaySections ? (
+          <>
+            <DropdownMenuSeparator />
+            <SidebarDisplayPreferencesMenuSections
+              serverId={normalizedServerId}
+              showTabControls
+              showSidebarBadge
+              closeOnSelect={false}
+            />
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1226,6 +1243,7 @@ export function WorkspaceDesktopTabsRow({
 
   const tabDisplayMenu = (
     <WorkspaceTabDisplayMenu
+      normalizedServerId={normalizedServerId}
       verticalTabsSelected={verticalTabsSelected}
       onVerticalTabsChange={handleVerticalTabsChange}
     />

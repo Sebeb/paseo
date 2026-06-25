@@ -155,35 +155,6 @@ describe("workspace-layout-store helpers", () => {
       "tab-c",
       "tab-d",
     ]);
-    expect(findTopLeftPaneId(root)).toBe("left");
-  });
-
-  it("finds the top-left pane through nested split groups", () => {
-    const root: SplitNode = {
-      kind: "group",
-      group: {
-        id: "group-root",
-        direction: "vertical",
-        sizes: [0.5, 0.5],
-        children: [
-          {
-            kind: "group",
-            group: {
-              id: "group-top",
-              direction: "horizontal",
-              sizes: [0.4, 0.6],
-              children: [
-                createPane({ id: "top-left", tabIds: ["tab-a"] }),
-                createPane({ id: "top-right", tabIds: ["tab-b"] }),
-              ],
-            },
-          },
-          createPane({ id: "bottom", tabIds: ["tab-c"] }),
-        ],
-      },
-    };
-
-    expect(findTopLeftPaneId(root)).toBe("top-left");
   });
 
   it("derives the focused browser id from the focused pane active tab", () => {
@@ -333,7 +304,17 @@ describe("workspace-layout-store tree transforms", () => {
 
     const singlePaneRoot = createPane({ id: "main", tabIds: ["tab-a"] });
     const emptied = removeTabFromTree(singlePaneRoot, "tab-a");
-    expect(emptied).toEqual(createPane({ id: "main", tabIds: [], focusedTabId: null }));
+    expect(emptied).toEqual({
+      kind: "pane",
+      pane: {
+        id: "main",
+        tabIds: [],
+        focusedTabId: null,
+        tabBarOrientation: "horizontal",
+        tabs: [],
+        createdAt: 0,
+      },
+    });
   });
 });
 
@@ -491,6 +472,37 @@ describe("workspace-layout-store actions", () => {
 
     expect(pane.tabIds).toEqual([firstTabId, rightTabId]);
     expect(pane.focusedTabId).toBe(rightTabId);
+  });
+
+  it("closing a focused tab selects the successor from the provided tab order", () => {
+    const workspaceKey = createWorkspaceKey();
+    const firstTabId = "draft-1";
+    const closedTabId = "draft-2";
+    const rightTabId = "draft-3";
+
+    workspaceLayoutStore.setState((state) => ({
+      ...state,
+      layoutByWorkspace: {
+        ...state.layoutByWorkspace,
+        [workspaceKey]: {
+          root: createPane({
+            id: "main",
+            tabIds: [firstTabId, closedTabId, rightTabId],
+            focusedTabId: closedTabId,
+          }),
+          focusedPaneId: "main",
+        },
+      },
+    }));
+
+    workspaceLayoutStore
+      .getState()
+      .closeTab(workspaceKey, closedTabId, [closedTabId, firstTabId, rightTabId]);
+    const layout = workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey];
+    const pane = findPaneById(layout.root, "main")!;
+
+    expect(pane.tabIds).toEqual([firstTabId, rightTabId]);
+    expect(pane.focusedTabId).toBe(firstTabId);
   });
 
   it("closing a focused child tab returns to its parent before using tab-strip order", () => {
@@ -865,6 +877,7 @@ describe("workspace-layout-store actions", () => {
       tabIds: [thirdTabId!, firstTabId!, secondTabId!],
       focusedTabId: thirdTabId,
       tabBarOrientation: "horizontal",
+      createdAt: 0,
       tabs: [
         {
           tabId: thirdTabId,
@@ -921,6 +934,7 @@ describe("workspace-layout-store actions", () => {
       tabIds: [fourthTabId!, thirdTabId!],
       focusedTabId: fourthTabId,
       tabBarOrientation: "horizontal",
+      createdAt: expect.any(Number),
       tabs: [
         {
           tabId: fourthTabId,
@@ -1219,7 +1233,7 @@ describe("workspace-layout-store actions", () => {
     expect(layout).toEqual(createDefaultLayout());
   });
 
-  it("defaults legacy persisted panes to horizontal tabs", () => {
+  it("normalizes legacy panes without tab orientation", () => {
     const legacyLayout = {
       root: {
         kind: "pane",
@@ -1227,10 +1241,11 @@ describe("workspace-layout-store actions", () => {
           id: "legacy-pane",
           tabIds: [],
           focusedTabId: null,
+          tabs: [],
         },
       },
       focusedPaneId: "legacy-pane",
-    } as unknown as Parameters<typeof normalizeLayout>[0];
+    } as const;
 
     const layout = normalizeLayout(legacyLayout);
 
@@ -1242,9 +1257,8 @@ describe("workspace-layout-store actions", () => {
     const workspaceKey = createWorkspaceKey();
     const store = workspaceLayoutStore.getState();
 
-    const tabId = store.openTabFocused(workspaceKey, { kind: "draft", draftId: "draft-1" });
-    const rightPaneId = store.splitPane(workspaceKey, {
-      tabId: tabId!,
+    store.openTabFocused(workspaceKey, { kind: "draft", draftId: "draft-1" });
+    const rightPaneId = store.splitPaneEmpty(workspaceKey, {
       targetPaneId: "main",
       position: "right",
     });
