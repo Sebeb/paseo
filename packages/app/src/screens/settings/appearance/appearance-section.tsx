@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import {
   MAX_CODE_FONT_SIZE,
@@ -26,6 +27,7 @@ import {
   sanitizeFontFamily,
   useAppSettings,
   type AppSettings,
+  type AppTabLayoutMode,
   type CollapseThinkingBehavior,
 } from "@/hooks/use-settings";
 import {
@@ -37,7 +39,6 @@ import {
 } from "@/styles/theme";
 import { isNative } from "@/constants/platform";
 import { settingsStyles } from "@/styles/settings";
-import { Switch } from "@/components/ui/switch";
 import { AppearancePreview } from "./appearance-preview";
 
 // ---------------------------------------------------------------------------
@@ -76,6 +77,15 @@ function getCollapseThinkingLabel(t: TFunction, value: CollapseThinkingBehavior)
   return t(labelKeys[value]);
 }
 
+function getTabLayoutLabel(t: TFunction, value: AppTabLayoutMode): string {
+  const labelKeys: Record<AppTabLayoutMode, string> = {
+    horizontal: "settings.appearance.tabs.options.horizontal",
+    vertical: "settings.appearance.tabs.options.vertical",
+    sidebar: "settings.appearance.tabs.options.sidebar",
+  };
+  return t(labelKeys[value]);
+}
+
 const PRIMARY_THEMES: readonly AppSettings["theme"][] = ["light", "dark", "auto"];
 const DARK_VARIANT_THEMES: readonly AppSettings["theme"][] = [
   "zinc",
@@ -88,6 +98,7 @@ const COLLAPSE_THINKING_OPTIONS: readonly CollapseThinkingBehavior[] = [
   "completed",
   "completed-and-active",
 ];
+const TAB_LAYOUT_MODES: readonly AppTabLayoutMode[] = ["horizontal", "vertical", "sidebar"];
 
 // Platform default stacks can be the bare native tokens ("normal"/"monospace");
 // those read as a bug, so show a human label in the placeholder instead.
@@ -208,47 +219,44 @@ function ThemeRow({ value, onChange }: ThemeRowProps) {
 
 interface CollapseThinkingRowProps {
   value: CollapseThinkingBehavior;
-  withBorder?: boolean;
   onChange: (value: CollapseThinkingBehavior) => void;
 }
 
-function CollapseThinkingRow({ value, withBorder = false, onChange }: CollapseThinkingRowProps) {
+function CollapseThinkingRow({ value, onChange }: CollapseThinkingRowProps) {
   const { t } = useTranslation();
   const selectedLabel = getCollapseThinkingLabel(t, value);
   return (
-    <View style={withBorder ? settingsStyles.rowBorder : undefined}>
-      <View style={settingsStyles.row}>
-        <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>
-            {t("settings.appearance.messages.collapseThinking.label")}
-          </Text>
-          <Text style={settingsStyles.rowHint}>
-            {t("settings.appearance.messages.collapseThinking.description")}
-          </Text>
-        </View>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            style={dropdownTriggerStyle}
-            accessibilityLabel={t(
-              "settings.appearance.messages.collapseThinking.accessibilityLabel",
-              { value: selectedLabel },
-            )}
-          >
-            <Text style={styles.triggerText}>{selectedLabel}</Text>
-            <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedColorMapping} />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="bottom" align="end" width={240}>
-            {COLLAPSE_THINKING_OPTIONS.map((option) => (
-              <CollapseThinkingMenuItem
-                key={option}
-                option={option}
-                selected={value === option}
-                onChange={onChange}
-              />
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+    <View style={settingsStyles.row}>
+      <View style={settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle}>
+          {t("settings.appearance.messages.collapseThinking.label")}
+        </Text>
+        <Text style={settingsStyles.rowHint}>
+          {t("settings.appearance.messages.collapseThinking.description")}
+        </Text>
       </View>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          style={dropdownTriggerStyle}
+          accessibilityLabel={t(
+            "settings.appearance.messages.collapseThinking.accessibilityLabel",
+            { value: selectedLabel },
+          )}
+        >
+          <Text style={styles.triggerText}>{selectedLabel}</Text>
+          <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedColorMapping} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="bottom" align="end" width={240}>
+          {COLLAPSE_THINKING_OPTIONS.map((option) => (
+            <CollapseThinkingMenuItem
+              key={option}
+              option={option}
+              selected={value === option}
+              onChange={onChange}
+            />
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </View>
   );
 }
@@ -268,6 +276,63 @@ function CollapseThinkingMenuItem({
     <DropdownMenuItem selected={selected} onSelect={handleSelect}>
       {getCollapseThinkingLabel(t, option)}
     </DropdownMenuItem>
+  );
+}
+
+interface TabLayoutMenuItemProps {
+  value: AppTabLayoutMode;
+  selected: boolean;
+  onChange: (value: AppTabLayoutMode) => void;
+}
+
+function TabLayoutMenuItem({ value, selected, onChange }: TabLayoutMenuItemProps) {
+  const { t } = useTranslation();
+  const handleSelect = useCallback(() => {
+    onChange(value);
+  }, [onChange, value]);
+  return (
+    <DropdownMenuItem selected={selected} onSelect={handleSelect}>
+      {getTabLayoutLabel(t, value)}
+    </DropdownMenuItem>
+  );
+}
+
+interface TabLayoutRowProps {
+  value: AppTabLayoutMode;
+  onChange: (value: AppTabLayoutMode) => void;
+}
+
+function TabLayoutRow({ value, onChange }: TabLayoutRowProps) {
+  const { t } = useTranslation();
+  const selectedLabel = getTabLayoutLabel(t, value);
+  return (
+    <View style={styles.rowWithBorder}>
+      <View style={settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle}>{t("settings.appearance.tabs.tabLayout")}</Text>
+        <Text style={settingsStyles.rowHint}>{t("settings.appearance.tabs.tabLayoutHint")}</Text>
+      </View>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          style={dropdownTriggerStyle}
+          accessibilityLabel={t("settings.appearance.tabs.tabLayoutAccessibility", {
+            value: selectedLabel,
+          })}
+        >
+          <Text style={styles.triggerText}>{selectedLabel}</Text>
+          <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedColorMapping} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="bottom" align="end" width={180}>
+          {TAB_LAYOUT_MODES.map((mode) => (
+            <TabLayoutMenuItem
+              key={mode}
+              value={mode}
+              selected={value === mode}
+              onChange={onChange}
+            />
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </View>
   );
 }
 
@@ -535,6 +600,13 @@ export function AppearanceSection() {
     [updateSettings],
   );
 
+  const handleTabLayoutModeChange = useCallback(
+    (tabLayoutMode: AppTabLayoutMode) => {
+      void updateSettings({ tabLayoutMode });
+    },
+    [updateSettings],
+  );
+
   const handleSyntaxThemeChange = useCallback(
     (syntaxTheme: SyntaxThemeId) => {
       void updateSettings({ syntaxTheme });
@@ -634,16 +706,16 @@ export function AppearanceSection() {
       <SettingsSection title={t("settings.appearance.theme.title")}>
         <View style={settingsStyles.card}>
           <ThemeRow value={settings.theme} onChange={handleThemeChange} />
+          <TabLayoutRow value={settings.tabLayoutMode} onChange={handleTabLayoutModeChange} />
         </View>
       </SettingsSection>
       <SettingsSection title={t("settings.appearance.messages.title")}>
         <View style={settingsStyles.card}>
-          <PinUserInputsRow value={settings.pinUserInputs} onChange={handlePinUserInputsChange} />
           <CollapseThinkingRow
             value={settings.collapseThinking}
-            withBorder
             onChange={handleCollapseThinkingChange}
           />
+          <PinUserInputsRow value={settings.pinUserInputs} onChange={handlePinUserInputsChange} />
         </View>
       </SettingsSection>
       {showPromptMarkerRows ? (

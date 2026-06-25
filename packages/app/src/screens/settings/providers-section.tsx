@@ -176,11 +176,7 @@ function StatusIndicator({ status }: { status: ProviderStatus }) {
 
   return (
     <View style={styles.statusRow}>
-      {status.tone === "loading" ? (
-        <LoadingSpinner size={10} color={theme.colors.foregroundMuted} />
-      ) : (
-        <View style={dotStyle} />
-      )}
+      {status.tone === "loading" ? <LoadingSpinner size={10} /> : <View style={dotStyle} />}
       <Text style={styles.statusLabel}>{status.label}</Text>
       {status.modelCount !== null ? (
         <>

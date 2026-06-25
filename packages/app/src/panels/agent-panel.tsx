@@ -3,15 +3,16 @@ import type { TFunction } from "i18next";
 import { SquarePen } from "lucide-react-native";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import ReanimatedAnimated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { StyleSheet } from "react-native-unistyles";
 import invariant from "tiny-invariant";
 import { shallow, useShallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { AgentStreamView, type AgentStreamViewHandle } from "@/agent-stream/view";
 import { ArchivedAgentCallout } from "@/components/archived-agent-callout";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Composer } from "@/composer";
 import { AgentModeControl } from "@/composer/agent-controls/mode-control";
 import { FileDropZone } from "@/components/file-drop-zone";
@@ -80,7 +81,6 @@ import { usePanelStore } from "@/stores/panel-store";
 import { type Agent, useSessionStore } from "@/stores/session-store";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { buildWorkspaceTabPersistenceKey } from "@/stores/workspace-tabs-store";
-import type { Theme } from "@/styles/theme";
 import { useArchiveSubagent, useDetachSubagent, useSubagentsForParent } from "@/subagents";
 import { SubagentsTrack } from "@/subagents/track";
 import type { PendingPermission } from "@/types/shared";
@@ -199,7 +199,7 @@ function renderChatAgentNonReadyView(args: {
     return (
       <View style={styles.container} testID="agent-loading">
         <View style={styles.errorContainer}>
-          <ThemedActivityIndicator size="large" uniProps={foregroundMutedColorMapping} />
+          <LoadingSpinner size="large" />
         </View>
       </View>
     );
@@ -666,7 +666,7 @@ function AgentPanelBody({
     return (
       <View style={styles.container} testID="agent-loading">
         <View style={styles.errorContainer}>
-          <ThemedActivityIndicator size="large" uniProps={foregroundMutedColorMapping} />
+          <LoadingSpinner size="large" />
         </View>
       </View>
     );
@@ -1264,7 +1264,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
 
             {showHistorySyncOverlay ? (
               <View style={styles.historySyncOverlay} testID="agent-history-overlay">
-                <ThemedActivityIndicator size="large" uniProps={foregroundMutedColorMapping} />
+                <LoadingSpinner size="large" />
               </View>
             ) : null}
 
@@ -1274,7 +1274,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
 
         {isArchivingCurrentAgent ? (
           <View style={styles.archivingOverlay} testID="agent-archiving-overlay">
-            <ThemedActivityIndicator size="large" uniProps={foregroundColorMapping} />
+            <LoadingSpinner size="large" />
             <Text style={styles.archivingTitle}>{t("agentPanel.states.archivingTitle")}</Text>
             <Text style={styles.archivingSubtitle}>{t("agentPanel.states.archivingSubtitle")}</Text>
           </View>
@@ -1624,7 +1624,7 @@ function AgentSessionUnavailableState({
       <View style={styles.centerState}>
         {isConnecting || isPreparingSession ? (
           <>
-            <ActivityIndicator size="large" />
+            <LoadingSpinner size="large" />
             <Text style={styles.loadingText}>
               {isPreparingSession
                 ? t("agentPanel.unavailable.preparingSession", { serverLabel })
@@ -1651,15 +1651,6 @@ function AgentSessionUnavailableState({
     </View>
   );
 }
-
-const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
-
-const foregroundMutedColorMapping = (theme: Theme) => ({
-  color: theme.colors.foregroundMuted,
-});
-const foregroundColorMapping = (theme: Theme) => ({
-  color: theme.colors.foreground,
-});
 
 const styles = StyleSheet.create((theme) => ({
   root: {

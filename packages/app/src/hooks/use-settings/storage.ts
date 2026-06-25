@@ -13,10 +13,12 @@ export type ReleaseChannel = "stable" | "beta";
 export type ServiceUrlBehavior = "ask" | "in-app" | "external";
 export type WorkspaceTitleSource = "title" | "branch";
 export type CollapseThinkingBehavior = "never" | "completed" | "completed-and-active";
+export type AppTabLayoutMode = "horizontal" | "vertical" | "sidebar";
 
 const VALID_THEMES = new Set<string>([...Object.keys(THEME_TO_UNISTYLES), "auto"]);
 const VALID_SERVICE_URL_BEHAVIORS = new Set<ServiceUrlBehavior>(["ask", "in-app", "external"]);
 const VALID_WORKSPACE_TITLE_SOURCES = new Set<WorkspaceTitleSource>(["title", "branch"]);
+const VALID_TAB_LAYOUT_MODES = new Set<AppTabLayoutMode>(["horizontal", "vertical", "sidebar"]);
 export const DEFAULT_TERMINAL_SCROLLBACK_LINES = 10_000;
 export const MIN_TERMINAL_SCROLLBACK_LINES = 0;
 export const MAX_TERMINAL_SCROLLBACK_LINES = 1_000_000;
@@ -31,9 +33,10 @@ export const MAX_FONT_FAMILY_LENGTH = 200;
 export interface AppSettings {
   theme: ThemeName | "auto";
   language: AppLanguage;
+  tabLayoutMode: AppTabLayoutMode;
   sendBehavior: SendBehavior;
-  pinUserInputs: boolean;
   collapseThinking: CollapseThinkingBehavior;
+  pinUserInputs: boolean;
   serviceUrlBehavior: ServiceUrlBehavior;
   terminalScrollbackLines: number;
   uiFontFamily: string; // "" = platform default UI stack
@@ -50,16 +53,13 @@ export interface Settings extends AppSettings {
   releaseChannel: ReleaseChannel;
 }
 
-interface StoredAppSettings extends Partial<Omit<AppSettings, "collapseThinking">> {
-  collapseThinking?: unknown;
-}
-
 export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   theme: "auto",
   language: "system",
+  tabLayoutMode: "horizontal",
   sendBehavior: "interrupt",
-  pinUserInputs: false,
   collapseThinking: "never",
+  pinUserInputs: false,
   serviceUrlBehavior: "ask",
   terminalScrollbackLines: DEFAULT_TERMINAL_SCROLLBACK_LINES,
   uiFontFamily: "",
@@ -113,7 +113,7 @@ export async function loadAppSettingsFromStorage(deps: SettingsDeps): Promise<Ap
   try {
     const stored = await deps.storage.getItem(APP_SETTINGS_KEY);
     if (stored) {
-      const parsed = JSON.parse(stored) as StoredAppSettings;
+      const parsed = JSON.parse(stored) as PersistedAppSettings;
       return { ...DEFAULT_CLIENT_SETTINGS, ...pickAppSettings(parsed) };
     }
 
@@ -162,8 +162,19 @@ export async function loadSettingsFromStorage(deps: SettingsDeps): Promise<Setti
   };
 }
 
-function pickAppSettings(stored: StoredAppSettings): Partial<AppSettings> {
+interface PersistedAppSettings extends Omit<Partial<AppSettings>, "collapseThinking"> {
+  collapseThinking?: unknown;
+  embeddedTabs?: unknown;
+}
+
+function pickAppSettings(stored: PersistedAppSettings): Partial<AppSettings> {
   const result: Partial<AppSettings> = {};
+  pickCoreAppSettings(stored, result);
+  pickDisplayAppSettings(stored, result);
+  return result;
+}
+
+function pickCoreAppSettings(stored: PersistedAppSettings, result: Partial<AppSettings>): void {
   if (typeof stored.theme === "string" && VALID_THEMES.has(stored.theme)) {
     result.theme = stored.theme;
   }
@@ -171,15 +182,19 @@ function pickAppSettings(stored: StoredAppSettings): Partial<AppSettings> {
   if (language !== null) {
     result.language = language;
   }
+  const tabLayoutMode = parseTabLayoutMode(stored);
+  if (tabLayoutMode !== null) {
+    result.tabLayoutMode = tabLayoutMode;
+  }
   if (stored.sendBehavior === "interrupt" || stored.sendBehavior === "queue") {
     result.sendBehavior = stored.sendBehavior;
-  }
-  if (typeof stored.pinUserInputs === "boolean") {
-    result.pinUserInputs = stored.pinUserInputs;
   }
   const collapseThinking = parseCollapseThinkingBehavior(stored.collapseThinking);
   if (collapseThinking !== null) {
     result.collapseThinking = collapseThinking;
+  }
+  if (typeof stored.pinUserInputs === "boolean") {
+    result.pinUserInputs = stored.pinUserInputs;
   }
   if (
     typeof stored.serviceUrlBehavior === "string" &&
@@ -187,6 +202,9 @@ function pickAppSettings(stored: StoredAppSettings): Partial<AppSettings> {
   ) {
     result.serviceUrlBehavior = stored.serviceUrlBehavior;
   }
+}
+
+function pickDisplayAppSettings(stored: PersistedAppSettings, result: Partial<AppSettings>): void {
   const terminalScrollbackLines = parseTerminalScrollbackLines(stored.terminalScrollbackLines);
   if (terminalScrollbackLines !== null) {
     result.terminalScrollbackLines = terminalScrollbackLines;
@@ -225,7 +243,6 @@ function pickAppSettings(stored: StoredAppSettings): Partial<AppSettings> {
   if (typeof stored.promptScrollMarkers === "boolean") {
     result.promptScrollMarkers = stored.promptScrollMarkers;
   }
-  return result;
 }
 
 function isCollapseThinkingBehavior(value: string): value is CollapseThinkingBehavior {
@@ -248,6 +265,19 @@ function pickAppSettingsFromLegacy(legacy: Record<string, unknown>): Partial<App
     result.theme = legacy.theme;
   }
   return result;
+}
+
+function parseTabLayoutMode(stored: PersistedAppSettings): AppTabLayoutMode | null {
+  if (
+    typeof stored.tabLayoutMode === "string" &&
+    VALID_TAB_LAYOUT_MODES.has(stored.tabLayoutMode)
+  ) {
+    return stored.tabLayoutMode;
+  }
+  if (typeof stored.embeddedTabs === "boolean") {
+    return stored.embeddedTabs ? "sidebar" : "horizontal";
+  }
+  return null;
 }
 
 export function parseTerminalScrollbackLines(value: unknown): number | null {

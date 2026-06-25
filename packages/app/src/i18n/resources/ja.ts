@@ -823,6 +823,16 @@ export const ja: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "ワークスペースを折りたたむ",
+        expand: "ワークスペースを展開",
+        title: "タブ",
+        noWorkspaceSelected: "ワークスペースが選択されていません",
+        showAll: "すべて表示",
+        showAllLabel: "すべてのタブを表示",
+        showLess: "表示を減らす",
+        showLessLabel: "表示するタブを減らす",
+      },
       status: {
         scriptsAvailable: "スクリプトが利用可能",
         creating: "作成中...",
@@ -1538,6 +1548,16 @@ export const ja: TranslationResources = {
       pinUserInputs: {
         label: "ユーザー入力を固定",
         description: "応答をスクロールしている間、関連するユーザープロンプトを表示します",
+      },
+      tabs: {
+        tabLayout: "タブレイアウト",
+        tabLayoutHint: "ワークスペースタブの表示場所を選択",
+        tabLayoutAccessibility: "タブレイアウト: {{value}}",
+        options: {
+          horizontal: "横",
+          vertical: "縦",
+          sidebar: "サイドバー",
+        },
       },
       fonts: {
         title: "フォント",

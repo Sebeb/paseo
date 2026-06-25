@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { StyleSheet } from "react-native-unistyles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { getIsElectronRuntime } from "@/constants/layout";
 import { listenToDesktopEvent } from "@/desktop/electron/events";
 
 export function QuittingOverlay() {
   const { t } = useTranslation();
-  const { theme } = useUnistyles();
   const [quitting, setQuitting] = useState(false);
 
   useEffect(() => {
@@ -38,7 +37,7 @@ export function QuittingOverlay() {
 
   return (
     <View style={styles.overlay}>
-      <LoadingSpinner size="large" color={theme.colors.foregroundMuted} />
+      <LoadingSpinner size="large" />
       <Text style={styles.title}>{t("desktop.quitting.title")}</Text>
       <Text style={styles.detail}>{t("desktop.quitting.detail")}</Text>
     </View>

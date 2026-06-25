@@ -13,7 +13,6 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  ActivityIndicator,
   Modal,
   Pressable,
   Text,
@@ -28,6 +27,7 @@ import {
 } from "react-native";
 import { Keyframe, runOnJS } from "react-native-reanimated";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Check, CheckCircle } from "lucide-react-native";
 import { FloatingScrollView, FloatingSurface } from "@/components/ui/floating";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -692,7 +692,7 @@ function resolveDropdownItemLeadingContent(input: {
 }): ReactElement | null {
   const { isPending, isSuccess, leading, theme } = input;
   if (isPending) {
-    return <ActivityIndicator size={16} color={theme.colors.foregroundMuted} />;
+    return <LoadingSpinner size={16} />;
   }
   if (isSuccess) {
     return <CheckCircle size={16} color={theme.colors.palette.green[500]} />;

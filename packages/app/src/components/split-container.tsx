@@ -126,6 +126,7 @@ interface SplitContainerProps {
   onReorderTabsInPane: (paneId: string, tabIds: string[]) => void;
   renderPaneEmptyState?: () => ReactNode;
   focusModeEnabled?: boolean;
+  embeddedMainPaneId?: string | null;
 }
 
 interface WorkspaceTabDragData {
@@ -408,6 +409,7 @@ export function SplitContainer({
   onReorderTabsInPane,
   renderPaneEmptyState = () => null,
   focusModeEnabled,
+  embeddedMainPaneId = null,
 }: SplitContainerProps) {
   const [activeDragTabId, setActiveDragTabId] = useState<string | null>(null);
   const [dropPreview, setDropPreview] = useState<SplitDropZoneHover | null>(null);
@@ -645,6 +647,7 @@ export function SplitContainer({
           dropPreview={dropPreview}
           tabDropPreview={tabDropPreview}
           topLeftPaneId={topLeftPaneId}
+          embeddedMainPaneId={embeddedMainPaneId}
         />
         <DragOverlay dropAnimation={null}>
           {activeDragTabId ? (
@@ -791,6 +794,7 @@ function SplitNodeView({
   dropPreview,
   tabDropPreview,
   topLeftPaneId,
+  embeddedMainPaneId,
 }: SplitNodeViewProps) {
   const groupId = node.kind === "group" ? node.group.id : null;
   const groupDirection = node.kind === "group" ? node.group.direction : null;
@@ -847,6 +851,7 @@ function SplitNodeView({
         showDropZones={showDropZones}
         dropPreview={dropPreview}
         tabDropPreview={tabDropPreview}
+        embeddedMainPaneId={embeddedMainPaneId}
       />
     );
   }
@@ -897,6 +902,7 @@ function SplitNodeView({
               dropPreview={dropPreview}
               tabDropPreview={tabDropPreview}
               topLeftPaneId={topLeftPaneId}
+              embeddedMainPaneId={embeddedMainPaneId}
             />
           </SplitGroupChild>
           {index < node.group.children.length - 1 ? (
@@ -952,8 +958,8 @@ function SplitPaneView({
   showDropZones,
   dropPreview,
   tabDropPreview,
+  embeddedMainPaneId,
 }: SplitPaneViewProps) {
-  const { theme: _theme } = useUnistyles();
   const paneRef = useRef<View | null>(null);
   const stableOnFocusPane = useStableEvent(onFocusPane);
   const padding = useWindowControlsPadding("tabRow");
@@ -1120,12 +1126,13 @@ function SplitPaneView({
       />
     </View>
   );
+  const isEmbeddedMainPane = embeddedMainPaneId === pane.id;
 
   return (
     <RenderProfile id={`SplitPaneView:${pane.id}`}>
       <View ref={paneRef} collapsable={false} style={styles.pane}>
         <View style={paneBodyStyle}>
-          {tabRow}
+          {isEmbeddedMainPane ? null : tabRow}
           <View style={styles.paneContent}>
             {mountedPaneTabIds.length > 0
               ? mountedPaneTabIds.map((tabId) => {

@@ -3,7 +3,6 @@ import {
   Text,
   Image,
   Pressable,
-  ActivityIndicator,
   type GestureResponderEvent,
   type LayoutChangeEvent,
   StyleProp,
@@ -12,6 +11,7 @@ import {
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { MarkdownParagraphView, MarkdownTextSpan } from "@/components/markdown-text";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import * as React from "react";
 import {
   useState,
@@ -944,7 +944,7 @@ const AssistantMarkdownResolvedImage = memo(function AssistantMarkdownResolvedIm
     return (
       <View style={frameStyle}>
         <View style={stateSurfaceStyle}>
-          {loadState.status === "loading" ? <ActivityIndicator size="small" /> : null}
+          {loadState.status === "loading" ? <LoadingSpinner size="small" /> : null}
           {loadState.status === "error" ? (
             <Text style={assistantMessageStylesheet.imageErrorText}>
               {t("message.attachments.imageUnavailable")}
@@ -1083,7 +1083,7 @@ function AssistantMarkdownImage({
   if (query.isLoading || dataImageQuery.isLoading) {
     return (
       <View style={stateFrameStyle}>
-        <ActivityIndicator size="small" />
+        <LoadingSpinner size="small" />
       </View>
     );
   }
@@ -2288,7 +2288,7 @@ export const CompactionMarker = memo(function CompactionMarker({
       <View style={compactionStylesheet.line} />
       <View style={compactionStylesheet.label}>
         {status === "loading" ? (
-          <ActivityIndicator size="small" color="#a1a1aa" />
+          <LoadingSpinner size="small" />
         ) : (
           <Scissors size={12} color="#a1a1aa" />
         )}

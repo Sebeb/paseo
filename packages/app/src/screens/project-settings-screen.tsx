@@ -290,7 +290,7 @@ function renderContent({
   if (readQuery.isLoading) {
     return (
       <View style={styles.centered}>
-        <LoadingSpinner color={ResolveSpinnerColor()} />
+        <LoadingSpinner />
       </View>
     );
   }
@@ -324,7 +324,7 @@ function renderContent({
   if (!loadedConfig) {
     return (
       <View style={styles.centered}>
-        <LoadingSpinner color={ResolveSpinnerColor()} />
+        <LoadingSpinner />
       </View>
     );
   }
@@ -782,10 +782,6 @@ function ProjectConfigForm({
       ) : null}
     </View>
   );
-}
-
-function ResolveSpinnerColor(): string {
-  return styles.spinnerColor.color;
 }
 
 interface ProjectNameEditorProps {
@@ -1471,9 +1467,6 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
   },
   chevronColor: {
-    color: theme.colors.foregroundMuted,
-  },
-  spinnerColor: {
     color: theme.colors.foregroundMuted,
   },
 }));

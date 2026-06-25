@@ -29,6 +29,12 @@ import {
 import { DiffStat } from "@/components/diff-stat";
 import { useSidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
@@ -57,7 +63,6 @@ import {
   SidebarWorkspaceTrailingActionSlot,
 } from "@/components/sidebar/sidebar-workspace-row-content";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
-import { SyncedLoader } from "@/components/synced-loader";
 
 // Themed icon wrappers
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
@@ -79,7 +84,6 @@ const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedArchive = withUnistyles(Archive);
 const ThemedPencil = withUnistyles(Pencil);
-const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 
 const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
 const markAsReadLeadingIcon = (
@@ -254,7 +258,6 @@ function StatusGroupHeader({ group, collapsed }: { group: StatusGroup; collapsed
             </Text>
           </View>
         </View>
-        <StatusGroupCountBadge bucket={group.bucket} count={group.rows.length} />
       </Pressable>
     </View>
   );
@@ -291,40 +294,6 @@ function StatusGroupIcon({ bucket }: { bucket: StatusGroup["bucket"] }) {
     case "done":
       return <ThemedCircleCheck size={14} uniProps={foregroundMutedColorMapping} />;
   }
-}
-
-function StatusGroupCountBadge({
-  bucket,
-  count,
-}: {
-  bucket: StatusGroup["bucket"];
-  count: number;
-}) {
-  const textStyle = useMemo(() => getStatusGroupCountTextStyle(bucket), [bucket]);
-  const badgeStyle = useMemo(
-    () => [styles.statusGroupCountSlot, getStatusGroupCountBadgeStyle(bucket)],
-    [bucket],
-  );
-
-  if (bucket === "running") {
-    return (
-      <View style={styles.statusGroupCountSlot}>
-        <ThemedSyncedLoader size={20} uniProps={blueColorMapping}>
-          <Text style={textStyle} numberOfLines={1}>
-            {count}
-          </Text>
-        </ThemedSyncedLoader>
-      </View>
-    );
-  }
-
-  return (
-    <View style={badgeStyle}>
-      <Text style={textStyle} numberOfLines={1}>
-        {count}
-      </Text>
-    </View>
-  );
 }
 
 const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
@@ -495,7 +464,7 @@ function StatusWorkspaceRowWithMenu({
   }
 
   return (
-    <>
+    <ContextMenu>
       <StatusWorkspaceRowInner
         workspace={workspace}
         projectName={projectName}
@@ -514,6 +483,18 @@ function StatusWorkspaceRowWithMenu({
         onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
       />
+      <StatusWorkspaceContextMenuContent
+        workspaceKey={workspace.workspaceKey}
+        onCopyPath={handleCopyPath}
+        onCopyBranchName={workspace.projectKind === "git" ? handleCopyBranchName : undefined}
+        onRename={handleOpenRename}
+        onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
+        onArchive={handleArchive}
+        archiveLabel={t("sidebar.workspace.actions.archive")}
+        archiveStatus={computedArchiveStatus}
+        archivePendingLabel={t("sidebar.workspace.actions.archiving")}
+        archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+      />
       <AdaptiveRenameModal
         visible={isRenameOpen}
         title="Rename workspace"
@@ -524,7 +505,7 @@ function StatusWorkspaceRowWithMenu({
         onSubmit={handleSubmitRename}
         testID={`sidebar-workspace-rename-modal-${workspace.workspaceKey}`}
       />
-    </>
+    </ContextMenu>
   );
 }
 
@@ -583,12 +564,13 @@ function StatusWorkspaceRowInner({
         const showShortcut = showShortcutBadge && shortcutNumber !== null;
         const showKebab = Boolean(onArchive && (isHovered || isTouchPlatform));
         const showKebabInSlot = showKebab && !showShortcut;
-        const shouldRenderActionSlot = Boolean(onArchive || workspace.diffStat);
-        const usesInlineTrailingContent = Boolean(workspace.diffStat);
+        const showActionBase = Boolean(workspace.diffStat && !showKebabInSlot && !showShortcut);
+        const showActionOverlay = showKebabInSlot;
+        const shouldRenderActionSlot = showActionBase || showActionOverlay;
         const workspaceRowStyle = getStatusWorkspaceRowStyle({ selected, isHovered });
         return (
           <View style={styles.workspaceRowContainer} {...hoverHandlers}>
-            <Pressable
+            <ContextMenuTrigger
               disabled={isArchiving}
               accessibilityRole="button"
               accessibilityState={accessibilityState}
@@ -604,14 +586,13 @@ function StatusWorkspaceRowInner({
                 isLoading={isArchiving}
                 shortcutNumber={shortcutNumber}
                 showShortcutBadge={showShortcutBadge}
-                trailingContentPlacement={usesInlineTrailingContent ? "inline" : "overlay"}
-                trailingOverlayVisible={showKebabInSlot}
+                hasTrailingContent={shouldRenderActionSlot}
               >
                 {shouldRenderActionSlot ? (
                   <StatusWorkspaceActionSlot
                     workspace={workspace}
-                    showBase={Boolean(workspace.diffStat && !showKebabInSlot && !showShortcut)}
-                    showOverlay={showKebabInSlot}
+                    showBase={showActionBase}
+                    showOverlay={showActionOverlay}
                     onCopyPath={onCopyPath}
                     onCopyBranchName={onCopyBranchName}
                     onRename={onRename}
@@ -624,7 +605,7 @@ function StatusWorkspaceRowInner({
                   />
                 ) : null}
               </SidebarWorkspaceRowContent>
-            </Pressable>
+            </ContextMenuTrigger>
           </View>
         );
       }}
@@ -784,6 +765,85 @@ function StatusKebabMenu({
   );
 }
 
+function StatusWorkspaceContextMenuContent({
+  workspaceKey,
+  onCopyPath,
+  onCopyBranchName,
+  onRename,
+  onMarkAsRead,
+  onArchive,
+  archiveLabel,
+  archiveStatus,
+  archivePendingLabel,
+  archiveShortcutKeys,
+}: {
+  workspaceKey: string;
+  onCopyPath?: () => void;
+  onCopyBranchName?: () => void;
+  onRename?: () => void;
+  onMarkAsRead?: () => void;
+  onArchive: () => void;
+  archiveLabel?: string;
+  archiveStatus?: "idle" | "pending" | "success";
+  archivePendingLabel?: string;
+  archiveShortcutKeys?: ShortcutKey[][] | null;
+}) {
+  const archiveTrailing = useMemo(
+    () => (archiveShortcutKeys ? <Shortcut chord={archiveShortcutKeys} /> : null),
+    [archiveShortcutKeys],
+  );
+  return (
+    <ContextMenuContent align="end" width={260}>
+      {onCopyPath ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-copy-path-${workspaceKey}`}
+          leading={copyLeadingIcon}
+          onSelect={onCopyPath}
+        >
+          Copy path
+        </ContextMenuItem>
+      ) : null}
+      {onCopyBranchName ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-copy-branch-name-${workspaceKey}`}
+          leading={copyLeadingIcon}
+          onSelect={onCopyBranchName}
+        >
+          Copy branch name
+        </ContextMenuItem>
+      ) : null}
+      {onRename ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-rename-${workspaceKey}`}
+          leading={renameLeadingIcon}
+          onSelect={onRename}
+        >
+          Rename workspace
+        </ContextMenuItem>
+      ) : null}
+      {onMarkAsRead ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-mark-as-read-${workspaceKey}`}
+          leading={markAsReadLeadingIcon}
+          onSelect={onMarkAsRead}
+        >
+          Mark as read
+        </ContextMenuItem>
+      ) : null}
+      <ContextMenuItem
+        testID={`sidebar-workspace-menu-archive-${workspaceKey}`}
+        leading={archiveLeadingIcon}
+        trailing={archiveTrailing}
+        status={archiveStatus}
+        pendingLabel={archivePendingLabel}
+        onSelect={onArchive}
+      >
+        {archiveLabel ?? "Archive"}
+      </ContextMenuItem>
+    </ContextMenuContent>
+  );
+}
+
 function kebabStyle({ hovered = false }: PressableStateCallbackType & { hovered?: boolean }) {
   return [styles.kebabButton, hovered && styles.kebabButtonHovered];
 }
@@ -800,36 +860,6 @@ function getStatusWorkspaceRowStyle({
     selected && styles.sidebarRowSelected,
     isHovered && styles.workspaceRowHovered,
   ];
-}
-
-function getStatusGroupCountBadgeStyle(bucket: StatusGroup["bucket"]) {
-  switch (bucket) {
-    case "needs_input":
-      return styles.statusGroupCountNeedsInput;
-    case "failed":
-      return styles.statusGroupCountFailed;
-    case "attention":
-      return styles.statusGroupCountAttention;
-    case "running":
-      return styles.statusGroupCountRunning;
-    case "done":
-      return styles.statusGroupCountDone;
-  }
-}
-
-function getStatusGroupCountTextStyle(bucket: StatusGroup["bucket"]) {
-  switch (bucket) {
-    case "needs_input":
-      return [styles.statusGroupCountText, styles.statusGroupCountNeedsInputText];
-    case "failed":
-      return [styles.statusGroupCountText, styles.statusGroupCountFailedText];
-    case "attention":
-      return [styles.statusGroupCountText, styles.statusGroupCountAttentionText];
-    case "running":
-      return [styles.statusGroupCountText, styles.statusGroupCountRunningText];
-    case "done":
-      return [styles.statusGroupCountText, styles.statusGroupCountDoneText];
-  }
 }
 
 const styles = StyleSheet.create((theme) => ({
@@ -894,54 +924,6 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: "400",
     minWidth: 0,
     flexShrink: 1,
-  },
-  statusGroupCountSlot: {
-    width: 20,
-    height: 20,
-    borderRadius: theme.borderRadius.full,
-    flexShrink: 0,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  statusGroupCountText: {
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.normal,
-    lineHeight: 14,
-  },
-  statusGroupCountNeedsInput: {
-    borderWidth: 1,
-    borderColor: theme.colors.palette.amber[500],
-  },
-  statusGroupCountFailed: {
-    borderWidth: 1,
-    borderColor: theme.colors.palette.red[500],
-  },
-  statusGroupCountAttention: {
-    borderWidth: 1,
-    borderColor: theme.colors.palette.green[500],
-  },
-  statusGroupCountRunning: {
-    borderWidth: 1,
-    borderColor: theme.colors.palette.blue[500],
-  },
-  statusGroupCountDone: {
-    borderWidth: 1,
-    borderColor: theme.colors.foregroundMuted,
-  },
-  statusGroupCountNeedsInputText: {
-    color: theme.colors.palette.amber[500],
-  },
-  statusGroupCountFailedText: {
-    color: theme.colors.palette.red[500],
-  },
-  statusGroupCountAttentionText: {
-    color: theme.colors.palette.green[500],
-  },
-  statusGroupCountRunningText: {
-    color: theme.colors.palette.blue[500],
-  },
-  statusGroupCountDoneText: {
-    color: theme.colors.foregroundMuted,
   },
   workspaceRowContainer: {
     position: "relative",

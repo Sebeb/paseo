@@ -811,6 +811,16 @@ export const ar: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "طي مساحة العمل",
+        expand: "توسيع مساحة العمل",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "إظهار الكل",
+        showAllLabel: "إظهار كل علامات التبويب",
+        showLess: "إظهار أقل",
+        showLessLabel: "إظهار عدد أقل من علامات التبويب",
+      },
       status: {
         scriptsAvailable: "البرامج النصية المتاحة",
         creating: "جارٍ الإنشاء...",
@@ -1523,6 +1533,16 @@ export const ar: TranslationResources = {
       pinUserInputs: {
         label: "تثبيت إدخالات المستخدم",
         description: "يبقي مطالبة المستخدم ذات الصلة مرئية أثناء التمرير عبر الردود",
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
+        },
       },
       fonts: {
         title: "الخطوط",

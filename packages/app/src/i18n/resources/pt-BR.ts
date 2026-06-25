@@ -829,6 +829,16 @@ export const ptBR: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "Recolher workspace",
+        expand: "Expandir workspace",
+        title: "Abas",
+        noWorkspaceSelected: "Nenhum workspace selecionado",
+        showAll: "Mostrar tudo",
+        showAllLabel: "Mostrar todas as abas",
+        showLess: "Mostrar menos",
+        showLessLabel: "Mostrar menos abas",
+      },
       status: {
         scriptsAvailable: "Scripts disponíveis",
         creating: "Criando...",
@@ -1545,6 +1555,16 @@ export const ptBR: TranslationResources = {
       pinUserInputs: {
         label: "Fixar entradas do usuário",
         description: "Manter o prompt de usuário relevante visível ao rolar pelas respostas",
+      },
+      tabs: {
+        tabLayout: "Layout das abas",
+        tabLayoutHint: "Escolha onde as abas do workspace aparecem",
+        tabLayoutAccessibility: "Layout das abas: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Barra lateral",
+        },
       },
       fonts: {
         title: "Fontes",

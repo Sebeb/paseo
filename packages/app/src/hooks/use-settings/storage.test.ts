@@ -69,32 +69,12 @@ describe("loadAppSettingsFromStorage", () => {
     expect(result.workspaceTitleSource).toBe("title");
   });
 
-  it("defaults pinned user inputs to disabled when storage is empty", async () => {
-    const deps = makeDeps();
-
-    const result = await loadAppSettingsFromStorage(deps);
-
-    expect(result.pinUserInputs).toBe(false);
-  });
-
   it("defaults collapse thinking to never when storage is empty", async () => {
     const deps = makeDeps();
 
     const result = await loadAppSettingsFromStorage(deps);
 
     expect(result.collapseThinking).toBe("never");
-  });
-
-  it("loads persisted pinned user input preference", async () => {
-    const deps = makeDeps({
-      storage: createInMemoryKeyValueStorage({
-        [APP_SETTINGS_KEY]: JSON.stringify({ pinUserInputs: true }),
-      }),
-    });
-
-    const result = await loadAppSettingsFromStorage(deps);
-
-    expect(result.pinUserInputs).toBe(true);
   });
 
   it("loads persisted collapse thinking", async () => {
@@ -125,6 +105,38 @@ describe("loadAppSettingsFromStorage", () => {
     expect((await loadAppSettingsFromStorage(disabled)).collapseThinking).toBe("never");
   });
 
+  it("drops an unknown collapse thinking value back to the default", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: "sometimes" }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.collapseThinking).toBe("never");
+  });
+
+  it("defaults pinned user inputs to disabled when storage is empty", async () => {
+    const deps = makeDeps();
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.pinUserInputs).toBe(false);
+  });
+
+  it("loads persisted pinned user input preference", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ pinUserInputs: true }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.pinUserInputs).toBe(true);
+  });
+
   it("ignores invalid pinned user input preference values", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
@@ -137,16 +149,12 @@ describe("loadAppSettingsFromStorage", () => {
     expect(result.pinUserInputs).toBe(false);
   });
 
-  it("drops an unknown collapse thinking value back to the default", async () => {
-    const deps = makeDeps({
-      storage: createInMemoryKeyValueStorage({
-        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: "sometimes" }),
-      }),
-    });
+  it("defaults tab layout mode to horizontal when storage is empty", async () => {
+    const deps = makeDeps();
 
     const result = await loadAppSettingsFromStorage(deps);
 
-    expect(result.collapseThinking).toBe("never");
+    expect(result.tabLayoutMode).toBe("horizontal");
   });
 
   it("loads configured terminal scrollback lines from app settings", async () => {
@@ -227,6 +235,54 @@ describe("loadAppSettingsFromStorage", () => {
     const result = await loadAppSettingsFromStorage(deps);
 
     expect(result.language).toBe("zh-CN");
+  });
+
+  it("loads persisted tab layout mode", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ tabLayoutMode: "vertical" }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.tabLayoutMode).toBe("vertical");
+  });
+
+  it("drops an unknown persisted tab layout mode back to horizontal", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ tabLayoutMode: "floating" }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.tabLayoutMode).toBe("horizontal");
+  });
+
+  it("migrates legacy embedded tabs on to sidebar tab layout mode", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ embeddedTabs: true }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.tabLayoutMode).toBe("sidebar");
+  });
+
+  it("migrates legacy embedded tabs off to horizontal tab layout mode", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ embeddedTabs: false }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.tabLayoutMode).toBe("horizontal");
   });
 
   it("drops an unknown persisted language back to system", async () => {
@@ -360,6 +416,28 @@ describe("saveAppSettings", () => {
       theme: "light",
       sendBehavior: "queue",
       collapseThinking: "completed",
+    });
+  });
+
+  it("persists pinned user inputs without dropping existing settings", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ theme: "light", sendBehavior: "queue" }),
+      }),
+    });
+    const queryClient = new QueryClient();
+
+    await saveAppSettings({
+      queryClient,
+      updates: { pinUserInputs: true },
+      deps,
+    });
+
+    const persisted = JSON.parse(deps.storage.entries.get(APP_SETTINGS_KEY) ?? "{}");
+    expect(persisted).toMatchObject({
+      theme: "light",
+      sendBehavior: "queue",
+      pinUserInputs: true,
     });
   });
 

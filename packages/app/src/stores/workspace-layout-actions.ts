@@ -14,6 +14,7 @@ export interface SplitPane {
   tabIds: string[];
   focusedTabId: string | null;
   tabBarOrientation: WorkspaceTabBarOrientation;
+  createdAt?: number;
 }
 
 export type WorkspaceTabBarOrientation = "horizontal" | "vertical";
@@ -261,6 +262,7 @@ function createPaneNode(input: {
   tabs?: WorkspaceTab[];
   focusedTabId?: string | null;
   tabBarOrientation?: WorkspaceTabBarOrientation;
+  createdAt?: number;
 }): SplitNodeInternal {
   const normalizedTabs = normalizeWorkspaceTabs(input.tabs ?? []);
   const tabIds = normalizedTabs.map((tab) => tab.tabId);
@@ -276,6 +278,7 @@ function createPaneNode(input: {
       tabIds,
       focusedTabId,
       tabBarOrientation: input.tabBarOrientation ?? "horizontal",
+      createdAt: Number.isFinite(input.createdAt) ? (input.createdAt ?? 0) : 0,
     },
   };
 }
@@ -584,7 +587,18 @@ function normalizePaneAfterTabChange(pane: SplitPaneInternal): SplitPaneInternal
     tabIds,
     focusedTabId,
     tabBarOrientation: pane.tabBarOrientation,
+    createdAt: pane.createdAt,
   };
+}
+
+function getPaneCreatedAt(rawPane: SplitPaneInternal | undefined, paneId: string): number {
+  if (typeof rawPane?.createdAt === "number" && Number.isFinite(rawPane.createdAt)) {
+    return rawPane.createdAt;
+  }
+  if (paneId === DEFAULT_PANE_ID) {
+    return 0;
+  }
+  return Date.now();
 }
 
 function normalizePaneNode(rawPane: SplitPaneInternal | undefined): SplitNodeInternal | null {
@@ -607,6 +621,7 @@ function normalizePaneNode(rawPane: SplitPaneInternal | undefined): SplitNodeInt
     tabs: mergedTabs,
     focusedTabId: trimNonEmpty(rawPane?.focusedTabId) ?? null,
     tabBarOrientation: normalizeTabBarOrientation(rawPane?.tabBarOrientation),
+    createdAt: getPaneCreatedAt(rawPane, paneId),
   });
 }
 
@@ -688,7 +703,7 @@ function reorderTabsForPane(input: ReorderTabsForPaneInput): SplitPaneInternal {
 function removePaneByPath(root: SplitNodeInternal, path: number[]): SplitNodeInternal {
   if (path.length === 0) {
     invariant(root.kind === "pane", "Expected pane at root while removing pane");
-    return createPaneNode({ id: root.pane.id });
+    return createPaneNode({ id: root.pane.id, createdAt: root.pane.createdAt });
   }
 
   const parentPath = path.slice(0, -1);
@@ -879,6 +894,7 @@ function insertSplitInternal(input: InsertSplitInternalInput): InsertSplitIntern
     id: newPaneId,
     tabs: [detached.tab],
     focusedTabId: detached.tab.tabId,
+    createdAt: Date.now(),
   });
 
   const parentPath = targetPath.slice(0, -1);
@@ -1014,6 +1030,20 @@ export function findTopLeftPaneId(root: SplitNode): string | null {
   return null;
 }
 
+export function findMainPane(root: SplitNode): SplitPane | null {
+  const panes = collectAllPanes(root);
+  let mainPane: SplitPane | null = null;
+  for (const pane of panes) {
+    const paneCreatedAt = typeof pane.createdAt === "number" ? pane.createdAt : 0;
+    const mainPaneCreatedAt =
+      mainPane && typeof mainPane.createdAt === "number" ? mainPane.createdAt : 0;
+    if (!mainPane || paneCreatedAt < mainPaneCreatedAt) {
+      mainPane = pane;
+    }
+  }
+  return mainPane;
+}
+
 export function getFocusedBrowserId(layout: WorkspaceLayout | null | undefined): string | null {
   if (!layout) {
     return null;
@@ -1030,7 +1060,7 @@ export function getFocusedBrowserId(layout: WorkspaceLayout | null | undefined):
 
 export function createDefaultLayout(): WorkspaceLayout {
   return {
-    root: createPaneNode({ id: DEFAULT_PANE_ID }),
+    root: createPaneNode({ id: DEFAULT_PANE_ID, createdAt: 0 }),
     focusedPaneId: DEFAULT_PANE_ID,
   };
 }
@@ -1450,7 +1480,7 @@ export function splitPaneEmptyInLayout(
   invariant(targetNode.kind === "pane", "Expected target pane");
 
   const newPaneId = input.createNodeId("pane");
-  const newPaneNode = createPaneNode({ id: newPaneId });
+  const newPaneNode = createPaneNode({ id: newPaneId, createdAt: Date.now() });
 
   const parentPath = targetPath.slice(0, -1);
   const targetIndex = targetPath[targetPath.length - 1] ?? 0;

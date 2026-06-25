@@ -1,8 +1,9 @@
 import { useMemo } from "react";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { X, ArrowUp, RefreshCcw, Check, Mic, Pencil } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { VolumeMeter } from "./volume-meter";
 import { FOOTER_HEIGHT } from "@/constants/layout";
 import type { DictationStatus } from "@/hooks/use-dictation";
@@ -98,7 +99,7 @@ export function DictationControls({
         </Pressable>
         {actionsDisabled ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color={theme.colors.foreground} />
+            <LoadingSpinner size="small" />
           </View>
         ) : null}
         {!actionsDisabled && isFailed ? (
@@ -221,7 +222,7 @@ export function DictationOverlay({
       <View style={overlayStyles.actionButtonsContainer}>
         {actionsDisabled ? (
           <View style={overlayStyles.loadingContainer}>
-            <ActivityIndicator size="small" color={theme.colors.accentForeground} />
+            <LoadingSpinner size="small" />
           </View>
         ) : null}
         {!actionsDisabled && isFailed ? (

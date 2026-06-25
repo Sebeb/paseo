@@ -31,6 +31,7 @@ import {
   sanitizeFontFamily,
   saveAppSettings as saveAppSettingsPure,
   type AppSettings,
+  type AppTabLayoutMode,
   type CollapseThinkingBehavior,
   type DesktopSettingsBridge,
   type KeyValueStorage,
@@ -61,6 +62,7 @@ export {
 };
 export type {
   AppSettings,
+  AppTabLayoutMode,
   AppLanguage,
   CollapseThinkingBehavior,
   DesktopSettingsBridge,
@@ -96,6 +98,34 @@ export interface UseSettingsReturn {
   error: unknown;
   updateSettings: (updates: Partial<Settings>) => Promise<void>;
   resetSettings: () => Promise<void>;
+}
+
+const APP_SETTINGS_UPDATE_KEYS = [
+  "theme",
+  "language",
+  "tabLayoutMode",
+  "sendBehavior",
+  "collapseThinking",
+  "pinUserInputs",
+  "serviceUrlBehavior",
+  "terminalScrollbackLines",
+  "uiFontFamily",
+  "monoFontFamily",
+  "uiFontSize",
+  "codeFontSize",
+  "syntaxTheme",
+  "workspaceTitleSource",
+  "promptScrollMarkers",
+] as const satisfies readonly (keyof AppSettings)[];
+
+function pickAppSettingsUpdates(updates: Partial<Settings>): Partial<AppSettings> {
+  const appUpdates: Partial<AppSettings> = {};
+  for (const key of APP_SETTINGS_UPDATE_KEYS) {
+    if (updates[key] !== undefined) {
+      appUpdates[key] = updates[key] as never;
+    }
+  }
+  return appUpdates;
 }
 
 export function useAppSettings(): UseAppSettingsReturn {
@@ -145,49 +175,7 @@ export function useSettings(): UseSettingsReturn {
 
   const updateSettings = useCallback(
     async (updates: Partial<Settings>) => {
-      const appUpdates: Partial<AppSettings> = {};
-      if (updates.theme !== undefined) {
-        appUpdates.theme = updates.theme;
-      }
-      if (updates.language !== undefined) {
-        appUpdates.language = updates.language;
-      }
-      if (updates.sendBehavior !== undefined) {
-        appUpdates.sendBehavior = updates.sendBehavior;
-      }
-      if (updates.pinUserInputs !== undefined) {
-        appUpdates.pinUserInputs = updates.pinUserInputs;
-      }
-      if (updates.collapseThinking !== undefined) {
-        appUpdates.collapseThinking = updates.collapseThinking;
-      }
-      if (updates.serviceUrlBehavior !== undefined) {
-        appUpdates.serviceUrlBehavior = updates.serviceUrlBehavior;
-      }
-      if (updates.terminalScrollbackLines !== undefined) {
-        appUpdates.terminalScrollbackLines = updates.terminalScrollbackLines;
-      }
-      if (updates.uiFontFamily !== undefined) {
-        appUpdates.uiFontFamily = updates.uiFontFamily;
-      }
-      if (updates.monoFontFamily !== undefined) {
-        appUpdates.monoFontFamily = updates.monoFontFamily;
-      }
-      if (updates.uiFontSize !== undefined) {
-        appUpdates.uiFontSize = updates.uiFontSize;
-      }
-      if (updates.codeFontSize !== undefined) {
-        appUpdates.codeFontSize = updates.codeFontSize;
-      }
-      if (updates.syntaxTheme !== undefined) {
-        appUpdates.syntaxTheme = updates.syntaxTheme;
-      }
-      if (updates.workspaceTitleSource !== undefined) {
-        appUpdates.workspaceTitleSource = updates.workspaceTitleSource;
-      }
-      if (updates.promptScrollMarkers !== undefined) {
-        appUpdates.promptScrollMarkers = updates.promptScrollMarkers;
-      }
+      const appUpdates = pickAppSettingsUpdates(updates);
       const promises: Promise<void>[] = [];
       if (Object.keys(appUpdates).length > 0) {
         promises.push(appSettings.updateSettings(appUpdates));
