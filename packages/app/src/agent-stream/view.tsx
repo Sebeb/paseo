@@ -18,7 +18,6 @@ import {
   Pressable,
   ScrollView,
   Platform,
-  ActivityIndicator,
   StyleSheet as RNStyleSheet,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -78,6 +77,7 @@ import type { ToastApi } from "@/components/toast-host";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { ToolCallDetailsContent } from "@/components/tool-call-details";
 import { QuestionFormCard } from "@/components/question-form-card";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { ToolCallSheetProvider } from "@/components/tool-call-sheet";
 import {
   buildCollapseThinkingGroups,
@@ -113,6 +113,8 @@ import { isWeb } from "@/constants/platform";
 import type { Theme } from "@/styles/theme";
 import { recordRenderProfileReasons } from "@/utils/render-profiler";
 import { MountedTabActiveContext } from "@/components/split-container";
+import { formatDuration } from "@/utils/time";
+import type { TurnTiming } from "@/timeline/turn-time";
 
 function renderLiveAuxiliaryNode(input: {
   pendingPermissions: ReactNode;
@@ -686,6 +688,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               expanded={expandedThinkingGroupIds.get(thinkingGroup.id)}
               onExpandedChange={setExpandedThinkingGroupIds}
               onExpandStart={pauseBottomAnchoringForNextLayoutChange}
+              runningStartedAt={baseRenderModel.turnTiming.runningStartedAt}
+              timingByAssistantId={baseRenderModel.turnTiming.byAssistantId}
               renderStreamItemContent={renderStreamItemContent}
             />
           );
@@ -700,6 +704,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       },
       [
         expandedThinkingGroupIds,
+        baseRenderModel.turnTiming.byAssistantId,
+        baseRenderModel.turnTiming.runningStartedAt,
         layoutItemById,
         pauseBottomAnchoringForNextLayoutChange,
         renderStreamItemContent,
@@ -972,6 +978,8 @@ interface ThinkingGroupRowProps {
   expanded: boolean | undefined;
   onExpandedChange: (updater: (previous: Map<string, boolean>) => Map<string, boolean>) => void;
   onExpandStart: () => void;
+  runningStartedAt: Date | null;
+  timingByAssistantId: Map<string, TurnTiming>;
   renderStreamItemContent: (layoutItem: StreamLayoutItem) => ReactNode;
 }
 
@@ -981,6 +989,8 @@ function ThinkingGroupRow({
   expanded,
   onExpandedChange,
   onExpandStart,
+  runningStartedAt,
+  timingByAssistantId,
   renderStreamItemContent,
 }: ThinkingGroupRowProps) {
   const groupLayouts = useMemo(() => {
@@ -997,6 +1007,9 @@ function ThinkingGroupRow({
   const lastLayout = groupLayouts.at(-1);
   const gapBelow = lastLayout?.gapBelow ?? 0;
   const isExpanded = expanded ?? group.defaultExpanded;
+  const completedTiming = group.finalAssistantItemId
+    ? timingByAssistantId.get(group.finalAssistantItemId)
+    : undefined;
   const groupItems = useMemo(
     () => groupLayouts.map((layoutItem) => layoutItem.item),
     [groupLayouts],
@@ -1027,9 +1040,11 @@ function ThinkingGroupRow({
   return (
     <StreamItemWrapper gapBelow={gapBelow}>
       <CollapsibleThinkingGroup
+        completedTiming={completedTiming}
         counts={counts}
         expanded={isExpanded}
         groupStatus={group.status}
+        runningStartedAt={runningStartedAt}
         onExpandStart={onExpandStart}
         onExpandedChange={handleExpandedChange}
         previewMessages={previewMessages}
@@ -1071,18 +1086,22 @@ function ThinkingGroupContentItem({
 }
 
 function CollapsibleThinkingGroup({
+  completedTiming,
   counts,
   expanded,
   groupStatus,
+  runningStartedAt,
   onExpandStart,
   onExpandedChange,
   previewMessages,
   showPreview,
   children,
 }: {
+  completedTiming?: TurnTiming;
   counts: ReturnType<typeof getThinkingGroupCounts>;
   expanded: boolean;
   groupStatus: ThinkingGroup["status"];
+  runningStartedAt: Date | null;
   onExpandStart: () => void;
   onExpandedChange: (expanded: boolean) => void;
   previewMessages: ThinkingGroupPreviewMessage[];
@@ -1107,7 +1126,13 @@ function CollapsibleThinkingGroup({
         style={thinkingGroupStyles.header}
       >
         <Icon size={14} color={thinkingGroupStyles.chevron.color} />
-        <ThinkingGroupHeaderTitle groupStatus={groupStatus} style={thinkingGroupStyles.title} />
+        <ThinkingGroupHeaderTitle
+          completedTiming={completedTiming}
+          expanded={expanded}
+          groupStatus={groupStatus}
+          runningStartedAt={runningStartedAt}
+          style={thinkingGroupStyles.title}
+        />
         <ThinkingGroupHeaderCounts counts={counts} />
       </Pressable>
       {expanded ? <View style={thinkingGroupStyles.content}>{children}</View> : null}
@@ -1117,14 +1142,56 @@ function CollapsibleThinkingGroup({
 }
 
 function ThinkingGroupHeaderTitle({
+  completedTiming,
+  expanded,
   groupStatus,
+  runningStartedAt,
   style,
 }: {
+  completedTiming?: TurnTiming;
+  expanded: boolean;
   groupStatus: ThinkingGroup["status"];
+  runningStartedAt: Date | null;
   style: StyleProp<TextStyle>;
 }) {
   const { t } = useTranslation();
   const isActive = groupStatus === "active";
+
+  if (expanded) {
+    return (
+      <ThinkingGroupTitleText isPulsing={isActive} style={style}>
+        {t("agentStream.thinking.label")}
+      </ThinkingGroupTitleText>
+    );
+  }
+  if (groupStatus === "completed" && completedTiming) {
+    return (
+      <ThinkingGroupTitleText isPulsing={false} style={style}>
+        {t("agentStream.thinking.workedFor", {
+          duration: formatDuration(completedTiming.durationMs),
+        })}
+      </ThinkingGroupTitleText>
+    );
+  }
+  if (groupStatus === "active" && runningStartedAt) {
+    return <LiveThinkingGroupHeaderTitle startedAt={runningStartedAt} style={style} />;
+  }
+  return (
+    <ThinkingGroupTitleText isPulsing={isActive} style={style}>
+      {t("agentStream.thinking.label")}
+    </ThinkingGroupTitleText>
+  );
+}
+
+function ThinkingGroupTitleText({
+  children,
+  isPulsing,
+  style,
+}: {
+  children: string;
+  isPulsing: boolean;
+  style: StyleProp<TextStyle>;
+}) {
   const pulseProgress = useSharedValue(0);
   const pulseStyle = useAnimatedStyle(() => {
     return {
@@ -1132,8 +1199,8 @@ function ThinkingGroupHeaderTitle({
     };
   });
   const titleBaseStyle = useMemo(
-    () => (isActive ? [style, thinkingGroupStyles.titlePulsingBase] : style),
-    [isActive, style],
+    () => (isPulsing ? [style, thinkingGroupStyles.titlePulsingBase] : style),
+    [isPulsing, style],
   );
   const titlePulseOverlayStyle = useMemo(
     () => [thinkingGroupStaticStyles.titlePulseOverlay, pulseStyle],
@@ -1142,7 +1209,7 @@ function ThinkingGroupHeaderTitle({
   const titlePulseTextStyle = useMemo(() => [style, thinkingGroupStyles.titlePulseText], [style]);
 
   useEffect(() => {
-    if (!isActive) {
+    if (!isPulsing) {
       cancelAnimation(pulseProgress);
       pulseProgress.value = 0;
       return;
@@ -1156,23 +1223,49 @@ function ThinkingGroupHeaderTitle({
     return () => {
       cancelAnimation(pulseProgress);
     };
-  }, [pulseProgress, isActive]);
+  }, [pulseProgress, isPulsing]);
 
   return (
     <View style={thinkingGroupStyles.titleContainer}>
       <Text numberOfLines={1} style={titleBaseStyle}>
-        {t("agentStream.thinking.label")}
+        {children}
       </Text>
-      {isActive ? (
+      {isPulsing ? (
         <Animated.View pointerEvents="none" style={titlePulseOverlayStyle}>
           <Text numberOfLines={1} style={titlePulseTextStyle}>
-            {t("agentStream.thinking.label")}
+            {children}
           </Text>
         </Animated.View>
       ) : null}
     </View>
   );
 }
+
+const LiveThinkingGroupHeaderTitle = memo(function LiveThinkingGroupHeaderTitle({
+  startedAt,
+  style,
+}: {
+  startedAt: Date;
+  style: StyleProp<TextStyle>;
+}) {
+  const { t } = useTranslation();
+  const startedAtMs = startedAt.getTime();
+  const [elapsedMs, setElapsedMs] = useState(() => Math.max(0, Date.now() - startedAtMs));
+
+  useEffect(() => {
+    setElapsedMs(Math.max(0, Date.now() - startedAtMs));
+    const handle = setInterval(() => {
+      setElapsedMs(Math.max(0, Date.now() - startedAtMs));
+    }, 100);
+    return () => clearInterval(handle);
+  }, [startedAtMs]);
+
+  return (
+    <ThinkingGroupTitleText isPulsing style={style}>
+      {t("agentStream.thinking.workingFor", { duration: formatDuration(elapsedMs) })}
+    </ThinkingGroupTitleText>
+  );
+});
 
 function ThinkingGroupHeaderCounts({
   counts,
@@ -1361,7 +1454,6 @@ function PreviewFade({ edge }: { edge: "top" | "bottom" }) {
   );
 }
 
-const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
 const ThemedCheckIcon = withUnistyles(Check);
 const ThemedXIcon = withUnistyles(X);
 
@@ -1406,7 +1498,7 @@ function PermissionActionButton({
   return (
     <Pressable testID={testID} style={pressableStyle} onPress={handlePress} disabled={isResponding}>
       {isRespondingAction ? (
-        <ThemedActivityIndicator size="small" uniProps={colorMapping} />
+        <LoadingSpinner size="small" />
       ) : (
         <View style={permissionStyles.optionContent}>
           <Icon size={14} uniProps={colorMapping} />

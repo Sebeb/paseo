@@ -1,10 +1,11 @@
 import { ActivityIndicator, type ActivityIndicatorProps } from "react-native";
+import { useUnistyles } from "react-native-unistyles";
 
-interface LoadingSpinnerProps {
-  color: string;
-  size?: ActivityIndicatorProps["size"];
-}
+type LoadingSpinnerProps = ActivityIndicatorProps;
 
-export function LoadingSpinner({ color, size = "small" }: LoadingSpinnerProps) {
-  return <ActivityIndicator size={size} color={color} />;
+export function LoadingSpinner({ color, size = "small", ...props }: LoadingSpinnerProps) {
+  const { theme } = useUnistyles();
+  return (
+    <ActivityIndicator {...props} size={size} color={color ?? theme.colors.palette.blue[500]} />
+  );
 }

@@ -31,6 +31,11 @@ It also updates bottom anchoring so expanding/collapsing thinking groups does no
 This detail was previously implemented on `main`, then lost when this feature was split out. It is part of this branch's intended behavior and should be preserved when rebasing or batching the feature again.
 
 - The in-flight chat turn footer uses the blue synced loading indicator, matching the active chat state instead of the older amber warning treatment.
+- Stream loading indicators use the shared blue `LoadingSpinner` in both web and native history loading states, and permission action buttons use the same spinner while a response is pending.
+- Collapsed thinking headers show elapsed timing again:
+  - Active collapsed thinking groups render `Working for {{duration}}`.
+  - Completed collapsed thinking groups render `Worked for {{duration}}`.
+  - Expanded groups keep the stable `Thinking` label.
 
 ## Settings And Persistence
 
@@ -170,6 +175,7 @@ The stream view now:
 - Maintains per-group expanded/collapsed state.
 - Shows message/tool-call counts in group headers.
 - Shows preview text for collapsed active groups when allowed by `shouldShowThinkingGroupPreview`.
+- Shows active/completed duration text in collapsed group headers using `turnTiming.runningStartedAt` and `turnTiming.byAssistantId`.
 - Handles scroll/anchor behavior when a group is expanded.
 
 ### `packages/app/src/components/message.tsx`
