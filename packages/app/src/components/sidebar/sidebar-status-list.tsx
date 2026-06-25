@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View, Text, Pressable, ScrollView, type PressableStateCallbackType } from "react-native";
+import { useSidebarScroll } from "@/components/sidebar/sidebar-scroll-context";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
@@ -127,6 +128,8 @@ export function SidebarStatusWorkspaceList({
     [collapsedStatusGroupKeys, groups, showShortcutBadges],
   );
 
+  const { onScroll: onSidebarScroll } = useSidebarScroll();
+
   return (
     <View style={styles.container}>
       {platformIsNative ? (
@@ -134,6 +137,8 @@ export function SidebarStatusWorkspaceList({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onSidebarScroll}
+          scrollEventThrottle={16}
           testID="sidebar-status-list-scroll"
         >
           <StatusGroupList
@@ -151,6 +156,8 @@ export function SidebarStatusWorkspaceList({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onSidebarScroll}
+          scrollEventThrottle={16}
           testID="sidebar-status-list-scroll"
         >
           <StatusGroupList

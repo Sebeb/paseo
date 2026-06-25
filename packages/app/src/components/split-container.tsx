@@ -63,6 +63,8 @@ import {
   WorkspaceTabIcon,
 } from "@/screens/workspace/workspace-tab-presentation";
 import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-types";
+import type { Agent } from "@/stores/session-store";
+import type { SidebarEmbeddedTabSortMode } from "@/stores/sidebar-view-store";
 import {
   useWorkspaceLayoutStore,
   type SplitNode,
@@ -72,6 +74,8 @@ import {
   findTopLeftPaneId,
 } from "@/stores/workspace-layout-store";
 import type { WorkspaceTab } from "@/stores/workspace-tabs-store";
+import type { SidebarTabStatusSummary } from "@/utils/sidebar-tab-status-summary";
+import { sortSidebarWorkspaceTabs } from "@/utils/sidebar-tab-sort";
 import { RenderProfile } from "@/utils/render-profiler";
 import { workspaceTabTargetsEqual } from "@/workspace-tabs/identity";
 import { isNative } from "@/constants/platform";
@@ -87,6 +91,9 @@ interface SplitContainerProps {
   normalizedWorkspaceId: string;
   isWorkspaceFocused: boolean;
   uiTabs: WorkspaceTab[];
+  tabSortMode: SidebarEmbeddedTabSortMode;
+  workspaceAgents: ReadonlyMap<string, Agent> | null;
+  statusSummariesByTabId: ReadonlyMap<string, SidebarTabStatusSummary>;
   hoveredCloseTabKey: string | null;
   setHoveredCloseTabKey: Dispatch<SetStateAction<string | null>>;
   closingTabIds: Set<string>;
@@ -155,6 +162,43 @@ function asDragOverData(data: unknown): WorkspaceTabDragData | SplitPaneDropData
   if (isWorkspaceTabDragData(data)) return data;
   if (isSplitPaneDropData(data)) return data;
   return undefined;
+}
+
+function getSortedPaneTabDescriptors(input: {
+  paneTabs: WorkspaceTabDescriptor[];
+  uiTabsById: ReadonlyMap<string, WorkspaceTab>;
+  tabSortMode: SidebarEmbeddedTabSortMode;
+  workspaceAgents: ReadonlyMap<string, Agent> | null;
+  statusSummariesByTabId: ReadonlyMap<string, SidebarTabStatusSummary>;
+}): WorkspaceTabDescriptor[] {
+  if (input.tabSortMode === "manual") {
+    return input.paneTabs;
+  }
+
+  const descriptorByTabId = new Map(input.paneTabs.map((tab) => [tab.tabId, tab]));
+  const rawPaneTabs: WorkspaceTab[] = [];
+  for (const descriptor of input.paneTabs) {
+    const rawTab = input.uiTabsById.get(descriptor.tabId);
+    if (rawTab) {
+      rawPaneTabs.push(rawTab);
+    }
+  }
+
+  const sortedRawTabs = sortSidebarWorkspaceTabs({
+    tabs: rawPaneTabs,
+    sortMode: input.tabSortMode,
+    agents: input.workspaceAgents,
+    statusSummariesByTabId: input.statusSummariesByTabId,
+  });
+
+  const sortedDescriptors: WorkspaceTabDescriptor[] = [];
+  for (const rawTab of sortedRawTabs) {
+    const descriptor = descriptorByTabId.get(rawTab.tabId);
+    if (descriptor) {
+      sortedDescriptors.push(descriptor);
+    }
+  }
+  return sortedDescriptors;
 }
 
 interface SplitNodeViewProps extends Omit<SplitContainerProps, "layout" | "onMoveTabToPane"> {
@@ -378,6 +422,9 @@ export function SplitContainer({
   normalizedWorkspaceId,
   isWorkspaceFocused,
   uiTabs,
+  tabSortMode,
+  workspaceAgents,
+  statusSummariesByTabId,
   hoveredCloseTabKey,
   setHoveredCloseTabKey,
   closingTabIds,
@@ -607,6 +654,9 @@ export function SplitContainer({
           node={renderRoot}
           workspaceKey={workspaceKey}
           uiTabs={uiTabs}
+          tabSortMode={tabSortMode}
+          workspaceAgents={workspaceAgents}
+          statusSummariesByTabId={statusSummariesByTabId}
           focusedPaneId={layout.focusedPaneId}
           normalizedServerId={normalizedServerId}
           normalizedWorkspaceId={normalizedWorkspaceId}
@@ -752,6 +802,9 @@ function SplitNodeView({
   node,
   workspaceKey,
   uiTabs,
+  tabSortMode,
+  workspaceAgents,
+  statusSummariesByTabId,
   focusedPaneId,
   normalizedServerId,
   normalizedWorkspaceId,
@@ -807,6 +860,9 @@ function SplitNodeView({
       <SplitPaneView
         pane={node.pane}
         uiTabs={uiTabs}
+        tabSortMode={tabSortMode}
+        workspaceAgents={workspaceAgents}
+        statusSummariesByTabId={statusSummariesByTabId}
         isFocused={node.pane.id === focusedPaneId}
         workspaceKey={workspaceKey}
         topLeftPaneId={topLeftPaneId}
@@ -856,6 +912,9 @@ function SplitNodeView({
               node={child}
               workspaceKey={workspaceKey}
               uiTabs={uiTabs}
+              tabSortMode={tabSortMode}
+              workspaceAgents={workspaceAgents}
+              statusSummariesByTabId={statusSummariesByTabId}
               focusedPaneId={focusedPaneId}
               normalizedServerId={normalizedServerId}
               normalizedWorkspaceId={normalizedWorkspaceId}
@@ -910,6 +969,9 @@ function SplitNodeView({
 function SplitPaneView({
   pane,
   uiTabs,
+  tabSortMode,
+  workspaceAgents,
+  statusSummariesByTabId,
   isFocused,
   workspaceKey,
   topLeftPaneId,
@@ -968,6 +1030,18 @@ function SplitPaneView({
     [pane, uiTabs],
   );
   const paneTabs = useMemo(() => paneState.tabs.map((tab) => tab.descriptor), [paneState.tabs]);
+  const uiTabsById = useMemo(() => new Map(uiTabs.map((tab) => [tab.tabId, tab])), [uiTabs]);
+  const sortedPaneTabs = useMemo(
+    () =>
+      getSortedPaneTabDescriptors({
+        paneTabs,
+        uiTabsById,
+        tabSortMode,
+        workspaceAgents,
+        statusSummariesByTabId,
+      }),
+    [paneTabs, statusSummariesByTabId, tabSortMode, uiTabsById, workspaceAgents],
+  );
   const paneTabIds = useMemo(() => paneTabs.map((tab) => tab.tabId), [paneTabs]);
   const tabDescriptorMap = useStableTabDescriptorMap(paneTabs);
   const activeTabDescriptor = paneState.activeTab?.descriptor ?? null;
@@ -982,13 +1056,13 @@ function SplitPaneView({
   );
   const desktopTabRowItems = useMemo<WorkspaceDesktopTabRowItem[]>(
     () =>
-      paneTabs.map((tab) => ({
+      sortedPaneTabs.map((tab) => ({
         tab,
         isActive: tab.key === activeTabDescriptor?.key,
         isCloseHovered: hoveredCloseTabKey === tab.key,
         isClosingTab: closingTabIds.has(tab.tabId),
       })),
-    [activeTabDescriptor?.key, closingTabIds, hoveredCloseTabKey, paneTabs],
+    [activeTabDescriptor?.key, closingTabIds, hoveredCloseTabKey, sortedPaneTabs],
   );
 
   useEffect(() => {
@@ -1027,12 +1101,12 @@ function SplitPaneView({
 
   const paneId = pane.id;
   const handleCloseTabsToLeft = useCallback(
-    (tabId: string) => onCloseTabsToLeft(tabId, paneTabs),
-    [onCloseTabsToLeft, paneTabs],
+    (tabId: string) => onCloseTabsToLeft(tabId, sortedPaneTabs),
+    [onCloseTabsToLeft, sortedPaneTabs],
   );
   const handleCloseTabsToRight = useCallback(
-    (tabId: string) => onCloseTabsToRight(tabId, paneTabs),
-    [onCloseTabsToRight, paneTabs],
+    (tabId: string) => onCloseTabsToRight(tabId, sortedPaneTabs),
+    [onCloseTabsToRight, sortedPaneTabs],
   );
   const handleCloseOtherTabs = useCallback(
     (tabId: string) => onCloseOtherTabs(tabId, paneTabs),
@@ -1108,6 +1182,7 @@ function SplitPaneView({
         tabDropPreviewIndex={
           tabDropPreview?.paneId === pane.id ? tabDropPreview.indicatorIndex : null
         }
+        disableReorderTabs={tabSortMode !== "manual"}
       />
     </View>
   );

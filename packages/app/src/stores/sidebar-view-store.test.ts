@@ -17,6 +17,7 @@ describe("sidebar-view-store", () => {
       embeddedTabSortModeByServerId: {},
       embeddedRecentTabCountByServerId: {},
       badgeModeByServerId: {},
+      tabBarBadgeModeByServerId: {},
       autoCollapseWorkspaces: false,
     });
   });
@@ -26,17 +27,20 @@ describe("sidebar-view-store", () => {
       embeddedTabSortModeByServerId: { srv: "bad-value" as never },
       embeddedRecentTabCountByServerId: { srv: 99 as never },
       badgeModeByServerId: { srv: "bad-value" as never },
+      tabBarBadgeModeByServerId: { srv: "diff" as never },
     });
 
     expect(useSidebarViewStore.getState().getEmbeddedTabSortMode("srv")).toBe("manual");
     expect(useSidebarViewStore.getState().getEmbeddedRecentTabCount("srv")).toBe(5);
-    expect(useSidebarViewStore.getState().getBadgeMode("srv")).toBe("diff");
+    expect(useSidebarViewStore.getState().getBadgeMode("srv")).toBe("status");
+    expect(useSidebarViewStore.getState().getTabBarBadgeMode("srv")).toBe("status");
   });
 
   it("trims server ids before storing embedded tab preferences", () => {
     useSidebarViewStore.getState().setEmbeddedTabSortMode("  srv  ", "lastUpdated");
     useSidebarViewStore.getState().setEmbeddedRecentTabCount("  srv  ", "all");
-    useSidebarViewStore.getState().setBadgeMode("  srv  ", "status");
+    useSidebarViewStore.getState().setBadgeMode("  srv  ", "diff");
+    useSidebarViewStore.getState().setTabBarBadgeMode("  srv  ", "none");
 
     expect(useSidebarViewStore.getState().embeddedTabSortModeByServerId).toEqual({
       srv: "lastUpdated",
@@ -45,12 +49,16 @@ describe("sidebar-view-store", () => {
       srv: "all",
     });
     expect(useSidebarViewStore.getState().badgeModeByServerId).toEqual({
-      srv: "status",
+      srv: "diff",
+    });
+    expect(useSidebarViewStore.getState().tabBarBadgeModeByServerId).toEqual({
+      srv: "none",
     });
   });
 
-  it("defaults sidebar badge mode to diff", () => {
-    expect(useSidebarViewStore.getState().getBadgeMode("srv")).toBe("diff");
+  it("defaults sidebar and tab bar badge modes to status", () => {
+    expect(useSidebarViewStore.getState().getBadgeMode("srv")).toBe("status");
+    expect(useSidebarViewStore.getState().getTabBarBadgeMode("srv")).toBe("status");
   });
 
   it("stores the auto-collapse workspace display preference", () => {

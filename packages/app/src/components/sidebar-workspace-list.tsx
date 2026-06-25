@@ -8,12 +8,14 @@ import {
   type GestureResponderEvent,
   type PointerEvent as RNPointerEvent,
   type PressableStateCallbackType,
+  type ViewProps,
   type ViewStyle,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { ProjectIconView } from "@/components/project-icon-view";
 import { GitHubIcon } from "@/components/icons/github-icon";
+import { useSidebarScroll } from "@/components/sidebar/sidebar-scroll-context";
 import { AdaptiveRenameModal } from "@/components/rename-modal";
 import {
   memo,
@@ -26,6 +28,7 @@ import {
   type ReactElement,
   type ReactNode,
   type MutableRefObject,
+  type PropsWithChildren,
   type Ref,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -51,19 +54,27 @@ import {
   Copy,
   CopyX,
   ExternalLink,
+  Globe,
   GitPullRequest,
   Settings,
+  Settings2,
   MoreVertical,
   Pencil,
   Plus,
   RotateCw,
+  SquarePen,
+  SquareTerminal,
   Trash2,
   X,
 } from "lucide-react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { DraggableList, type DraggableRenderItemInfo } from "./draggable-list";
 import type { DraggableListDragHandleProps } from "./draggable-list.types";
-import { getHostRuntimeStore } from "@/runtime/host-runtime";
+import {
+  getHostRuntimeStore,
+  useHostRuntimeClient,
+  useHostRuntimeIsConnected,
+} from "@/runtime/host-runtime";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useProjectIconDataByProjectKey } from "@/projects/project-icons";
 import {
@@ -93,7 +104,7 @@ import {
   type SidebarEmbeddedRecentTabCount,
 } from "@/stores/sidebar-view-store";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
-import { useBrowserStore } from "@/stores/browser-store";
+import { createWorkspaceBrowser, useBrowserStore } from "@/stores/browser-store";
 import { useDraftStore, type DraftInput } from "@/stores/draft-store";
 import { useWorkspaceSetupStore } from "@/stores/workspace-setup-store";
 import { useShowShortcutBadges } from "@/hooks/use-show-shortcut-badges";
@@ -112,6 +123,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { SidebarDisplayPreferencesMenuSections } from "@/components/sidebar/sidebar-grouping-selector";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SyncedLoader } from "@/components/synced-loader";
 import { useToast } from "@/contexts/toast-context";
@@ -136,6 +148,10 @@ import {
 } from "@/components/sidebar/sidebar-entry-row";
 import { mergeEmbeddedVisibleTabOrder } from "@/components/sidebar/embedded-tabs-order";
 import {
+  getWorkspaceRowRightVisibility,
+  type WorkspaceRowRightVisibility,
+} from "@/components/sidebar/workspace-row-right-visibility";
+import {
   useProjectNamesMap,
   useStatusModeWorkspaceEntries,
 } from "@/hooks/use-status-mode-workspaces";
@@ -156,13 +172,16 @@ import { generateDraftId } from "@/stores/draft-keys";
 import { deriveWorkspacePaneState } from "@/screens/workspace/workspace-pane-state";
 import {
   buildTerminalsQueryKey,
+  canCreateWorkspaceTerminal,
   TERMINALS_QUERY_STALE_TIME,
   type ListTerminalsPayload,
+  upsertCreatedTerminalPayload,
 } from "@/screens/workspace/terminals/state";
 import {
   WorkspaceTabIcon,
   WorkspaceTabPresentationResolver,
 } from "@/screens/workspace/workspace-tab-presentation";
+import { WorkspaceTabTooltipPreview } from "@/screens/workspace/workspace-tab-tooltip-preview";
 import { useWorkspaceTabClose } from "@/screens/workspace/use-workspace-tab-close";
 import {
   buildWorkspaceTabMenuEntries,
@@ -181,7 +200,6 @@ import {
   combineSidebarTabStatusSummaries,
   createEmptySidebarTabStatusSummary,
   getPrimarySidebarEntryStatusKind,
-  getVisibleSidebarEntryStatusKinds,
   summarizeSidebarTabs,
   type SidebarEntryStatusKind,
   type SidebarTabStatusSummary,
@@ -222,6 +240,9 @@ const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 const ThemedPlus = withUnistyles(Plus);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedX = withUnistyles(X);
+const ThemedSquarePen = withUnistyles(SquarePen);
+const ThemedSquareTerminal = withUnistyles(SquareTerminal);
+const ThemedGlobe = withUnistyles(Globe);
 
 interface EmbeddedSidebarTabItem {
   descriptor: WorkspaceTabDescriptor;
@@ -435,6 +456,7 @@ function applyRecentTabCount(input: {
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
+const ThemedSettings2 = withUnistyles(Settings2);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedCopyX = withUnistyles(CopyX);
 const ThemedArchive = withUnistyles(Archive);
@@ -896,7 +918,13 @@ function ProjectRowTrailingActions({
 const trash2LeadingIcon = <ThemedTrash2 size={14} uniProps={foregroundMutedColorMapping} />;
 const settingsLeadingIcon = <ThemedSettings size={14} uniProps={foregroundMutedColorMapping} />;
 const VERTICAL_TABS_NEW_AGENT_ICON = (
-  <ThemedPlus size={14} uniProps={foregroundMutedColorMapping} />
+  <ThemedSquarePen size={14} uniProps={foregroundMutedColorMapping} />
+);
+const VERTICAL_TABS_NEW_TERMINAL_ICON = (
+  <ThemedSquareTerminal size={14} uniProps={foregroundMutedColorMapping} />
+);
+const VERTICAL_TABS_NEW_BROWSER_ICON = (
+  <ThemedGlobe size={14} uniProps={foregroundMutedColorMapping} />
 );
 const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
 const markAsReadLeadingIcon = (
@@ -1066,6 +1094,7 @@ function WorkspaceRowRightGroup({
   isCreating,
   showShortcutBadge,
   shortcutNumber,
+  selected,
   archiveLabel,
   archiveStatus,
   archivePendingLabel,
@@ -1088,6 +1117,7 @@ function WorkspaceRowRightGroup({
   isCreating: boolean;
   showShortcutBadge: boolean;
   shortcutNumber: number | null;
+  selected: boolean;
   archiveLabel?: string;
   archiveStatus?: "idle" | "pending" | "success";
   archivePendingLabel?: string;
@@ -1107,6 +1137,7 @@ function WorkspaceRowRightGroup({
     getWorkspaceRowRightVisibility({
       badgeMode,
       expanded,
+      selected,
       hasArchiveAction: Boolean(onArchive),
       hasCreateTabAction: Boolean(onCreateTab),
       hasDiffStat: Boolean(workspace.diffStat),
@@ -1145,88 +1176,6 @@ function WorkspaceRowRightGroup({
         />
       ) : null}
     </>
-  );
-}
-
-function getWorkspaceRowRightVisibility(input: {
-  badgeMode: SidebarBadgeMode;
-  expanded: boolean;
-  hasArchiveAction: boolean;
-  hasCreateTabAction: boolean;
-  hasDiffStat: boolean;
-  isCompactLayout: boolean;
-  isHovered: boolean;
-  isTouchPlatform: boolean;
-  showShortcutBadge: boolean;
-  shortcutNumber: number | null;
-  tabStatusSummary: SidebarTabStatusSummary;
-}): WorkspaceRowRightVisibility {
-  const showShortcut = input.showShortcutBadge && input.shortcutNumber !== null;
-  const showActionControls = input.isHovered || input.isTouchPlatform || input.isCompactLayout;
-  return {
-    showCreateTab: false,
-    showKebabInSlot: input.hasArchiveAction && showActionControls && !showShortcut,
-    showDiffStat: shouldShowWorkspaceDiffStat({ ...input, showShortcut }),
-    showStatusSummary: shouldShowWorkspaceStatusSummary({
-      ...input,
-      showActionControls,
-      showShortcut,
-    }),
-    shouldRenderActionSlot: shouldRenderWorkspaceActionSlot(input),
-  };
-}
-
-interface WorkspaceRowRightVisibility {
-  showCreateTab: boolean;
-  showKebabInSlot: boolean;
-  showDiffStat: boolean;
-  showStatusSummary: boolean;
-  shouldRenderActionSlot: boolean;
-}
-
-function shouldRenderWorkspaceActionSlot(input: {
-  badgeMode: SidebarBadgeMode;
-  expanded: boolean;
-  hasArchiveAction: boolean;
-  hasCreateTabAction: boolean;
-  hasDiffStat: boolean;
-  tabStatusSummary: SidebarTabStatusSummary;
-}): boolean {
-  if (input.hasArchiveAction || input.hasCreateTabAction) {
-    return true;
-  }
-  if (input.badgeMode === "diff") {
-    return input.hasDiffStat;
-  }
-  return (
-    input.badgeMode === "status" &&
-    !input.expanded &&
-    getVisibleSidebarEntryStatusKinds(input.tabStatusSummary).length > 0
-  );
-}
-
-function shouldShowWorkspaceDiffStat(input: {
-  badgeMode: SidebarBadgeMode;
-  hasDiffStat: boolean;
-  isHovered: boolean;
-  showShortcut: boolean;
-}): boolean {
-  return input.badgeMode === "diff" && input.hasDiffStat && !input.isHovered && !input.showShortcut;
-}
-
-function shouldShowWorkspaceStatusSummary(input: {
-  badgeMode: SidebarBadgeMode;
-  expanded: boolean;
-  showActionControls: boolean;
-  showShortcut: boolean;
-  tabStatusSummary: SidebarTabStatusSummary;
-}): boolean {
-  return (
-    input.badgeMode === "status" &&
-    !input.expanded &&
-    !input.showActionControls &&
-    !input.showShortcut &&
-    getVisibleSidebarEntryStatusKinds(input.tabStatusSummary).length > 0
   );
 }
 
@@ -2292,6 +2241,7 @@ function WorkspaceRowInner({
         const workspaceRightVisibility = getWorkspaceRowRightVisibility({
           badgeMode,
           expanded,
+          selected,
           hasArchiveAction: Boolean(onArchive),
           hasCreateTabAction: Boolean(onCreateTab),
           hasDiffStat: Boolean(workspace.diffStat),
@@ -2358,6 +2308,7 @@ function WorkspaceRowInner({
                   isCreating={isCreating}
                   showShortcutBadge={showShortcutBadge}
                   shortcutNumber={shortcutNumber}
+                  selected={selected}
                   archiveLabel={archiveLabel}
                   archiveStatus={archiveStatus}
                   archivePendingLabel={archivePendingLabel}
@@ -2924,6 +2875,10 @@ function EmbeddedWorkspaceTabRow({
       {(presentation) => {
         const label =
           presentation.titleState === "loading" ? t("workspace.tabs.loading") : presentation.label;
+        const tooltipLabel =
+          presentation.titleState === "loading"
+            ? t("workspace.tabs.loadingAgentTitle")
+            : presentation.label;
         const leadingStatus =
           badgeMode === "status" ? null : getPrimarySidebarEntryStatusKind(statusSummary);
         const rightContext =
@@ -2942,44 +2897,70 @@ function EmbeddedWorkspaceTabRow({
         );
         return (
           <ContextMenu>
-            <View
-              {...(manualSort ? (dragHandleProps?.attributes as object | undefined) : undefined)}
-              {...(manualSort ? (dragListeners as object | undefined) : undefined)}
-              style={styles.embeddedTabWrapper}
-              onPointerDown={manualSort ? handleDragPointerDown : undefined}
-              onPointerEnter={handlePointerEnter}
-              onPointerLeave={handlePointerLeave}
-              ref={handleWrapperRef}
-            >
-              <ContextMenuTrigger
-                accessibilityRole="button"
-                accessibilityLabel={label}
-                accessibilityState={accessibilityState}
-                onPress={handlePress}
-                onLongPress={handleLongPress}
-                style={rowStyle}
-                testID={`sidebar-embedded-tab-${item.tab.tabId}`}
-              >
-                <SidebarEntryRowContent
-                  leading={createElement(WorkspaceTabIcon, {
-                    presentation,
-                    active,
-                    size: 14,
-                    showStatusBadge: false,
-                  })}
-                  leadingStatus={leadingStatus}
-                  label={label}
-                  rightContext={rightContext}
-                  hoverRightContext={hoverRightContext}
-                  showHoverRightContext={showCloseButton}
+            <Tooltip delayDuration={400} enabledOnDesktop enabledOnMobile={false}>
+              <TooltipTrigger asChild triggerRefProp="triggerRef">
+                <EmbeddedTabTooltipAnchor
+                  {...(manualSort
+                    ? (dragHandleProps?.attributes as object | undefined)
+                    : undefined)}
+                  {...(manualSort ? (dragListeners as object | undefined) : undefined)}
+                  triggerRef={handleWrapperRef}
+                  onPointerDown={manualSort ? handleDragPointerDown : undefined}
+                  onPointerEnter={handlePointerEnter}
+                  onPointerLeave={handlePointerLeave}
+                  style={styles.embeddedTabWrapper}
+                >
+                  <ContextMenuTrigger
+                    accessibilityRole="button"
+                    accessibilityLabel={label}
+                    accessibilityState={accessibilityState}
+                    onPress={handlePress}
+                    onLongPress={handleLongPress}
+                    style={rowStyle}
+                    testID={`sidebar-embedded-tab-${item.tab.tabId}`}
+                  >
+                    <SidebarEntryRowContent
+                      leading={createElement(WorkspaceTabIcon, {
+                        presentation,
+                        active,
+                        size: 14,
+                        showStatusBadge: false,
+                      })}
+                      leadingStatus={leadingStatus}
+                      label={label}
+                      rightContext={rightContext}
+                      hoverRightContext={hoverRightContext}
+                      showHoverRightContext={showCloseButton}
+                    />
+                  </ContextMenuTrigger>
+                </EmbeddedTabTooltipAnchor>
+              </TooltipTrigger>
+              <TooltipContent side="right" align="center" offset={8}>
+                <WorkspaceTabTooltipPreview
+                  tab={item.descriptor}
+                  presentation={presentation}
+                  tooltipLabel={tooltipLabel}
+                  orientation="vertical"
                 />
-              </ContextMenuTrigger>
-            </View>
+              </TooltipContent>
+            </Tooltip>
             <EmbeddedTabContextMenuContent tabId={item.tab.tabId} entries={menuEntries} />
           </ContextMenu>
         );
       }}
     </WorkspaceTabPresentationResolver>
+  );
+}
+
+function EmbeddedTabTooltipAnchor({
+  triggerRef,
+  children,
+  ...props
+}: PropsWithChildren<ViewProps & { triggerRef?: Ref<View | null> }>): ReactElement {
+  return (
+    <View {...props} ref={triggerRef}>
+      {children}
+    </View>
   );
 }
 
@@ -3802,6 +3783,10 @@ export function SidebarVerticalWorkspaceTabsHeaderActions({
   onWorkspacePress?: () => void;
 }) {
   const { t } = useTranslation();
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const client = useHostRuntimeClient(workspace.serverId);
+  const isConnected = useHostRuntimeIsConnected(workspace.serverId);
   const persistenceKey = useMemo(
     () =>
       buildWorkspaceTabPersistenceKey({
@@ -3819,30 +3804,122 @@ export function SidebarVerticalWorkspaceTabsHeaderActions({
     () => (workspaceLayout ? (findMainPane(workspaceLayout.root)?.id ?? null) : null),
     [workspaceLayout],
   );
+  const workspaceDirectory = useMemo(
+    () => resolveWorkspaceDirectory({ workspaceDirectory: workspace.workspaceDirectory }),
+    [workspace.workspaceDirectory],
+  );
+  const terminalQueryKey = useMemo(
+    () => buildTerminalsQueryKey(workspace.serverId, workspaceDirectory, workspace.workspaceId),
+    [workspace.serverId, workspace.workspaceId, workspaceDirectory],
+  );
+  const terminalDisabled = !canCreateWorkspaceTerminal({
+    isRouteFocused: true,
+    client,
+    isConnected,
+    workspaceDirectory,
+  });
+  const showCreateBrowserTab = getIsElectron();
 
-  const handleCreateAgentTab = useCallback(() => {
+  const focusMainPane = useCallback(() => {
     if (!persistenceKey) {
       return;
     }
     if (mainPaneId) {
       focusWorkspacePane(persistenceKey, mainPaneId);
     }
-    openWorkspaceTabFocused(persistenceKey, {
-      kind: "draft",
-      draftId: generateDraftId(),
-    });
+  }, [focusWorkspacePane, mainPaneId, persistenceKey]);
+
+  const navigateToSelectedWorkspace = useCallback(() => {
     onWorkspacePress?.();
     navigateToWorkspace(workspace.serverId, workspace.workspaceId, {
       openAttentionAgent: false,
     });
+  }, [onWorkspacePress, workspace.serverId, workspace.workspaceId]);
+
+  const handleCreateAgentTab = useCallback(() => {
+    if (!persistenceKey) {
+      return;
+    }
+    focusMainPane();
+    openWorkspaceTabFocused(persistenceKey, {
+      kind: "draft",
+      draftId: generateDraftId(),
+    });
+    navigateToSelectedWorkspace();
+  }, [focusMainPane, navigateToSelectedWorkspace, openWorkspaceTabFocused, persistenceKey]);
+
+  const handleCreateTerminalTab = useCallback(() => {
+    if (!persistenceKey) {
+      return;
+    }
+    if (!client || !isConnected) {
+      toast.error(t("workspace.terminal.hostDisconnected"));
+      return;
+    }
+    if (!workspaceDirectory) {
+      toast.error(t("workspace.header.toasts.workspacePathUnavailable"));
+      return;
+    }
+    focusMainPane();
+    void client
+      .createTerminal(workspaceDirectory, undefined, undefined, {
+        workspaceId: workspace.workspaceId,
+      })
+      .then((payload) => {
+        if (!payload.terminal && payload.error) {
+          throw new Error(payload.error);
+        }
+        if (!payload.terminal) {
+          return undefined;
+        }
+        const { terminal } = payload;
+        queryClient.setQueryData<ListTerminalsPayload>(terminalQueryKey, (current) =>
+          upsertCreatedTerminalPayload({
+            current,
+            terminal,
+            workspaceDirectory,
+          }),
+        );
+        void queryClient.invalidateQueries({ queryKey: terminalQueryKey });
+        openWorkspaceTabFocused(persistenceKey, {
+          kind: "terminal",
+          terminalId: terminal.id,
+        });
+        navigateToSelectedWorkspace();
+        return undefined;
+      })
+      .catch((error: unknown) => {
+        toast.error(error instanceof Error ? error.message : String(error));
+      });
   }, [
-    focusWorkspacePane,
-    mainPaneId,
-    onWorkspacePress,
+    client,
+    focusMainPane,
+    isConnected,
+    navigateToSelectedWorkspace,
     openWorkspaceTabFocused,
     persistenceKey,
-    workspace.serverId,
+    queryClient,
+    t,
+    terminalQueryKey,
+    toast,
     workspace.workspaceId,
+    workspaceDirectory,
+  ]);
+
+  const handleCreateBrowserTab = useCallback(() => {
+    if (!persistenceKey || !showCreateBrowserTab) {
+      return;
+    }
+    focusMainPane();
+    const { browserId } = createWorkspaceBrowser();
+    openWorkspaceTabFocused(persistenceKey, { kind: "browser", browserId });
+    navigateToSelectedWorkspace();
+  }, [
+    focusMainPane,
+    navigateToSelectedWorkspace,
+    openWorkspaceTabFocused,
+    persistenceKey,
+    showCreateBrowserTab,
   ]);
 
   return (
@@ -3889,6 +3966,49 @@ export function SidebarVerticalWorkspaceTabsHeaderActions({
           >
             {t("workspace.tabs.actions.newAgent")}
           </DropdownMenuItem>
+          <DropdownMenuItem
+            leading={VERTICAL_TABS_NEW_TERMINAL_ICON}
+            testID={`vertical-tabs-header-new-tab-menu-terminal-${workspace.workspaceKey}`}
+            disabled={terminalDisabled}
+            onSelect={terminalDisabled ? undefined : handleCreateTerminalTab}
+          >
+            {t("workspace.tabs.actions.newTerminal")}
+          </DropdownMenuItem>
+          {showCreateBrowserTab ? (
+            <DropdownMenuItem
+              leading={VERTICAL_TABS_NEW_BROWSER_ICON}
+              testID={`vertical-tabs-header-new-tab-menu-browser-${workspace.workspaceKey}`}
+              onSelect={handleCreateBrowserTab}
+            >
+              {t("workspace.tabs.actions.newBrowser")}
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
+          <TooltipTrigger asChild triggerRefProp="triggerRef">
+            <DropdownMenuTrigger
+              accessibilityRole="button"
+              accessibilityLabel="Display preferences"
+              testID={`vertical-tabs-header-display-menu-${workspace.workspaceKey}`}
+              style={newWorkspaceTabButtonStyle}
+            >
+              <ThemedSettings2 size={14} uniProps={foregroundMutedColorMapping} />
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" align="center" offset={8}>
+            <Text style={styles.verticalTabsHeaderTooltipText}>Display preferences</Text>
+          </TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" width={200}>
+          <SidebarDisplayPreferencesMenuSections
+            serverId={workspace.serverId}
+            showTabControls
+            showSidebarBadge
+            badgePreference="tabBar"
+            closeOnSelect={false}
+          />
         </DropdownMenuContent>
       </DropdownMenu>
     </View>
@@ -4533,7 +4653,7 @@ function ProjectModeList({
   const getWorkspaceOrder = useSidebarOrderStore((state) => state.getWorkspaceOrder);
   const setWorkspaceOrder = useSidebarOrderStore((state) => state.setWorkspaceOrder);
   const badgeMode = useSidebarViewStore((state) =>
-    serverId ? state.getBadgeMode(serverId) : "diff",
+    serverId ? state.getBadgeMode(serverId) : "status",
   );
   const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
   const collapsedWorkspaceKeys = useSidebarCollapsedSectionsStore(
@@ -4809,6 +4929,8 @@ function ProjectModeList({
     </>
   );
 
+  const { onScroll: onSidebarScroll } = useSidebarScroll();
+
   return (
     <View style={styles.container}>
       {platformIsNative ? (
@@ -4817,6 +4939,8 @@ function ProjectModeList({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onSidebarScroll}
+          scrollEventThrottle={16}
           testID="sidebar-project-workspace-list-scroll"
         >
           {content}
@@ -4826,6 +4950,8 @@ function ProjectModeList({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onSidebarScroll}
+          scrollEventThrottle={16}
           testID="sidebar-project-workspace-list-scroll"
         >
           {content}

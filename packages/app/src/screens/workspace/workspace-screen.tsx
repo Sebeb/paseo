@@ -1971,10 +1971,10 @@ function useDesktopEmbeddedTabsEnabled(isMobile: boolean): boolean {
 }
 
 function getWorkspaceTabNavigationSortMode(input: {
-  embeddedTabsEnabled: boolean;
+  tabSortingEnabled: boolean;
   tabSortMode: SidebarEmbeddedTabSortMode;
 }): SidebarEmbeddedTabSortMode {
-  if (input.embeddedTabsEnabled) {
+  if (input.tabSortingEnabled) {
     return input.tabSortMode;
   }
   return "manual";
@@ -2357,7 +2357,7 @@ function WorkspaceScreenContent({
     workspaceAgents,
   ]);
   const effectiveTabSortMode = getWorkspaceTabNavigationSortMode({
-    embeddedTabsEnabled,
+    tabSortingEnabled: !isMobile,
     tabSortMode,
   });
   const orderedTabIds = useMemo(
@@ -3197,9 +3197,9 @@ function WorkspaceScreenContent({
 
   const handleCloseTabsToLeft = useCallback(
     async (tabId: string) => {
-      await handleCloseTabsToLeftInPane(tabId, tabs);
+      await handleCloseTabsToLeftInPane(tabId, navigationTabs);
     },
-    [handleCloseTabsToLeftInPane, tabs],
+    [handleCloseTabsToLeftInPane, navigationTabs],
   );
 
   const handleCloseTabsToRightInPane = useCallback(
@@ -3219,9 +3219,9 @@ function WorkspaceScreenContent({
 
   const handleCloseTabsToRight = useCallback(
     async (tabId: string) => {
-      await handleCloseTabsToRightInPane(tabId, tabs);
+      await handleCloseTabsToRightInPane(tabId, navigationTabs);
     },
-    [handleCloseTabsToRightInPane, tabs],
+    [handleCloseTabsToRightInPane, navigationTabs],
   );
 
   const handleCloseOtherTabsInPane = useCallback(
@@ -3560,13 +3560,13 @@ function WorkspaceScreenContent({
 
   const desktopTabRowItems = useMemo<WorkspaceDesktopTabRowItem[]>(
     () =>
-      tabs.map((tab) => ({
+      navigationTabs.map((tab) => ({
         tab,
         isActive: tab.tabId === activeTabDescriptor?.tabId,
         isCloseHovered: hoveredCloseTabKey === tab.key,
         isClosingTab: closingTabIds.has(tab.tabId),
       })),
-    [activeTabDescriptor?.tabId, closingTabIds, hoveredCloseTabKey, tabs],
+    [activeTabDescriptor?.tabId, closingTabIds, hoveredCloseTabKey, navigationTabs],
   );
 
   const handleFocusPane = useStableEvent(function handleFocusPane(paneId: string) {
@@ -3864,6 +3864,9 @@ function WorkspaceScreenContent({
         normalizedWorkspaceId={normalizedWorkspaceId}
         isWorkspaceFocused={isRouteFocused}
         uiTabs={uiTabs}
+        tabSortMode={effectiveTabSortMode}
+        workspaceAgents={workspaceAgents}
+        statusSummariesByTabId={statusSummariesByTabId}
         hoveredCloseTabKey={hoveredCloseTabKey}
         setHoveredCloseTabKey={setHoveredCloseTabKey}
         closingTabIds={closingTabIds}
@@ -3901,6 +3904,9 @@ function WorkspaceScreenContent({
     normalizedWorkspaceId,
     isRouteFocused,
     uiTabs,
+    effectiveTabSortMode,
+    workspaceAgents,
+    statusSummariesByTabId,
     hoveredCloseTabKey,
     closingTabIds,
     navigateToTabId,
@@ -4028,6 +4034,7 @@ function WorkspaceScreenContent({
           onReorderTabs={handleReorderTabsInFocusedPane}
           onSplitRight={noop}
           onSplitDown={noop}
+          disableReorderTabs={effectiveTabSortMode !== "manual"}
           showPaneSplitActions={false}
         />
       ) : null}
