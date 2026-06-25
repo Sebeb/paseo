@@ -52,6 +52,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  SquarePen,
   Trash2,
   X,
 } from "lucide-react-native";
@@ -90,6 +91,7 @@ import {
 } from "@/stores/sidebar-view-store";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import { useBrowserStore } from "@/stores/browser-store";
+import { useDraftStore, type DraftInput } from "@/stores/draft-store";
 import { useWorkspaceSetupStore } from "@/stores/workspace-setup-store";
 import { useShowShortcutBadges } from "@/hooks/use-show-shortcut-badges";
 import {
@@ -236,6 +238,17 @@ function useSidebarTabStatusSummaries(input: {
   const pendingCreatesByDraftId = useCreateFlowStore((state) => state.pendingByDraftId);
   const setupSnapshots = useWorkspaceSetupStore((state) => state.snapshots);
   const browsersById = useBrowserStore((state) => state.browsersById);
+  const draftRecords = useDraftStore((state) => state.drafts);
+  const draftInputsByKey = useMemo<Record<string, DraftInput>>(() => {
+    const inputs: Record<string, DraftInput> = {};
+    for (const [key, record] of Object.entries(draftRecords)) {
+      if (record.lifecycle !== "active") {
+        continue;
+      }
+      inputs[key] = record.input;
+    }
+    return inputs;
+  }, [draftRecords]);
 
   const workspaceTabs = useMemo<WorkspaceTabsForSummary[]>(() => {
     if (!input.enabled) {
@@ -332,6 +345,7 @@ function useSidebarTabStatusSummaries(input: {
           setupSnapshots,
           browsersById,
           terminalsById: terminalsByWorkspaceKey.get(entry.workspace.workspaceKey) ?? new Map(),
+          draftInputsByKey,
         }),
       );
     }
@@ -339,6 +353,7 @@ function useSidebarTabStatusSummaries(input: {
   }, [
     agents,
     browsersById,
+    draftInputsByKey,
     pendingCreatesByDraftId,
     setupSnapshots,
     terminalsByWorkspaceKey,
@@ -448,10 +463,11 @@ function getPrIconUniMapping(state: PrHint["state"]) {
 }
 
 function getVisibleStatusSummaryCount(summary: SidebarTabStatusSummary): number {
-  return SIDEBAR_TAB_STATUS_BADGE_BUCKETS.reduce(
+  const bucketTotal = SIDEBAR_TAB_STATUS_BADGE_BUCKETS.reduce(
     (total, bucket) => total + summary.counts[bucket],
     0,
   );
+  return bucketTotal + (summary.draft > 0 ? 1 : 0);
 }
 
 function SidebarStatusSummaryBadges({ summary }: { summary: SidebarTabStatusSummary }) {
@@ -464,28 +480,39 @@ function SidebarStatusSummaryBadges({ summary }: { summary: SidebarTabStatusSumm
       {SIDEBAR_TAB_STATUS_BADGE_BUCKETS.map((bucket) => (
         <StatusSummaryCountBadge key={bucket} bucket={bucket} count={summary.counts[bucket]} />
       ))}
+      {summary.draft > 0 ? (
+        <StatusSummaryCountBadge bucket="draft" count={summary.draft} hideCount icon={SquarePen} />
+      ) : null}
     </View>
   );
 }
 
+type StatusSummaryBadgeBucket = SidebarTabStatusBucket | "draft";
+
 function StatusSummaryCountBadge({
   bucket,
   count,
+  hideCount = false,
+  icon: Icon,
 }: {
-  bucket: SidebarTabStatusBucket;
+  bucket: StatusSummaryBadgeBucket;
   count: number;
+  hideCount?: boolean;
+  icon?: React.ComponentType<{ size: number; color: string }>;
 }) {
   const colorStyle = getStatusSummaryCountBadgeStyle(bucket);
   const containerStyle = useMemo(() => [styles.statusSummaryCountBadge, colorStyle], [colorStyle]);
-  const showCount = count > 1 || bucket === "needs_input";
+  const showCount = !hideCount && (count > 1 || bucket === "needs_input");
   if (count <= 0) {
     return null;
   }
-  return (
-    <View style={containerStyle}>
-      {showCount ? <Text style={styles.statusSummaryCountText}>{count}</Text> : null}
-    </View>
-  );
+  let inner: ReactNode = null;
+  if (Icon) {
+    inner = <Icon size={11} color={styles.statusSummaryCountIcon.color} />;
+  } else if (showCount) {
+    inner = <Text style={styles.statusSummaryCountText}>{count}</Text>;
+  }
+  return <View style={containerStyle}>{inner}</View>;
 }
 
 function SidebarTabStatusSymbol({ bucket }: { bucket: SidebarTabStatusBucket }) {
@@ -4664,6 +4691,9 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: 14,
     color: "#000000",
   },
+  statusSummaryCountIcon: {
+    color: "#000000",
+  },
   statusSummaryCountNeedsInput: {
     backgroundColor: theme.colors.palette.amber[500],
   },
@@ -4678,6 +4708,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   statusSummaryCountDone: {
     backgroundColor: theme.colors.statusSuccess,
+  },
+  statusSummaryCountDraft: {
+    backgroundColor: theme.colors.foregroundMuted,
   },
 }));
 
@@ -4696,7 +4729,7 @@ function getStatusDotColorStyle(bucket: SidebarStateBucket): ViewStyle | null {
   }
 }
 
-function getStatusSummaryCountBadgeStyle(bucket: SidebarTabStatusBucket) {
+function getStatusSummaryCountBadgeStyle(bucket: StatusSummaryBadgeBucket) {
   switch (bucket) {
     case "needs_input":
       return styles.statusSummaryCountNeedsInput;
@@ -4708,5 +4741,7 @@ function getStatusSummaryCountBadgeStyle(bucket: SidebarTabStatusBucket) {
       return styles.statusSummaryCountAttention;
     case "done":
       return styles.statusSummaryCountDone;
+    case "draft":
+      return styles.statusSummaryCountDraft;
   }
 }
