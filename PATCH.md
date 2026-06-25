@@ -20,8 +20,19 @@ The feature is enabled by default through a new Appearance setting.
 - Shows a small rail marker for each user message when the stream is tall enough to scroll.
 - Hovering a marker shows a bounded preview of the prompt text.
 - Clicking a marker scrolls the stream to that prompt with a small top offset.
+- Clicking a marker preserves the existing follow-output state; unlike pinned-input navigation, prompt-marker navigation should not force `followOutput` off.
 - The marker associated with the prompt at or before the current scroll context is visually highlighted.
 - The branch also updates the stream loading indicator color in `turn-footer.tsx` to use the simplified blue treatment from the original aggregate branch.
+
+## Restored Main Polish
+
+These details were previously implemented on `main`, then became easy to lose when the prompt-marker and pinned-input stream changes were split apart. They are part of this branch's intended behavior and should be preserved when rebasing or batching features again.
+
+- Mounted and live prompt offsets are resolved by querying DOM anchors marked with `data-stream-item-id`, not only by reading a side map owned by pinned-input rendering. This keeps prompt markers accurate when other stream features wrap or replace row elements.
+- Prompt rail metrics are recalculated in a layout effect after segment objects change, so marker positions update before paint after virtualization/live-head changes.
+- The `ResizeObserver` also observes the chat-space preview-bounds element, not just the scroll/content nodes, so hover previews stay clamped when the containing chat area changes size.
+- Marker activation uses the prompt at or before the current scroll context, with `PROMPT_SCROLL_TARGET_TOP_PADDING` included in that context, so the highlighted marker matches what the reader is looking at.
+- Prompt marker clicks scroll to the prompt but do not call `setFollowOutput(false)`.
 
 ## Layout Constants
 
