@@ -6,8 +6,11 @@ import {
   getThinkingGroupPreviewMessages,
   shouldShowThinkingGroupPreview,
 } from "./collapse-thinking";
-import { orderHeadForStreamRenderStrategy, orderTailForStreamRenderStrategy } from "./strategy";
-import { resolveStreamRenderStrategy } from "./strategy-resolver";
+import {
+  createStreamStrategy,
+  orderHeadForStreamRenderStrategy,
+  orderTailForStreamRenderStrategy,
+} from "./strategy";
 
 function buildCompletedThinkingGroups(items: readonly StreamItem[]) {
   return buildCollapseThinkingGroups({ items, behavior: "completed", agentStatus: "idle" });
@@ -75,6 +78,31 @@ function toolCall(id: string, seed: number): StreamItem {
 
 function groupItemIds(items: StreamItem[]): string[][] {
   return buildCompletedThinkingGroups(items).groups.map((group) => group.itemIds);
+}
+
+function createOrderingStrategy(input: { orderTailReverse: boolean; orderHeadReverse: boolean }) {
+  return createStreamStrategy({
+    render: () => null,
+    orderTailReverse: input.orderTailReverse,
+    orderHeadReverse: input.orderHeadReverse,
+    assistantTurnTraversalStep: 1,
+    edgeSlot: "footer",
+    historyLiveBoundaryEdge: "last",
+    liveHeadHistoryBoundaryEdge: "last",
+    frameChildOrder: "content-then-footer",
+    flatListInverted: false,
+    overlayScrollbarInverted: false,
+    bottomAnchorTransportBehavior: {
+      verificationDelayFrames: 0,
+      verificationRetryMode: "recheck",
+    },
+    disableParentScrollOnInlineDetailsExpansion: false,
+    anchorBottomOnContentSizeChange: false,
+    animateManualScrollToBottom: false,
+    useVirtualizedList: false,
+    isNearBottom: () => true,
+    getBottomOffset: () => 0,
+  });
 }
 
 describe("buildCollapseThinkingGroups", () => {
@@ -259,8 +287,8 @@ describe("buildCollapseThinkingGroups", () => {
     const tail = [userMessage("u1", 1), toolCall("tool-1", 2)];
     const head = [thought("t1", 3), assistantMessage("a1", 4)];
     const chronological = [...tail, ...head];
-    const web = resolveStreamRenderStrategy({ platform: "web", isMobileBreakpoint: false });
-    const native = resolveStreamRenderStrategy({ platform: "android", isMobileBreakpoint: false });
+    const web = createOrderingStrategy({ orderTailReverse: false, orderHeadReverse: false });
+    const native = createOrderingStrategy({ orderTailReverse: true, orderHeadReverse: true });
 
     expect(groupItemIds(chronological)).toEqual([["tool-1", "t1"]]);
     expect(
