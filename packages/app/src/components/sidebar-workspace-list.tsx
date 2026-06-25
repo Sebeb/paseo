@@ -17,6 +17,7 @@ import { GitHubIcon } from "@/components/icons/github-icon";
 import { AdaptiveRenameModal } from "@/components/rename-modal";
 import {
   memo,
+  createElement,
   useCallback,
   useMemo,
   useState,
@@ -52,7 +53,6 @@ import {
   MoreVertical,
   Pencil,
   Plus,
-  SquarePen,
   Trash2,
   X,
 } from "lucide-react-native";
@@ -125,6 +125,10 @@ import {
   SidebarWorkspaceRowContent,
   SidebarWorkspaceShortcutBadge,
 } from "@/components/sidebar/sidebar-workspace-row-content";
+import {
+  SidebarEntryRowContent,
+  SidebarEntryStatusBadges,
+} from "@/components/sidebar/sidebar-entry-row";
 import { mergeEmbeddedVisibleTabOrder } from "@/components/sidebar/embedded-tabs-order";
 import {
   useProjectNamesMap,
@@ -143,7 +147,7 @@ import { redirectIfArchivingActiveWorkspace } from "@/utils/sidebar-workspace-ar
 import { openExternalUrl } from "@/utils/open-external-url";
 import { requireWorkspaceDirectory, resolveWorkspaceDirectory } from "@/utils/workspace-directory";
 import { useWorkspaceArchive } from "@/workspace/use-workspace-archive";
-import { buildDraftStoreKey, generateDraftId } from "@/stores/draft-keys";
+import { generateDraftId } from "@/stores/draft-keys";
 import { deriveWorkspacePaneState } from "@/screens/workspace/workspace-pane-state";
 import {
   buildTerminalsQueryKey,
@@ -160,10 +164,11 @@ import type { WorkspaceTab } from "@/stores/workspace-tabs-store";
 import {
   combineSidebarTabStatusSummaries,
   createEmptySidebarTabStatusSummary,
-  SIDEBAR_TAB_STATUS_BADGE_BUCKETS,
-  resolveSidebarTabDraftState,
+  getPrimarySidebarEntryStatusKind,
+  getSidebarEntryStatusSortRank,
+  getVisibleSidebarEntryStatusKinds,
   summarizeSidebarTabs,
-  type SidebarTabStatusBucket,
+  type SidebarEntryStatusKind,
   type SidebarTabStatusSummary,
   type SidebarTerminalStatusRecord,
 } from "@/utils/sidebar-tab-status-summary";
@@ -194,7 +199,6 @@ const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 const ThemedPlus = withUnistyles(Plus);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedX = withUnistyles(X);
-const ThemedSquarePen = withUnistyles(SquarePen);
 
 interface EmbeddedSidebarTabItem {
   descriptor: WorkspaceTabDescriptor;
@@ -233,6 +237,9 @@ function useSidebarTabStatusSummaries(input: {
   const layoutByWorkspace = useWorkspaceLayoutStore((state) => state.layoutByWorkspace);
   const agents = useSessionStore((state) =>
     serverId ? (state.sessions[serverId]?.agents ?? null) : null,
+  );
+  const queuedMessages = useSessionStore((state) =>
+    serverId ? (state.sessions[serverId]?.queuedMessages ?? null) : null,
   );
   const client = useSessionStore((state) =>
     serverId ? (state.sessions[serverId]?.client ?? null) : null,
@@ -348,6 +355,14 @@ function useSidebarTabStatusSummaries(input: {
           browsersById,
           terminalsById: terminalsByWorkspaceKey.get(entry.workspace.workspaceKey) ?? new Map(),
           draftInputsByKey,
+          queuedMessageCountsByAgentId: queuedMessages
+            ? new Map(
+                Array.from(queuedMessages.entries()).map(([agentId, queue]) => [
+                  agentId,
+                  queue.length,
+                ]),
+              )
+            : undefined,
         }),
       );
     }
@@ -357,6 +372,7 @@ function useSidebarTabStatusSummaries(input: {
     browsersById,
     draftInputsByKey,
     pendingCreatesByDraftId,
+    queuedMessages,
     setupSnapshots,
     terminalsByWorkspaceKey,
     workspaceTabs,
@@ -387,12 +403,27 @@ function sortEmbeddedTabs(input: {
   tabs: EmbeddedSidebarTabItem[];
   sortMode: SidebarEmbeddedTabSortMode;
   agents: ReadonlyMap<string, Agent>;
+  statusSummariesByTabId?: ReadonlyMap<string, SidebarTabStatusSummary>;
 }): EmbeddedSidebarTabItem[] {
   if (input.sortMode === "manual") {
     return input.tabs;
   }
   const sorted = input.tabs.slice();
   sorted.sort((left, right) => {
+    if (input.sortMode === "status") {
+      const leftSummary =
+        input.statusSummariesByTabId?.get(left.tab.tabId) ?? EMPTY_TAB_STATUS_SUMMARY;
+      const rightSummary =
+        input.statusSummariesByTabId?.get(right.tab.tabId) ?? EMPTY_TAB_STATUS_SUMMARY;
+      const leftRank = getSidebarEntryStatusSortRank(leftSummary);
+      const rightRank = getSidebarEntryStatusSortRank(rightSummary);
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+      return (
+        getTabLastUpdatedAt(right.tab, input.agents) - getTabLastUpdatedAt(left.tab, input.agents)
+      );
+    }
     const leftValue =
       input.sortMode === "created"
         ? left.tab.createdAt
@@ -464,137 +495,6 @@ function getPrIconUniMapping(state: PrHint["state"]) {
   }
 }
 
-function getVisibleStatusSummaryCount(summary: SidebarTabStatusSummary): number {
-  const bucketTotal = SIDEBAR_TAB_STATUS_BADGE_BUCKETS.reduce(
-    (total, bucket) => total + summary.counts[bucket],
-    0,
-  );
-  return bucketTotal + (summary.draft > 0 ? 1 : 0);
-}
-
-function SidebarStatusSummaryBadges({ summary }: { summary: SidebarTabStatusSummary }) {
-  if (getVisibleStatusSummaryCount(summary) <= 0) {
-    return null;
-  }
-
-  return (
-    <View style={styles.statusSummaryBadges}>
-      {SIDEBAR_TAB_STATUS_BADGE_BUCKETS.map((bucket) => (
-        <StatusSummaryCountBadge key={bucket} bucket={bucket} count={summary.counts[bucket]} />
-      ))}
-      {summary.draft > 0 ? (
-        <StatusSummaryCountBadge bucket="draft" count={summary.draft} hideCount icon={SquarePen} />
-      ) : null}
-    </View>
-  );
-}
-
-type StatusSummaryBadgeBucket = SidebarTabStatusBucket | "draft";
-
-function StatusSummaryCountBadge({
-  bucket,
-  count,
-  hideCount = false,
-  icon: Icon,
-}: {
-  bucket: StatusSummaryBadgeBucket;
-  count: number;
-  hideCount?: boolean;
-  icon?: React.ComponentType<{ size: number; color: string }>;
-}) {
-  const colorStyle = getStatusSummaryCountBadgeStyle(bucket);
-  const containerStyle = useMemo(() => [styles.statusSummaryCountBadge, colorStyle], [colorStyle]);
-  const showCount = !hideCount && (count > 1 || bucket === "needs_input");
-  if (count <= 0) {
-    return null;
-  }
-  let inner: ReactNode = null;
-  if (Icon) {
-    inner = <Icon size={11} color={getStatusSummaryCountIconColor(bucket)} />;
-  } else if (showCount) {
-    inner = <Text style={styles.statusSummaryCountText}>{count}</Text>;
-  }
-  return <View style={containerStyle}>{inner}</View>;
-}
-
-function SidebarTabStatusSymbol({ bucket }: { bucket: SidebarTabStatusBucket | "draft" }) {
-  if (bucket === "draft") {
-    return (
-      <View style={styles.embeddedTabStatusSlot}>
-        <ThemedSquarePen size={13} uniProps={foregroundMutedColorMapping} />
-      </View>
-    );
-  }
-  if (bucket === "running") {
-    return (
-      <View style={styles.embeddedTabStatusSlot}>
-        <ThemedSyncedLoader size={11} uniProps={syncedLoaderColorMapping} />
-      </View>
-    );
-  }
-  if (bucket === "needs_input") {
-    return (
-      <View style={styles.embeddedTabStatusSlot}>
-        <ThemedCircleAlert size={13} uniProps={amberColorMapping} />
-      </View>
-    );
-  }
-  if (bucket === "failed") {
-    return (
-      <View style={styles.embeddedTabStatusSlot}>
-        <ThemedX size={13} uniProps={redColorMapping} />
-      </View>
-    );
-  }
-  if (bucket === "attention") {
-    return (
-      <View style={styles.embeddedTabStatusSlot}>
-        <View style={styles.embeddedTabStatusAttentionDot} />
-      </View>
-    );
-  }
-  return null;
-}
-
-function getEmbeddedTabStatusVisibility(input: {
-  badgeMode: SidebarBadgeMode;
-  showCloseButton: boolean;
-  statusBucket: SidebarTabStatusBucket;
-  hasDraftBadge: boolean;
-}) {
-  const canShowStatus = input.badgeMode === "status" && !input.showCloseButton;
-  const showRegularStatusSymbol = canShowStatus && input.statusBucket !== "done";
-  const showDraftStatusSymbol = canShowStatus && input.hasDraftBadge;
-  const visibleStatusSymbolCount =
-    (showRegularStatusSymbol ? 1 : 0) + (showDraftStatusSymbol ? 1 : 0);
-
-  return {
-    showRegularStatusSymbol,
-    showDraftStatusSymbol,
-    visibleStatusSymbolCount,
-    showTrailingSlot: input.showCloseButton || visibleStatusSymbolCount > 0,
-  };
-}
-
-function getEmbeddedTabLabelStyle(input: {
-  active: boolean;
-  showTrailingSlot: boolean;
-  visibleStatusSymbolCount: number;
-}) {
-  return [
-    input.active ? styles.embeddedTabLabelActive : styles.embeddedTabLabel,
-    input.visibleStatusSymbolCount > 1
-      ? styles.embeddedTabLabelWithWideTrailingSlot
-      : input.showTrailingSlot && styles.embeddedTabLabelWithTrailingSlot,
-  ];
-}
-
-function getEmbeddedTabTrailingSlotStyle(visibleStatusSymbolCount: number) {
-  return visibleStatusSymbolCount > 1
-    ? styles.embeddedTabCloseSlotWide
-    : styles.embeddedTabCloseSlot;
-}
-
 function isWorkspaceSelected(input: {
   selection: ActiveWorkspaceSelection | null;
   serverId: string | null;
@@ -663,6 +563,8 @@ interface ProjectHeaderRowProps {
   iconDataUri: string | null;
   workspace: SidebarWorkspaceEntry | null;
   statusSummary?: SidebarTabStatusSummary | null;
+  showStatusSummary?: boolean;
+  leadingStatusKind?: SidebarEntryStatusKind | null;
   selected?: boolean;
   chevron: "expand" | "collapse" | null;
   onPress: (event: GestureResponderEvent) => void;
@@ -968,61 +870,6 @@ function ProjectLeadingVisual({
       chevron={chevron}
       isHovered={isHovered}
     />
-  );
-}
-
-function ProjectHeaderTrailingContent({
-  project,
-  displayName,
-  canCreateWorktree,
-  isHovered,
-  isMobileBreakpoint,
-  isProjectActive,
-  statusSummary,
-  shortcutNumber,
-  showShortcutBadge,
-  onBeginWorkspaceSetup,
-  onRemoveProject,
-  removeProjectStatus,
-}: {
-  project: SidebarProjectEntry;
-  displayName: string;
-  canCreateWorktree: boolean;
-  isHovered: boolean;
-  isMobileBreakpoint: boolean;
-  isProjectActive: boolean;
-  statusSummary: SidebarTabStatusSummary | null;
-  shortcutNumber: number | null;
-  showShortcutBadge: boolean;
-  onBeginWorkspaceSetup: () => void;
-  onRemoveProject?: () => void;
-  removeProjectStatus: "idle" | "pending" | "success";
-}) {
-  const showShortcut = showShortcutBadge && shortcutNumber !== null;
-  const showStatusSummary = Boolean(statusSummary && !showShortcut);
-  const showTrailingActions = isHovered || platformIsNative || isMobileBreakpoint;
-  return (
-    <>
-      {showTrailingActions ? (
-        <ProjectRowTrailingActions
-          project={project}
-          displayName={displayName}
-          isProjectActive={isProjectActive}
-          canCreateWorktree={canCreateWorktree}
-          onBeginWorkspaceSetup={onBeginWorkspaceSetup}
-          onRemoveProject={onRemoveProject}
-          removeProjectStatus={removeProjectStatus}
-        />
-      ) : null}
-      {showStatusSummary && statusSummary ? (
-        <SidebarStatusSummaryBadges summary={statusSummary} />
-      ) : null}
-      {showShortcut ? (
-        <View style={styles.projectShortcutBadgeOverlay} pointerEvents="none">
-          <SidebarWorkspaceShortcutBadge number={shortcutNumber} />
-        </View>
-      ) : null}
-    </>
   );
 }
 
@@ -1332,9 +1179,8 @@ function getWorkspaceRowRightVisibility(input: {
 }): WorkspaceRowRightVisibility {
   const showShortcut = input.showShortcutBadge && input.shortcutNumber !== null;
   const showActionControls = input.isHovered || input.isTouchPlatform || input.isCompactLayout;
-  const showCreateTab = input.hasCreateTabAction && showActionControls && !showShortcut;
   return {
-    showCreateTab,
+    showCreateTab: false,
     showKebabInSlot: input.hasArchiveAction && showActionControls && !showShortcut,
     showDiffStat: shouldShowWorkspaceDiffStat({ ...input, showShortcut }),
     showStatusSummary: shouldShowWorkspaceStatusSummary({
@@ -1371,7 +1217,7 @@ function shouldRenderWorkspaceActionSlot(input: {
   return (
     input.badgeMode === "status" &&
     !input.expanded &&
-    getVisibleStatusSummaryCount(input.tabStatusSummary) > 0
+    getVisibleSidebarEntryStatusKinds(input.tabStatusSummary).length > 0
   );
 }
 
@@ -1396,7 +1242,7 @@ function shouldShowWorkspaceStatusSummary(input: {
     !input.expanded &&
     !input.showActionControls &&
     !input.showShortcut &&
-    getVisibleStatusSummaryCount(input.tabStatusSummary) > 0
+    getVisibleSidebarEntryStatusKinds(input.tabStatusSummary).length > 0
   );
 }
 
@@ -1458,7 +1304,7 @@ function WorkspaceRowActionSlot({
   return (
     <View style={actionSlotStyle}>
       <View style={showTrailingMeta ? styles.workspaceDiffMetaRow : styles.workspaceActionHidden}>
-        {showStatusSummary ? <SidebarStatusSummaryBadges summary={statusSummary} /> : null}
+        {showStatusSummary ? <SidebarEntryStatusBadges summary={statusSummary} /> : null}
         {showDiffStat ? (
           <>
             {showPrHint && workspace.prHint ? (
@@ -2145,6 +1991,8 @@ function ProjectHeaderRow({
   iconDataUri,
   workspace,
   statusSummary = null,
+  showStatusSummary = false,
+  leadingStatusKind = null,
   selected = false,
   chevron,
   onPress,
@@ -2213,43 +2061,27 @@ function ProjectHeaderRow({
     [isDragging, selected, isHovered],
   );
   const showShortcut = showShortcutBadge && shortcutNumber !== null;
-  const showStatusSummary = Boolean(statusSummary && !showShortcut);
-  const rowChildren = (
-    <>
-      <View style={styles.projectRowLeft}>
-        <ProjectLeadingVisual
-          displayName={displayName}
-          iconDataUri={iconDataUri}
-          workspace={workspace}
-          projectKey={project.projectKey}
-          isArchiving={isArchiving}
-          suppressWorkspaceStatusVisual={showStatusSummary}
-          chevron={chevron}
-          isHovered={isHovered}
-        />
-
-        <View style={styles.projectTitleGroup}>
-          <Text style={styles.projectTitle} numberOfLines={1}>
-            {displayName}
-          </Text>
-        </View>
-      </View>
-      <ProjectHeaderTrailingContent
-        project={project}
-        displayName={displayName}
-        canCreateWorktree={canCreateWorktree}
-        isHovered={isHovered}
-        isMobileBreakpoint={isMobileBreakpoint}
-        isProjectActive={isProjectActive}
-        statusSummary={statusSummary}
-        shortcutNumber={shortcutNumber}
-        showShortcutBadge={showShortcutBadge}
-        onBeginWorkspaceSetup={handleBeginWorkspaceSetup}
-        onRemoveProject={onRemoveProject}
-        removeProjectStatus={removeProjectStatus}
-      />
-    </>
-  );
+  const showTrailingActions = isHovered || platformIsNative || isMobileBreakpoint;
+  const rowChildren = createElement(ProjectHeaderEntryContent, {
+    project,
+    displayName,
+    iconDataUri,
+    workspace,
+    isArchiving,
+    showStatusSummary,
+    statusSummary,
+    leadingStatusKind,
+    chevron,
+    isHovered,
+    showShortcut,
+    shortcutNumber,
+    isProjectActive,
+    canCreateWorktree,
+    onBeginWorkspaceSetup: handleBeginWorkspaceSetup,
+    onRemoveProject,
+    removeProjectStatus,
+    showTrailingActions,
+  });
 
   if (menuController) {
     return (
@@ -2296,6 +2128,83 @@ function ProjectHeaderRow({
         {rowChildren}
       </Pressable>
     </View>
+  );
+}
+
+function ProjectHeaderEntryContent({
+  project,
+  displayName,
+  iconDataUri,
+  workspace,
+  isArchiving,
+  showStatusSummary,
+  statusSummary,
+  leadingStatusKind,
+  chevron,
+  isHovered,
+  showShortcut,
+  shortcutNumber,
+  isProjectActive,
+  canCreateWorktree,
+  onBeginWorkspaceSetup,
+  onRemoveProject,
+  removeProjectStatus,
+  showTrailingActions,
+}: {
+  project: SidebarProjectEntry;
+  displayName: string;
+  iconDataUri: string | null;
+  workspace: SidebarWorkspaceEntry | null;
+  isArchiving: boolean;
+  showStatusSummary: boolean;
+  statusSummary: SidebarTabStatusSummary | null;
+  leadingStatusKind: SidebarEntryStatusKind | null;
+  chevron: "expand" | "collapse" | null;
+  isHovered: boolean;
+  showShortcut: boolean;
+  shortcutNumber: number | null;
+  isProjectActive: boolean;
+  canCreateWorktree: boolean;
+  onBeginWorkspaceSetup: () => void;
+  onRemoveProject?: () => void;
+  removeProjectStatus: "idle" | "pending";
+  showTrailingActions: boolean;
+}) {
+  return (
+    <SidebarEntryRowContent
+      leading={createElement(ProjectLeadingVisual, {
+        displayName,
+        iconDataUri,
+        workspace,
+        projectKey: project.projectKey,
+        isArchiving,
+        suppressWorkspaceStatusVisual: showStatusSummary,
+        chevron,
+        isHovered,
+      })}
+      label={displayName}
+      leadingStatus={leadingStatusKind}
+      rightContext={
+        showStatusSummary && statusSummary && !showShortcut
+          ? createElement(SidebarEntryStatusBadges, { summary: statusSummary })
+          : null
+      }
+      hoverRightContext={createElement(ProjectRowTrailingActions, {
+        project,
+        displayName,
+        isProjectActive,
+        canCreateWorktree,
+        onBeginWorkspaceSetup,
+        onRemoveProject,
+        removeProjectStatus,
+      })}
+      showHoverRightContext={showTrailingActions && !showShortcut}
+      shortcutBadge={
+        showShortcut && shortcutNumber !== null
+          ? createElement(SidebarWorkspaceShortcutBadge, { number: shortcutNumber })
+          : null
+      }
+    />
   );
 }
 
@@ -2415,6 +2324,8 @@ function WorkspaceRowInner({
           workspaceRightVisibility.showKebabInSlot ||
           workspaceRightVisibility.showDiffStat ||
           workspaceRightVisibility.showStatusSummary;
+        const workspaceLeadingStatusKind =
+          badgeMode === "status" ? null : getPrimarySidebarEntryStatusKind(tabStatusSummary);
         return (
           <View
             {...dragAttributes}
@@ -2446,6 +2357,7 @@ function WorkspaceRowInner({
                 shortcutNumber={shortcutNumber}
                 showShortcutBadge={showShortcutBadge}
                 hasTrailingContent={hasWorkspaceRightContent}
+                leadingStatusKind={workspaceLeadingStatusKind}
                 expandable={expandable}
                 expanded={expanded}
                 onToggleExpanded={onToggleExpanded}
@@ -2852,6 +2764,7 @@ function EmbeddedWorkspaceTabRow({
   dragHandleProps,
   onPress,
   onClose,
+  statusSummary,
 }: {
   item: EmbeddedSidebarTabItem;
   serverId: string;
@@ -2864,6 +2777,7 @@ function EmbeddedWorkspaceTabRow({
   dragHandleProps?: DraggableListDragHandleProps;
   onPress: (item: EmbeddedSidebarTabItem) => void;
   onClose: (item: EmbeddedSidebarTabItem) => void;
+  statusSummary: SidebarTabStatusSummary;
 }) {
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
@@ -2907,36 +2821,6 @@ function EmbeddedWorkspaceTabRow({
     [active, isDragging],
   );
   const accessibilityState = useMemo(() => ({ selected: active }), [active]);
-  const draftStoreKey = useMemo(() => {
-    const target = item.tab.target;
-    if (target.kind === "draft") {
-      return buildDraftStoreKey({ serverId, agentId: "", draftId: target.draftId });
-    }
-    if (target.kind === "agent") {
-      return buildDraftStoreKey({ serverId, agentId: target.agentId });
-    }
-    return null;
-  }, [item.tab.target, serverId]);
-  const draftInput = useDraftStore((state) => {
-    if (!draftStoreKey) {
-      return undefined;
-    }
-    const record = state.drafts[draftStoreKey];
-    return record?.lifecycle === "active" ? record.input : undefined;
-  });
-  const draftInputsByKey = useMemo(
-    () => (draftStoreKey && draftInput ? { [draftStoreKey]: draftInput } : undefined),
-    [draftInput, draftStoreKey],
-  );
-  const tabDraftState = useMemo(
-    () =>
-      resolveSidebarTabDraftState({
-        tab: item.tab,
-        serverId,
-        draftInputsByKey,
-      }),
-    [draftInputsByKey, item.tab, serverId],
-  );
 
   return (
     <WorkspaceTabPresentationResolver
@@ -2947,89 +2831,148 @@ function EmbeddedWorkspaceTabRow({
       {(presentation) => {
         const label =
           presentation.titleState === "loading" ? t("workspace.tabs.loading") : presentation.label;
-        const statusBucket = presentation.statusBucket ?? "done";
-        const statusVisibility = getEmbeddedTabStatusVisibility({
-          badgeMode,
-          showCloseButton,
-          statusBucket,
-          hasDraftBadge: tabDraftState.hasDraftBadge,
-        });
-        const labelStyle = getEmbeddedTabLabelStyle({
-          active,
-          showTrailingSlot: statusVisibility.showTrailingSlot,
-          visibleStatusSymbolCount: statusVisibility.visibleStatusSymbolCount,
-        });
-        const trailingSlotStyle = getEmbeddedTabTrailingSlotStyle(
-          statusVisibility.visibleStatusSymbolCount,
+        const leadingStatus =
+          badgeMode === "status" ? null : getPrimarySidebarEntryStatusKind(statusSummary);
+        const rightContext =
+          badgeMode === "status"
+            ? createElement(SidebarEntryStatusBadges, { summary: statusSummary })
+            : null;
+        const hoverRightContext = createElement(
+          View,
+          { style: styles.embeddedTabActionRow },
+          createElement(EmbeddedTabKebabMenu, { tabId: item.tab.tabId, onClose: handleClose }),
+          createElement(EmbeddedTabCloseButton, {
+            tabId: item.tab.tabId,
+            accessibilityLabel: t("common.actions.close"),
+            onClose: handleClose,
+          }),
         );
         return (
-          <View
-            {...(manualSort ? (dragHandleProps?.attributes as object | undefined) : undefined)}
-            {...(manualSort ? (dragListeners as object | undefined) : undefined)}
-            style={styles.embeddedTabWrapper}
-            onPointerDown={manualSort ? handleDragPointerDown : undefined}
-            onPointerEnter={handlePointerEnter}
-            onPointerLeave={handlePointerLeave}
-            ref={
-              manualSort
-                ? (dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>)
-                : undefined
-            }
-          >
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={label}
-              accessibilityState={accessibilityState}
-              onPress={handlePress}
-              onLongPress={handleLongPress}
-              style={rowStyle}
-              testID={`sidebar-embedded-tab-${item.tab.tabId}`}
+          <ContextMenu>
+            <View
+              {...(manualSort ? (dragHandleProps?.attributes as object | undefined) : undefined)}
+              {...(manualSort ? (dragListeners as object | undefined) : undefined)}
+              style={styles.embeddedTabWrapper}
+              onPointerDown={manualSort ? handleDragPointerDown : undefined}
+              onPointerEnter={handlePointerEnter}
+              onPointerLeave={handlePointerLeave}
+              ref={
+                manualSort
+                  ? (dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>)
+                  : undefined
+              }
             >
-              <WorkspaceTabIcon
-                presentation={presentation}
-                active={active}
-                size={14}
-                showStatusBadge={badgeMode !== "status"}
-              />
-              <Text style={labelStyle} numberOfLines={1}>
-                {label}
-              </Text>
-              {statusVisibility.showTrailingSlot ? (
-                <View style={trailingSlotStyle} pointerEvents={showCloseButton ? "auto" : "none"}>
-                  {showCloseButton ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={t("common.actions.close")}
-                      onPress={handleClose}
-                      style={embeddedTabCloseButtonStyle}
-                      hitSlop={6}
-                      testID={`sidebar-embedded-tab-close-${item.tab.tabId}`}
-                    >
-                      {({ hovered, pressed }) => (
-                        <ThemedX
-                          size={13}
-                          uniProps={
-                            hovered || pressed
-                              ? foregroundColorMapping
-                              : foregroundMutedColorMapping
-                          }
-                        />
-                      )}
-                    </Pressable>
-                  ) : null}
-                  {statusVisibility.showRegularStatusSymbol ? (
-                    <SidebarTabStatusSymbol bucket={statusBucket} />
-                  ) : null}
-                  {statusVisibility.showDraftStatusSymbol ? (
-                    <SidebarTabStatusSymbol bucket="draft" />
-                  ) : null}
-                </View>
-              ) : null}
-            </Pressable>
-          </View>
+              <ContextMenuTrigger
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                accessibilityState={accessibilityState}
+                onPress={handlePress}
+                onLongPress={handleLongPress}
+                style={rowStyle}
+                testID={`sidebar-embedded-tab-${item.tab.tabId}`}
+              >
+                <SidebarEntryRowContent
+                  leading={createElement(WorkspaceTabIcon, {
+                    presentation,
+                    active,
+                    size: 14,
+                    showStatusBadge: false,
+                  })}
+                  leadingStatus={leadingStatus}
+                  label={label}
+                  rightContext={rightContext}
+                  hoverRightContext={hoverRightContext}
+                  showHoverRightContext={showCloseButton}
+                />
+              </ContextMenuTrigger>
+            </View>
+            <EmbeddedTabContextMenuContent tabId={item.tab.tabId} onClose={handleClose} />
+          </ContextMenu>
         );
       }}
     </WorkspaceTabPresentationResolver>
+  );
+}
+
+function EmbeddedTabCloseButton({
+  tabId,
+  accessibilityLabel,
+  onClose,
+}: {
+  tabId: string;
+  accessibilityLabel: string;
+  onClose: (event: GestureResponderEvent) => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      onPress={onClose}
+      style={embeddedTabCloseButtonStyle}
+      hitSlop={6}
+      testID={`sidebar-embedded-tab-close-${tabId}`}
+    >
+      {({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => (
+        <ThemedX
+          size={13}
+          uniProps={hovered || pressed ? foregroundColorMapping : foregroundMutedColorMapping}
+        />
+      )}
+    </Pressable>
+  );
+}
+
+function EmbeddedTabKebabMenu({
+  tabId,
+  onClose,
+}: {
+  tabId: string;
+  onClose: (event: GestureResponderEvent) => void;
+}) {
+  const { t } = useTranslation();
+  const handleSelect = useCallback(() => {
+    onClose({ stopPropagation: noop } as unknown as GestureResponderEvent);
+  }, [onClose]);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        hitSlop={8}
+        style={workspaceKebabStyle}
+        accessibilityRole={platformIsWeb ? undefined : "button"}
+        accessibilityLabel={t("workspace.tabs.actions.moreActions")}
+        testID={`sidebar-embedded-tab-kebab-${tabId}`}
+      >
+        {renderKebabTriggerIcon}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" width={180}>
+        <DropdownMenuItem
+          testID={`sidebar-embedded-tab-menu-close-${tabId}`}
+          onSelect={handleSelect}
+        >
+          {t("common.actions.close")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function EmbeddedTabContextMenuContent({
+  tabId,
+  onClose,
+}: {
+  tabId: string;
+  onClose: (event: GestureResponderEvent) => void;
+}) {
+  const { t } = useTranslation();
+  const handleSelect = useCallback(() => {
+    onClose({ stopPropagation: noop } as unknown as GestureResponderEvent);
+  }, [onClose]);
+  return (
+    <ContextMenuContent align="end" width={180}>
+      <ContextMenuItem testID={`sidebar-embedded-tab-menu-close-${tabId}`} onSelect={handleSelect}>
+        {t("common.actions.close")}
+      </ContextMenuItem>
+    </ContextMenuContent>
   );
 }
 
@@ -3063,6 +3006,13 @@ function EmbeddedWorkspaceTabs({
   const focusWorkspacePane = useWorkspaceLayoutStore((state) => state.focusPane);
   const reorderTabsInPane = useWorkspaceLayoutStore((state) => state.reorderTabsInPane);
   const agents = useSessionStore((state) => state.sessions[workspace.serverId]?.agents ?? null);
+  const queuedMessages = useSessionStore(
+    (state) => state.sessions[workspace.serverId]?.queuedMessages ?? null,
+  );
+  const pendingCreatesByDraftId = useCreateFlowStore((state) => state.pendingByDraftId);
+  const setupSnapshots = useWorkspaceSetupStore((state) => state.snapshots);
+  const browsersById = useBrowserStore((state) => state.browsersById);
+  const draftRecords = useDraftStore((state) => state.drafts);
   const tabSortMode = useSidebarViewStore((state) =>
     state.getEmbeddedTabSortMode(workspace.serverId),
   );
@@ -3097,6 +3047,25 @@ function EmbeddedWorkspaceTabs({
   );
   const tabById = useMemo(() => new Map(uiTabs.map((tab) => [tab.tabId, tab])), [uiTabs]);
   const agentMap = agents ?? EMPTY_AGENT_MAP;
+  const draftInputsByKey = useMemo<Record<string, DraftInput>>(() => {
+    const inputs: Record<string, DraftInput> = {};
+    for (const [key, record] of Object.entries(draftRecords)) {
+      if (record.lifecycle === "active") {
+        inputs[key] = record.input;
+      }
+    }
+    return inputs;
+  }, [draftRecords]);
+  const queuedMessageCountsByAgentId = useMemo(
+    () =>
+      queuedMessages
+        ? new Map(
+            Array.from(queuedMessages.entries()).map(([agentId, queue]) => [agentId, queue.length]),
+          )
+        : undefined,
+    [queuedMessages],
+  );
+  const emptyTerminalsById = useMemo(() => new Map<string, SidebarTerminalStatusRecord>(), []);
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const isActiveWorkspace = isWorkspaceSelected({
     selection: activeWorkspaceSelection,
@@ -3152,9 +3121,47 @@ function EmbeddedWorkspaceTabs({
     });
     return [...mainPaneItems, ...secondaryPaneItems];
   }, [agentMap, mainPane, paneState.activeTabId, paneState.tabs, panes, tabById, uiTabs]);
+  const statusSummariesByTabId = useMemo(() => {
+    const summaries = new Map<string, SidebarTabStatusSummary>();
+    for (const item of allItems) {
+      summaries.set(
+        item.tab.tabId,
+        summarizeSidebarTabs({
+          tabs: [item.tab],
+          serverId: workspace.serverId,
+          workspaceId: workspace.workspaceId,
+          agents: agentMap,
+          pendingCreatesByDraftId,
+          setupSnapshots,
+          browsersById,
+          terminalsById: emptyTerminalsById,
+          draftInputsByKey,
+          queuedMessageCountsByAgentId,
+        }),
+      );
+    }
+    return summaries;
+  }, [
+    agentMap,
+    allItems,
+    browsersById,
+    draftInputsByKey,
+    emptyTerminalsById,
+    pendingCreatesByDraftId,
+    queuedMessageCountsByAgentId,
+    setupSnapshots,
+    workspace.serverId,
+    workspace.workspaceId,
+  ]);
   const sortedItems = useMemo(
-    () => sortEmbeddedTabs({ tabs: allItems, sortMode: tabSortMode, agents: agentMap }),
-    [agentMap, allItems, tabSortMode],
+    () =>
+      sortEmbeddedTabs({
+        tabs: allItems,
+        sortMode: tabSortMode,
+        agents: agentMap,
+        statusSummariesByTabId,
+      }),
+    [agentMap, allItems, statusSummariesByTabId, tabSortMode],
   );
   const recentVisibleItems = useMemo(
     () =>
@@ -3247,6 +3254,7 @@ function EmbeddedWorkspaceTabs({
         dragHandleProps={dragHandleProps}
         onPress={handlePressTab}
         onClose={handleCloseTab}
+        statusSummary={statusSummariesByTabId.get(item.tab.tabId) ?? EMPTY_TAB_STATUS_SUMMARY}
       />
     ),
     [
@@ -3259,6 +3267,7 @@ function EmbeddedWorkspaceTabs({
       workspace.serverId,
       workspace.workspaceId,
       workspaceLayout?.focusedPaneId,
+      statusSummariesByTabId,
     ],
   );
 
@@ -3301,6 +3310,7 @@ function EmbeddedWorkspaceTabs({
           drag={noop}
           onPress={handlePressTab}
           onClose={handleCloseTab}
+          statusSummary={statusSummariesByTabId.get(item.tab.tabId) ?? EMPTY_TAB_STATUS_SUMMARY}
         />
       ))}
       {shouldShowVisibilityToggle ? (
@@ -3591,10 +3601,10 @@ function ProjectBlock({
   });
   const tabStatusSummaries = useSidebarTabStatusSummaries({
     workspaces: project.workspaces,
-    enabled: badgeMode === "status",
+    enabled: collapsed || badgeMode === "status",
   });
   const projectStatusSummary = useMemo(() => {
-    if (badgeMode !== "status" || !collapsed) {
+    if (!collapsed) {
       return null;
     }
     return combineSidebarTabStatusSummaries(
@@ -3602,7 +3612,11 @@ function ProjectBlock({
         (workspace) => tabStatusSummaries.get(workspace.workspaceKey) ?? EMPTY_TAB_STATUS_SUMMARY,
       ),
     );
-  }, [badgeMode, collapsed, project.workspaces, tabStatusSummaries]);
+  }, [collapsed, project.workspaces, tabStatusSummaries]);
+  const projectLeadingStatusKind =
+    badgeMode === "status" || !projectStatusSummary
+      ? null
+      : getPrimarySidebarEntryStatusKind(projectStatusSummary);
 
   const renderWorkspaceRow = useCallback(
     (
@@ -3740,6 +3754,8 @@ function ProjectBlock({
         iconDataUri={iconDataUri}
         workspace={null}
         statusSummary={projectStatusSummary}
+        showStatusSummary={badgeMode === "status" && collapsed}
+        leadingStatusKind={projectLeadingStatusKind}
         selected={false}
         chevron={rowModel.chevron}
         onPress={handleToggleCollapsed}
@@ -4314,8 +4330,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   projectRow: {
     position: "relative",
+    height: 36,
     minHeight: 36,
-    paddingVertical: theme.spacing[2],
+    maxHeight: 36,
+    paddingVertical: 0,
     paddingHorizontal: theme.spacing[2],
     borderRadius: theme.borderRadius.lg,
     marginBottom: theme.spacing[1],
@@ -4523,9 +4541,11 @@ const styles = StyleSheet.create((theme) => ({
     right: theme.spacing[2],
   },
   workspaceRow: {
+    height: 36,
     minHeight: 36,
+    maxHeight: 36,
     marginBottom: theme.spacing[1],
-    paddingVertical: theme.spacing[2],
+    paddingVertical: 0,
     paddingLeft: theme.spacing[3] + theme.spacing[3],
     paddingRight: theme.spacing[3],
     borderRadius: theme.borderRadius.lg,
@@ -4607,8 +4627,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   embeddedTabRow: {
     position: "relative",
+    height: 36,
     minHeight: 36,
-    paddingVertical: theme.spacing[2],
+    maxHeight: 36,
+    paddingVertical: 0,
     paddingLeft: theme.spacing[3],
     paddingRight: theme.spacing[3],
     borderRadius: theme.borderRadius.lg,
@@ -4628,6 +4650,12 @@ const styles = StyleSheet.create((theme) => ({
     transform: [{ scale: 1.01 }],
     zIndex: 2,
     ...theme.shadow.sm,
+  },
+  embeddedTabActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    flexShrink: 0,
   },
   embeddedTabLabel: {
     color: theme.colors.foregroundMuted,
@@ -4829,28 +4857,4 @@ function getStatusDotColorStyle(bucket: SidebarStateBucket): ViewStyle | null {
     case "done":
       return null;
   }
-}
-
-function getStatusSummaryCountBadgeStyle(bucket: StatusSummaryBadgeBucket) {
-  switch (bucket) {
-    case "needs_input":
-      return styles.statusSummaryCountNeedsInput;
-    case "failed":
-      return styles.statusSummaryCountFailed;
-    case "running":
-      return styles.statusSummaryCountRunning;
-    case "attention":
-      return styles.statusSummaryCountAttention;
-    case "done":
-      return styles.statusSummaryCountDone;
-    case "draft":
-      return styles.statusSummaryCountDraft;
-  }
-}
-
-function getStatusSummaryCountIconColor(bucket: StatusSummaryBadgeBucket): string {
-  if (bucket === "draft") {
-    return styles.statusSummaryCountDraftIcon.color;
-  }
-  return styles.statusSummaryCountIcon.color;
 }

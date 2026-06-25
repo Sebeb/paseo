@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 export type SidebarGroupMode = "project" | "status";
-export type SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated";
+export type SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated" | "status";
 export type SidebarEmbeddedRecentTabCount = 3 | 5 | 10 | "all";
 export type SidebarBadgeMode = "diff" | "status" | "none";
 
@@ -25,7 +25,9 @@ interface SidebarViewStoreState {
 }
 
 function normalizeTabSortMode(value: unknown): SidebarEmbeddedTabSortMode {
-  return value === "created" || value === "lastUpdated" || value === "manual" ? value : "manual";
+  return value === "created" || value === "lastUpdated" || value === "manual" || value === "status"
+    ? value
+    : "manual";
 }
 
 function normalizeRecentTabCount(value: unknown): SidebarEmbeddedRecentTabCount {

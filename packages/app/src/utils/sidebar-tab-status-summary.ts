@@ -11,12 +11,30 @@ import type { DraftInput } from "@/stores/draft-store";
 import { deriveSidebarStateBucket, type SidebarStateBucket } from "@/utils/sidebar-agent-state";
 
 export type SidebarTabStatusBucket = SidebarStateBucket;
+export type SidebarEntryStatusKind =
+  | "queued_messages"
+  | "draft"
+  | "input_required"
+  | "unread"
+  | "in_progress"
+  | "failed";
+export type SidebarEntryStatusCountMode = "always" | "off" | "onePlus";
+export type SidebarEntryStatusSingleIcon = "input_required" | "failed";
+
+export interface SidebarEntryStatusDefinition {
+  kind: SidebarEntryStatusKind;
+  countMode: SidebarEntryStatusCountMode;
+  propagateUp: boolean;
+  singleIcon?: SidebarEntryStatusSingleIcon;
+}
 
 export interface SidebarTabStatusSummary {
   total: number;
   counts: Record<SidebarTabStatusBucket, number>;
   draft: number;
   propagatedDraft: number;
+  entryCounts: Record<SidebarEntryStatusKind, number>;
+  propagatedEntryCounts: Record<SidebarEntryStatusKind, number>;
 }
 
 export interface SidebarTerminalStatusRecord {
@@ -37,6 +55,48 @@ export const SIDEBAR_TAB_STATUS_BADGE_BUCKETS: SidebarTabStatusBucket[] = [
   "running",
   "attention",
 ];
+export const SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER: SidebarEntryStatusKind[] = [
+  "queued_messages",
+  "draft",
+  "input_required",
+  "unread",
+  "in_progress",
+  "failed",
+];
+export const SIDEBAR_ENTRY_STATUS_SORT_ORDER: SidebarEntryStatusKind[] = [
+  "draft",
+  "input_required",
+  "failed",
+  "unread",
+  "in_progress",
+];
+export const SIDEBAR_ENTRY_STATUS_DEFINITIONS: Record<
+  SidebarEntryStatusKind,
+  SidebarEntryStatusDefinition
+> = {
+  queued_messages: { kind: "queued_messages", countMode: "always", propagateUp: true },
+  draft: { kind: "draft", countMode: "off", propagateUp: true },
+  input_required: {
+    kind: "input_required",
+    countMode: "onePlus",
+    propagateUp: true,
+    singleIcon: "input_required",
+  },
+  unread: { kind: "unread", countMode: "onePlus", propagateUp: true },
+  in_progress: { kind: "in_progress", countMode: "onePlus", propagateUp: true },
+  failed: { kind: "failed", countMode: "onePlus", propagateUp: true, singleIcon: "failed" },
+};
+
+function createEmptyEntryStatusCounts(): Record<SidebarEntryStatusKind, number> {
+  return {
+    queued_messages: 0,
+    draft: 0,
+    input_required: 0,
+    unread: 0,
+    in_progress: 0,
+    failed: 0,
+  };
+}
 
 export function createEmptySidebarTabStatusSummary(): SidebarTabStatusSummary {
   return {
@@ -50,6 +110,8 @@ export function createEmptySidebarTabStatusSummary(): SidebarTabStatusSummary {
     },
     draft: 0,
     propagatedDraft: 0,
+    entryCounts: createEmptyEntryStatusCounts(),
+    propagatedEntryCounts: createEmptyEntryStatusCounts(),
   };
 }
 
@@ -63,15 +125,27 @@ export function summarizeSidebarTabs(input: {
   browsersById: Readonly<Record<string, BrowserRecord>>;
   terminalsById: ReadonlyMap<string, SidebarTerminalStatusRecord>;
   draftInputsByKey?: Readonly<Record<string, DraftInput | undefined>>;
+  queuedMessageCountsByAgentId?: ReadonlyMap<string, number>;
 }): SidebarTabStatusSummary {
   const summary = createEmptySidebarTabStatusSummary();
   for (const tab of input.tabs) {
     const bucket = resolveSidebarTabStatusBucket({ ...input, tab });
     summary.total += 1;
     summary.counts[bucket] += 1;
+    for (const kind of sidebarEntryStatusesFromBucket(bucket)) {
+      addEntryStatus(summary, kind, true);
+    }
+    const queuedCount = resolveQueuedMessageCount({
+      tab,
+      queuedMessageCountsByAgentId: input.queuedMessageCountsByAgentId,
+    });
+    if (queuedCount > 0) {
+      addEntryStatus(summary, "queued_messages", true, queuedCount);
+    }
     const draftState = resolveSidebarTabDraftState({ ...input, tab });
     if (draftState.hasDraftBadge) {
       summary.draft += 1;
+      addEntryStatus(summary, "draft", draftState.propagatesToParent);
     }
     if (draftState.propagatesToParent) {
       summary.propagatedDraft += 1;
@@ -89,10 +163,83 @@ export function combineSidebarTabStatusSummaries(
     for (const bucket of SIDEBAR_TAB_STATUS_BUCKETS) {
       combined.counts[bucket] += summary.counts[bucket];
     }
+    for (const kind of SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER) {
+      combined.entryCounts[kind] += summary.propagatedEntryCounts[kind];
+      combined.propagatedEntryCounts[kind] += summary.propagatedEntryCounts[kind];
+    }
     combined.draft += summary.propagatedDraft;
     combined.propagatedDraft += summary.propagatedDraft;
   }
   return combined;
+}
+
+export function getSidebarEntryStatusCount(
+  summary: SidebarTabStatusSummary,
+  kind: SidebarEntryStatusKind,
+): number {
+  return summary.entryCounts[kind];
+}
+
+export function getVisibleSidebarEntryStatusKinds(
+  summary: SidebarTabStatusSummary,
+): SidebarEntryStatusKind[] {
+  return SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER.filter((kind) => summary.entryCounts[kind] > 0);
+}
+
+export function getPrimarySidebarEntryStatusKind(
+  summary: SidebarTabStatusSummary,
+): SidebarEntryStatusKind | null {
+  const priority: SidebarEntryStatusKind[] = [
+    "input_required",
+    "failed",
+    "unread",
+    "in_progress",
+    "queued_messages",
+    "draft",
+  ];
+  return priority.find((kind) => summary.entryCounts[kind] > 0) ?? null;
+}
+
+export function getSidebarEntryStatusSortRank(summary: SidebarTabStatusSummary): number {
+  const ranked = SIDEBAR_ENTRY_STATUS_SORT_ORDER.findIndex((kind) => summary.entryCounts[kind] > 0);
+  return ranked === -1 ? SIDEBAR_ENTRY_STATUS_SORT_ORDER.length : ranked;
+}
+
+function addEntryStatus(
+  summary: SidebarTabStatusSummary,
+  kind: SidebarEntryStatusKind,
+  propagates: boolean,
+  count = 1,
+): void {
+  summary.entryCounts[kind] += count;
+  if (propagates && SIDEBAR_ENTRY_STATUS_DEFINITIONS[kind].propagateUp) {
+    summary.propagatedEntryCounts[kind] += count;
+  }
+}
+
+function sidebarEntryStatusesFromBucket(bucket: SidebarTabStatusBucket): SidebarEntryStatusKind[] {
+  switch (bucket) {
+    case "needs_input":
+      return ["input_required"];
+    case "failed":
+      return ["failed"];
+    case "running":
+      return ["in_progress"];
+    case "attention":
+      return ["unread"];
+    case "done":
+      return [];
+  }
+}
+
+function resolveQueuedMessageCount(input: {
+  tab: WorkspaceTab;
+  queuedMessageCountsByAgentId?: ReadonlyMap<string, number>;
+}): number {
+  if (input.tab.target.kind !== "agent" || !input.queuedMessageCountsByAgentId) {
+    return 0;
+  }
+  return input.queuedMessageCountsByAgentId.get(input.tab.target.agentId) ?? 0;
 }
 
 export interface SidebarTabDraftState {

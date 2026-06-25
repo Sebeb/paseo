@@ -32,6 +32,7 @@ const TAB_SORT_ITEMS: Array<{ value: SidebarEmbeddedTabSortMode; label: string }
   { value: "manual", label: "Manual" },
   { value: "created", label: "Created" },
   { value: "lastUpdated", label: "Last updated" },
+  { value: "status", label: "Status" },
 ];
 
 const RECENT_TAB_COUNT_ITEMS: Array<{ value: SidebarEmbeddedRecentTabCount; label: string }> = [

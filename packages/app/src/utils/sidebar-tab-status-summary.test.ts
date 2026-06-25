@@ -8,6 +8,9 @@ import {
   combineSidebarTabStatusSummaries,
   createEmptySidebarTabStatusSummary,
   SIDEBAR_TAB_STATUS_BADGE_BUCKETS,
+  getSidebarEntryStatusCount,
+  getSidebarEntryStatusSortRank,
+  getVisibleSidebarEntryStatusKinds,
   summarizeSidebarTabs,
   type SidebarTerminalStatusRecord,
 } from "./sidebar-tab-status-summary";
@@ -99,6 +102,7 @@ function summarize(input: {
   browsers?: BrowserRecord[];
   terminals?: SidebarTerminalStatusRecord[];
   draftInputsByKey?: Record<string, DraftInput>;
+  queuedMessageCountsByAgentId?: Map<string, number>;
 }) {
   return summarizeSidebarTabs({
     tabs: input.tabs,
@@ -112,6 +116,7 @@ function summarize(input: {
     ),
     terminalsById: new Map((input.terminals ?? []).map((entry) => [entry.id, entry])),
     draftInputsByKey: input.draftInputsByKey,
+    queuedMessageCountsByAgentId: input.queuedMessageCountsByAgentId,
   });
 }
 
@@ -162,7 +167,30 @@ describe("sidebar tab status summary", () => {
       },
       draft: 1,
       propagatedDraft: 0,
+      entryCounts: {
+        queued_messages: 0,
+        draft: 1,
+        input_required: 1,
+        unread: 1,
+        in_progress: 1,
+        failed: 1,
+      },
+      propagatedEntryCounts: {
+        queued_messages: 0,
+        draft: 0,
+        input_required: 1,
+        unread: 1,
+        in_progress: 1,
+        failed: 1,
+      },
     });
+    expect(getVisibleSidebarEntryStatusKinds(result)).toEqual([
+      "draft",
+      "input_required",
+      "unread",
+      "in_progress",
+      "failed",
+    ]);
   });
 
   it("counts no-status tabs as done", () => {
@@ -185,6 +213,22 @@ describe("sidebar tab status summary", () => {
       },
       draft: 0,
       propagatedDraft: 0,
+      entryCounts: {
+        queued_messages: 0,
+        draft: 0,
+        input_required: 0,
+        unread: 0,
+        in_progress: 0,
+        failed: 0,
+      },
+      propagatedEntryCounts: {
+        queued_messages: 0,
+        draft: 0,
+        input_required: 0,
+        unread: 0,
+        in_progress: 0,
+        failed: 0,
+      },
     });
   });
 
@@ -221,6 +265,22 @@ describe("sidebar tab status summary", () => {
       },
       draft: 0,
       propagatedDraft: 0,
+      entryCounts: {
+        queued_messages: 0,
+        draft: 0,
+        input_required: 0,
+        unread: 0,
+        in_progress: 2,
+        failed: 0,
+      },
+      propagatedEntryCounts: {
+        queued_messages: 0,
+        draft: 0,
+        input_required: 0,
+        unread: 0,
+        in_progress: 2,
+        failed: 0,
+      },
     });
   });
 
@@ -239,6 +299,7 @@ describe("sidebar tab status summary", () => {
 
     expect(result.draft).toBe(1);
     expect(result.propagatedDraft).toBe(1);
+    expect(getSidebarEntryStatusCount(result, "draft")).toBe(1);
   });
 
   it("shows empty draft tabs locally without propagating them to parent summaries", () => {
@@ -249,6 +310,7 @@ describe("sidebar tab status summary", () => {
     expect(result.draft).toBe(1);
     expect(result.propagatedDraft).toBe(0);
     expect(combineSidebarTabStatusSummaries([result]).draft).toBe(0);
+    expect(getSidebarEntryStatusCount(combineSidebarTabStatusSummaries([result]), "draft")).toBe(0);
   });
 
   it("propagates draft tabs after their composer has typed text", () => {
@@ -262,5 +324,37 @@ describe("sidebar tab status summary", () => {
     expect(result.draft).toBe(1);
     expect(result.propagatedDraft).toBe(1);
     expect(combineSidebarTabStatusSummaries([result]).draft).toBe(1);
+    expect(getSidebarEntryStatusCount(combineSidebarTabStatusSummaries([result]), "draft")).toBe(1);
+  });
+
+  it("counts queued messages and renders queued before other badges", () => {
+    const result = summarize({
+      tabs: [tab({ tabId: "agent-queued", target: { kind: "agent", agentId: "queued" } })],
+      agents: [agent({ id: "queued", status: "running" })],
+      queuedMessageCountsByAgentId: new Map([["queued", 2]]),
+    });
+
+    expect(getVisibleSidebarEntryStatusKinds(result)).toEqual(["queued_messages", "in_progress"]);
+    expect(getSidebarEntryStatusCount(result, "queued_messages")).toBe(2);
+    expect(combineSidebarTabStatusSummaries([result]).entryCounts.queued_messages).toBe(2);
+  });
+
+  it("reports status sort rank without prioritizing queued-only tabs", () => {
+    const draft = summarize({
+      tabs: [tab({ tabId: "draft", target: { kind: "draft", draftId: "draft-1" } })],
+    });
+    const failed = summarize({
+      tabs: [tab({ tabId: "failed", target: { kind: "agent", agentId: "failed" } })],
+      agents: [agent({ id: "failed", status: "error" })],
+    });
+    const queuedOnly = summarize({
+      tabs: [tab({ tabId: "queued", target: { kind: "agent", agentId: "queued" } })],
+      agents: [agent({ id: "queued", status: "idle" })],
+      queuedMessageCountsByAgentId: new Map([["queued", 1]]),
+    });
+
+    expect(getSidebarEntryStatusSortRank(draft)).toBe(0);
+    expect(getSidebarEntryStatusSortRank(failed)).toBe(2);
+    expect(getSidebarEntryStatusSortRank(queuedOnly)).toBe(5);
   });
 });

@@ -1,6 +1,6 @@
 # Patch Summary: Embedded Workspace Tabs In Sidebar
 
-Branch: `split/sidebar-workspace-tabs`
+Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
