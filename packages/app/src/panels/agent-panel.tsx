@@ -62,6 +62,8 @@ import { usePaneContext, usePaneFocus } from "@/panels/pane-context";
 import type { PanelDescriptor, PanelRegistration } from "@/panels/panel-registry";
 import { RenderProfile } from "@/utils/render-profiler";
 import { buildDraftPanelDescriptor } from "@/panels/draft-panel-descriptor";
+import { useSidebarViewStore } from "@/stores/sidebar-view-store";
+import type { WorkspaceDraftTabSetup } from "@/stores/workspace-tabs-store";
 import {
   type HostRuntimeConnectionStatus,
   useHostRuntimeClient,
@@ -397,7 +399,7 @@ export const agentPanelRegistration: PanelRegistration<"agent"> = {
 };
 
 export function useDraftPanelDescriptor(
-  target: { kind: "draft"; draftId: string },
+  target: { kind: "draft"; draftId: string; setup?: WorkspaceDraftTabSetup },
   context: { serverId: string },
 ) {
   const createDescriptorState = useCreateFlowStore(
@@ -415,10 +417,13 @@ export function useDraftPanelDescriptor(
       };
     }),
   );
+  const badgeMode = useSidebarViewStore((state) => state.getBadgeMode(context.serverId));
+  const setupProvider = target.setup?.provider ?? null;
+  const icon = badgeMode === "status" && setupProvider ? getProviderIcon(setupProvider) : SquarePen;
 
   return buildDraftPanelDescriptor({
     ...createDescriptorState,
-    icon: SquarePen,
+    icon,
   });
 }
 

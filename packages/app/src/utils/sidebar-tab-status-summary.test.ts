@@ -3,6 +3,7 @@ import type { WorkspaceTab } from "@/stores/workspace-tabs-store";
 import type { Agent } from "@/stores/session-store";
 import type { BrowserRecord } from "@/stores/browser-store/state";
 import type { PendingCreateAttempt } from "@/stores/create-flow-store";
+import type { DraftInput } from "@/stores/draft-store";
 import {
   combineSidebarTabStatusSummaries,
   createEmptySidebarTabStatusSummary,
@@ -97,6 +98,7 @@ function summarize(input: {
   pendingCreatesByDraftId?: Record<string, PendingCreateAttempt>;
   browsers?: BrowserRecord[];
   terminals?: SidebarTerminalStatusRecord[];
+  draftInputsByKey?: Record<string, DraftInput>;
 }) {
   return summarizeSidebarTabs({
     tabs: input.tabs,
@@ -109,6 +111,7 @@ function summarize(input: {
       (input.browsers ?? []).map((entry) => [entry.browserId, entry]),
     ),
     terminalsById: new Map((input.terminals ?? []).map((entry) => [entry.id, entry])),
+    draftInputsByKey: input.draftInputsByKey,
   });
 }
 
@@ -157,6 +160,7 @@ describe("sidebar tab status summary", () => {
         attention: 1,
         done: 1,
       },
+      draft: 1,
     });
   });
 
@@ -178,6 +182,7 @@ describe("sidebar tab status summary", () => {
         attention: 0,
         done: 2,
       },
+      draft: 0,
     });
   });
 
@@ -212,6 +217,23 @@ describe("sidebar tab status summary", () => {
         attention: 0,
         done: 1,
       },
+      draft: 0,
     });
+  });
+
+  it("counts agent tabs with composer drafts toward the draft count", () => {
+    const result = summarize({
+      tabs: [
+        tab({ tabId: "agent-with-draft", target: { kind: "agent", agentId: "drafting" } }),
+        tab({ tabId: "agent-without-draft", target: { kind: "agent", agentId: "clean" } }),
+      ],
+      agents: [agent({ id: "drafting", status: "idle" }), agent({ id: "clean", status: "idle" })],
+      draftInputsByKey: {
+        "agent:srv:drafting": { text: "hello", attachments: [] },
+        "agent:srv:clean": { text: "", attachments: [] },
+      },
+    });
+
+    expect(result.draft).toBe(1);
   });
 });
