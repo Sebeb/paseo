@@ -171,6 +171,14 @@ export const ja: TranslationResources = {
   agentStream: {
     empty: "このエージェントとチャットを始めましょう...",
     scrollToBottom: "下にスクロール",
+    scrollToPinnedUserInput: "固定されたユーザー入力にスクロール",
+    thinking: {
+      label: "思考",
+      workedFor: "{{duration}}作業しました",
+      workingFor: "{{duration}}作業中",
+      messageCount: "思考内のメッセージ {{count}} 件",
+      toolCallCount: "思考内のツール呼び出し {{count}} 件",
+    },
     permission: {
       plan: "プラン",
       required: "権限が必要です",
@@ -1508,6 +1516,23 @@ export const ja: TranslationResources = {
           ghostty: "Ghostty",
           auto: "システム",
         },
+      },
+      messages: {
+        title: "メッセージ",
+        collapseThinking: {
+          label: "思考を折りたたむ",
+          description: "推論、ツール呼び出し、中間出力を非表示にします",
+          accessibilityLabel: "思考を折りたたむ（{{value}}）",
+          options: {
+            never: "しない",
+            completed: "完了した応答",
+            completedAndActive: "完了および進行中の応答",
+          },
+        },
+      },
+      pinUserInputs: {
+        label: "ユーザー入力を固定",
+        description: "応答をスクロールしている間、関連するユーザープロンプトを表示します",
       },
       fonts: {
         title: "フォント",

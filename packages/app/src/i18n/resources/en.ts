@@ -170,6 +170,13 @@ export const en = {
     empty: "Start chatting with this agent...",
     scrollToBottom: "Scroll to bottom",
     scrollToPinnedUserInput: "Scroll to pinned user input",
+    thinking: {
+      label: "Thinking",
+      workedFor: "Worked for {{duration}}",
+      workingFor: "Working for {{duration}}",
+      messageCount: "{{count}} messages in thinking",
+      toolCallCount: "{{count}} tool calls in thinking",
+    },
     permission: {
       plan: "Plan",
       required: "Permission Required",
@@ -1503,6 +1510,16 @@ export const en = {
       },
       messages: {
         title: "Messages",
+        collapseThinking: {
+          label: "Collapse thinking",
+          description: "Hide reasoning, tool calls, and intermediate output",
+          accessibilityLabel: "Collapse thinking ({{value}})",
+          options: {
+            never: "Never",
+            completed: "Completed Responses",
+            completedAndActive: "Completed and Active Responses",
+          },
+        },
       },
       pinUserInputs: {
         label: "Pin user inputs",

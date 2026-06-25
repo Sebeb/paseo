@@ -172,6 +172,13 @@ export const zhCN: TranslationResources = {
     empty: "开始和这个 Agent 对话...",
     scrollToBottom: "滚动到底部",
     scrollToPinnedUserInput: "滚动到固定的用户输入",
+    thinking: {
+      label: "思考",
+      workedFor: "已工作 {{duration}}",
+      workingFor: "正在工作 {{duration}}",
+      messageCount: "思考中有 {{count}} 条消息",
+      toolCallCount: "思考中有 {{count}} 次工具调用",
+    },
     permission: {
       plan: "Plan",
       required: "需要权限",
@@ -1479,6 +1486,16 @@ export const zhCN: TranslationResources = {
       },
       messages: {
         title: "消息",
+        collapseThinking: {
+          label: "折叠思考",
+          description: "隐藏推理、工具调用和中间输出",
+          accessibilityLabel: "折叠思考（{{value}}）",
+          options: {
+            never: "从不",
+            completed: "已完成回复",
+            completedAndActive: "已完成和进行中的回复",
+          },
+        },
       },
       pinUserInputs: {
         label: "固定用户输入",

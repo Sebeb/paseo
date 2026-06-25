@@ -172,6 +172,13 @@ export const es: TranslationResources = {
     empty: "Comience a chatear con este agente...",
     scrollToBottom: "Desplazarse hacia abajo",
     scrollToPinnedUserInput: "Ir a la entrada de usuario fijada",
+    thinking: {
+      label: "Pensamiento",
+      workedFor: "Trabajó durante {{duration}}",
+      workingFor: "Trabajando durante {{duration}}",
+      messageCount: "{{count}} mensajes en pensamiento",
+      toolCallCount: "{{count}} llamadas a herramientas en pensamiento",
+    },
     permission: {
       plan: "Plan",
       required: "Permiso requerido",
@@ -1534,6 +1541,16 @@ export const es: TranslationResources = {
       },
       messages: {
         title: "Mensajes",
+        collapseThinking: {
+          label: "Contraer pensamiento",
+          description: "Oculta razonamiento, llamadas a herramientas y salida intermedia",
+          accessibilityLabel: "Contraer pensamiento ({{value}})",
+          options: {
+            never: "Nunca",
+            completed: "Respuestas completadas",
+            completedAndActive: "Respuestas completadas y activas",
+          },
+        },
       },
       pinUserInputs: {
         label: "Fijar entradas del usuario",

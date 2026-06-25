@@ -31,6 +31,7 @@ import {
   sanitizeFontFamily,
   saveAppSettings as saveAppSettingsPure,
   type AppSettings,
+  type CollapseThinkingBehavior,
   type DesktopSettingsBridge,
   type KeyValueStorage,
   type ReleaseChannel,
@@ -61,6 +62,7 @@ export {
 export type {
   AppSettings,
   AppLanguage,
+  CollapseThinkingBehavior,
   DesktopSettingsBridge,
   KeyValueStorage,
   ReleaseChannel,
@@ -155,6 +157,9 @@ export function useSettings(): UseSettingsReturn {
       }
       if (updates.pinUserInputs !== undefined) {
         appUpdates.pinUserInputs = updates.pinUserInputs;
+      }
+      if (updates.collapseThinking !== undefined) {
+        appUpdates.collapseThinking = updates.collapseThinking;
       }
       if (updates.serviceUrlBehavior !== undefined) {
         appUpdates.serviceUrlBehavior = updates.serviceUrlBehavior;

@@ -77,6 +77,14 @@ describe("loadAppSettingsFromStorage", () => {
     expect(result.pinUserInputs).toBe(false);
   });
 
+  it("defaults collapse thinking to never when storage is empty", async () => {
+    const deps = makeDeps();
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.collapseThinking).toBe("never");
+  });
+
   it("loads persisted pinned user input preference", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
@@ -89,6 +97,34 @@ describe("loadAppSettingsFromStorage", () => {
     expect(result.pinUserInputs).toBe(true);
   });
 
+  it("loads persisted collapse thinking", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: "completed-and-active" }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.collapseThinking).toBe("completed-and-active");
+  });
+
+  it("migrates legacy boolean collapse thinking values", async () => {
+    const enabled = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: true }),
+      }),
+    });
+    const disabled = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: false }),
+      }),
+    });
+
+    expect((await loadAppSettingsFromStorage(enabled)).collapseThinking).toBe("completed");
+    expect((await loadAppSettingsFromStorage(disabled)).collapseThinking).toBe("never");
+  });
+
   it("ignores invalid pinned user input preference values", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
@@ -99,6 +135,18 @@ describe("loadAppSettingsFromStorage", () => {
     const result = await loadAppSettingsFromStorage(deps);
 
     expect(result.pinUserInputs).toBe(false);
+  });
+
+  it("drops an unknown collapse thinking value back to the default", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ collapseThinking: "sometimes" }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.collapseThinking).toBe("never");
   });
 
   it("loads configured terminal scrollback lines from app settings", async () => {
@@ -293,6 +341,28 @@ describe("loadSettingsFromStorage", () => {
 });
 
 describe("saveAppSettings", () => {
+  it("persists collapse thinking without dropping existing settings", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ theme: "light", sendBehavior: "queue" }),
+      }),
+    });
+    const queryClient = new QueryClient();
+
+    await saveAppSettings({
+      queryClient,
+      updates: { collapseThinking: "completed" },
+      deps,
+    });
+
+    const persisted = JSON.parse(deps.storage.entries.get(APP_SETTINGS_KEY) ?? "{}");
+    expect(persisted).toMatchObject({
+      theme: "light",
+      sendBehavior: "queue",
+      collapseThinking: "completed",
+    });
+  });
+
   it("saves terminal scrollback through app settings persistence", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({

@@ -171,6 +171,14 @@ export const ptBR: TranslationResources = {
   agentStream: {
     empty: "Comece a conversar com este agente...",
     scrollToBottom: "Rolar para o fim",
+    scrollToPinnedUserInput: "Rolar para a entrada de usuário fixada",
+    thinking: {
+      label: "Raciocínio",
+      workedFor: "Trabalhou por {{duration}}",
+      workingFor: "Trabalhando por {{duration}}",
+      messageCount: "{{count}} mensagens no raciocínio",
+      toolCallCount: "{{count}} chamadas de ferramenta no raciocínio",
+    },
     permission: {
       plan: "Plano",
       required: "Permissão necessária",
@@ -1515,6 +1523,23 @@ export const ptBR: TranslationResources = {
           ghostty: "Ghostty",
           auto: "Sistema",
         },
+      },
+      messages: {
+        title: "Mensagens",
+        collapseThinking: {
+          label: "Recolher raciocínio",
+          description: "Ocultar raciocínio, chamadas de ferramenta e saída intermediária",
+          accessibilityLabel: "Recolher raciocínio ({{value}})",
+          options: {
+            never: "Nunca",
+            completed: "Respostas concluídas",
+            completedAndActive: "Respostas concluídas e ativas",
+          },
+        },
+      },
+      pinUserInputs: {
+        label: "Fixar entradas do usuário",
+        description: "Manter o prompt de usuário relevante visível ao rolar pelas respostas",
       },
       fonts: {
         title: "Fontes",

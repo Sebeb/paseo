@@ -175,6 +175,24 @@ describe("shared tool-call display mapping", () => {
     expect(display.displayName).toBe("Speak");
   });
 
+  it("keeps thinking rows labeled as Thinking for any detail shape", () => {
+    const display = buildToolCallDisplayModel({
+      name: "thinking",
+      status: "completed",
+      error: null,
+      detail: {
+        type: "plain_text",
+        label: "Worked for 12s",
+        icon: "brain",
+      },
+    });
+
+    expect(display).toEqual({
+      displayName: "Thinking",
+      summary: "Worked for 12s",
+    });
+  });
+
   it("labels plan detail rows as Plan", () => {
     const display = buildToolCallDisplayModel({
       name: "plan",

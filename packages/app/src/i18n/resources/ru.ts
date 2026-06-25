@@ -172,6 +172,13 @@ export const ru: TranslationResources = {
     empty: "Начните общаться с этим агентом...",
     scrollToBottom: "Прокрутить вниз",
     scrollToPinnedUserInput: "Перейти к закрепленному вводу пользователя",
+    thinking: {
+      label: "Размышления",
+      workedFor: "Работал {{duration}}",
+      workingFor: "Работает {{duration}}",
+      messageCount: "{{count}} сообщений в размышлениях",
+      toolCallCount: "{{count}} вызовов инструментов в размышлениях",
+    },
     permission: {
       plan: "План",
       required: "Требуется разрешение",
@@ -1525,6 +1532,16 @@ export const ru: TranslationResources = {
       },
       messages: {
         title: "Сообщения",
+        collapseThinking: {
+          label: "Сворачивать размышления",
+          description: "Скрывать рассуждения, вызовы инструментов и промежуточный вывод",
+          accessibilityLabel: "Сворачивать размышления ({{value}})",
+          options: {
+            never: "Никогда",
+            completed: "Завершенные ответы",
+            completedAndActive: "Завершенные и активные ответы",
+          },
+        },
       },
       pinUserInputs: {
         label: "Закреплять ввод пользователя",

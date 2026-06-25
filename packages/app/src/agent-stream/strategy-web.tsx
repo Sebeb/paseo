@@ -208,6 +208,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const pendingAutoScrollFrameRef = useRef<number | null>(null);
   const pendingAutoScrollTimeoutRef = useRef<number | null>(null);
   const pendingVirtualRowMeasureFramesRef = useRef(new Map<Element, number>());
+  const shouldSuppressNextResizeStickToBottomRef = useRef(false);
   const historyStartReadyRef = useRef(false);
   const showDesktopWebScrollbar = !isMobileBreakpoint;
   const scrollbarOverlay = useWebElementScrollbar(scrollContainerRef, {
@@ -512,6 +513,10 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     const observer = new ResizeObserver(() => {
       updateScrollMetrics();
       updatePinnedUserInput();
+      if (shouldSuppressNextResizeStickToBottomRef.current) {
+        shouldSuppressNextResizeStickToBottomRef.current = false;
+        return;
+      }
       if (!followOutputRef.current) {
         return;
       }
@@ -631,6 +636,10 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
           return;
         }
         scheduleStickToBottom();
+      },
+      pauseBottomAnchoringForNextLayoutChange: () => {
+        shouldSuppressNextResizeStickToBottomRef.current = true;
+        cancelPendingStickToBottom();
       },
     };
     viewportRef.current = handle;

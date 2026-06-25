@@ -15,10 +15,7 @@ import { SyncedLoader } from "@/components/synced-loader";
 
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 const workingIndicatorColorMapping = (theme: Theme) => ({
-  color:
-    theme.colorScheme === "light"
-      ? theme.colors.palette.amber[700]
-      : theme.colors.palette.amber[500],
+  color: theme.colors.palette.blue[500],
 });
 
 export type TurnContentStrategy = StreamStrategy;

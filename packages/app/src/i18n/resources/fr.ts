@@ -173,6 +173,13 @@ export const fr: TranslationResources = {
     empty: "Commencez à discuter avec cet agent...",
     scrollToBottom: "Faire défiler vers le bas",
     scrollToPinnedUserInput: "Aller à la saisie utilisateur épinglée",
+    thinking: {
+      label: "Réflexion",
+      workedFor: "A travaillé pendant {{duration}}",
+      workingFor: "Travaille depuis {{duration}}",
+      messageCount: "{{count}} messages dans la réflexion",
+      toolCallCount: "{{count}} appels d'outil dans la réflexion",
+    },
     permission: {
       plan: "Plan",
       required: "Autorisation requise",
@@ -1538,6 +1545,16 @@ export const fr: TranslationResources = {
       },
       messages: {
         title: "Messages",
+        collapseThinking: {
+          label: "Réduire la réflexion",
+          description: "Masque le raisonnement, les appels d'outils et les sorties intermédiaires",
+          accessibilityLabel: "Réduire la réflexion ({{value}})",
+          options: {
+            never: "Jamais",
+            completed: "Réponses terminées",
+            completedAndActive: "Réponses terminées et actives",
+          },
+        },
       },
       pinUserInputs: {
         label: "Épingler les saisies utilisateur",

@@ -172,6 +172,13 @@ export const ar: TranslationResources = {
     empty: "ابدأ الدردشة مع هذا الوكيل...",
     scrollToBottom: "قم بالتمرير إلى الأسفل",
     scrollToPinnedUserInput: "انتقل إلى إدخال المستخدم المثبت",
+    thinking: {
+      label: "التفكير",
+      workedFor: "عمل لمدة {{duration}}",
+      workingFor: "يعمل منذ {{duration}}",
+      messageCount: "{{count}} رسائل في التفكير",
+      toolCallCount: "{{count}} استدعاءات أدوات في التفكير",
+    },
     permission: {
       plan: "يخطط",
       required: "الإذن مطلوب",
@@ -1497,6 +1504,16 @@ export const ar: TranslationResources = {
       },
       messages: {
         title: "الرسائل",
+        collapseThinking: {
+          label: "طي التفكير",
+          description: "إخفاء الاستدلال واستدعاءات الأدوات والمخرجات الوسيطة",
+          accessibilityLabel: "طي التفكير ({{value}})",
+          options: {
+            never: "أبدًا",
+            completed: "الردود المكتملة",
+            completedAndActive: "الردود المكتملة والنشطة",
+          },
+        },
       },
       pinUserInputs: {
         label: "تثبيت إدخالات المستخدم",
