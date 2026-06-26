@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: 3d9fa47a874bf5948ec1935422dc085519a1b87a — feat(sidebar): add workspace sorting and visibility controls
+Anchor commit: 9aa72edc0eb5d40faaf9129fbc951305300b1f36 — docs(patch): refresh PATCH.md for feat/sidebar-workspace-tabs
 
 ## Purpose
 
