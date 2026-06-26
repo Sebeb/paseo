@@ -20,6 +20,7 @@ The implementation covers web and native stream strategies, persistent app setti
 - When enabled, the stream can render a pinned copy of the current user message while its response is visible and the original user message has scrolled offscreen.
 - The pinned overlay tracks the source message location so it can animate and clear correctly as the original prompt returns to view or as the associated response leaves the viewport.
 - The overlay uses theme-aware gradient/mask styling so the pinned prompt reads as part of the stream instead of a detached modal.
+- Pinning is automatically suppressed while the composer occupies more than one quarter of the chat pane height, so a tall input box never competes with the pinned prompt for screen real estate.
 
 ## New Core Module
 
@@ -170,6 +171,16 @@ Key behavior:
 `packages/app/src/agent-stream/strategy.ts` adds the pinned user input fields/events needed by both strategies and the stream view.
 
 The strategy layer is responsible for determining whether a prompt should be pinned; the view layer is responsible for rendering the selected state.
+
+### Composer-Size Gating
+
+`packages/app/src/panels/agent-panel.tsx` owns the resolved `pinUserInputsEnabled` boolean and threads it into the stream:
+
+- Tracks the latest composer height via the existing `onComposerHeightChange` callback.
+- Adds an `onLayout` on the chat pane container to track its measured height.
+- Stores both values in refs and recomputes a `composerFitsForPin` flag — true when the composer is at most one quarter of the pane height.
+- Combines the user's `pinUserInputs` setting with `composerFitsForPin` and passes the resulting `pinUserInputsEnabled` prop to `AgentStreamView`.
+- `AgentStreamView` is now the only consumer of that flag and forwards it directly to the strategy layer, which means a tall composer hides the overlay until the input shrinks back below the threshold.
 
 ## Rendering Changes
 

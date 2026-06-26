@@ -7,6 +7,8 @@ import {
   type PinnedUserInputCandidate,
 } from "./pinned-user-input";
 
+const DEFAULT_PINNED_BOTTOM = 133;
+
 function userMessage(id: string): Extract<StreamItem, { kind: "user_message" }> {
   return {
     kind: "user_message",
@@ -60,6 +62,7 @@ describe("selectPinnedUserInput", () => {
         ],
         viewportTop: 120,
         viewportBottom: 520,
+        pinnedBottom: DEFAULT_PINNED_BOTTOM,
       }),
     ).toBeNull();
   });
@@ -78,15 +81,22 @@ describe("selectPinnedUserInput", () => {
         ],
         viewportTop: 120,
         viewportBottom: 360,
+        pinnedBottom: DEFAULT_PINNED_BOTTOM,
       }),
     ).toEqual({
       item: expect.objectContaining({ id: "u1" }),
       sourceTop: 0,
       sourceBottom: 80,
+      translateY: 0,
     });
   });
 
-  it("returns null when any real input is visible", () => {
+  it("hides when the active candidate's bottom is at or below the pinned bottom in viewport", () => {
+    // u1.bottom = 80, viewportTop = 0, pinnedBottom = 133
+    // u1.bottom_in_viewport = 80, which is < 133 — but the threshold check is strict
+    // and the message is fully visible, so we still want the real one until it scrolls
+    // past. Here we test the boundary: at viewportTop just past u1.bottom (viewport
+    // pushed enough that u1 has cleared the pinned bottom only by 1px), u1 must show.
     expect(
       selectPinnedUserInput({
         enabled: true,
@@ -94,20 +104,96 @@ describe("selectPinnedUserInput", () => {
           candidate({
             id: "u1",
             top: 0,
-            bottom: 80,
-            responseRanges: [{ id: "a1", top: 120, bottom: 420 }],
-          }),
-          candidate({
-            id: "u2",
-            top: 500,
-            bottom: 580,
-            responseRanges: [{ id: "a2", top: 610, bottom: 900 }],
+            bottom: 200,
+            responseRanges: [{ id: "a1", top: 200, bottom: 600 }],
           }),
         ],
-        viewportTop: 540,
-        viewportBottom: 820,
+        viewportTop: 0,
+        viewportBottom: 400,
+        pinnedBottom: DEFAULT_PINNED_BOTTOM,
       }),
     ).toBeNull();
+  });
+
+  it("selects the next user_message once its real bottom rises above the pinned bottom", () => {
+    // u1.bottom = 80, u2.bottom = 580, pinnedBottom = 133.
+    // At viewportTop = 460: u2.bottom_in_viewport = 120 < 133, so u2 is now the active.
+    const result = selectPinnedUserInput({
+      enabled: true,
+      candidates: [
+        candidate({
+          id: "u1",
+          top: 0,
+          bottom: 80,
+          responseRanges: [{ id: "a1", top: 80, bottom: 480 }],
+        }),
+        candidate({
+          id: "u2",
+          top: 480,
+          bottom: 580,
+          responseRanges: [{ id: "a2", top: 580, bottom: 900 }],
+        }),
+      ],
+      viewportTop: 460,
+      viewportBottom: 760,
+      pinnedBottom: DEFAULT_PINNED_BOTTOM,
+    });
+    expect(result?.item.id).toBe("u2");
+    expect(result?.translateY).toBe(0);
+  });
+
+  it("applies a negative translateY push when the next user_message enters the pinned zone", () => {
+    // u1.bottom = 80, u2.top = 480, pinnedBottom = 133.
+    // At viewportTop = 400: u2.top_in_viewport = 80 < 133 → push.
+    // translateY = 80 - 133 = -53.
+    const result = selectPinnedUserInput({
+      enabled: true,
+      candidates: [
+        candidate({
+          id: "u1",
+          top: 0,
+          bottom: 80,
+          responseRanges: [{ id: "a1", top: 80, bottom: 480 }],
+        }),
+        candidate({
+          id: "u2",
+          top: 480,
+          bottom: 580,
+          responseRanges: [{ id: "a2", top: 580, bottom: 900 }],
+        }),
+      ],
+      viewportTop: 400,
+      viewportBottom: 700,
+      pinnedBottom: DEFAULT_PINNED_BOTTOM,
+    });
+    expect(result?.item.id).toBe("u1");
+    expect(result?.translateY).toBe(-53);
+  });
+
+  it("does not push when the next user_message has not yet reached the pinned bottom", () => {
+    // At viewportTop = 200: u2.top_in_viewport = 280 ≥ 133. No push.
+    const result = selectPinnedUserInput({
+      enabled: true,
+      candidates: [
+        candidate({
+          id: "u1",
+          top: 0,
+          bottom: 80,
+          responseRanges: [{ id: "a1", top: 80, bottom: 480 }],
+        }),
+        candidate({
+          id: "u2",
+          top: 480,
+          bottom: 580,
+          responseRanges: [{ id: "a2", top: 580, bottom: 900 }],
+        }),
+      ],
+      viewportTop: 200,
+      viewportBottom: 500,
+      pinnedBottom: DEFAULT_PINNED_BOTTOM,
+    });
+    expect(result?.item.id).toBe("u1");
+    expect(result?.translateY).toBe(0);
   });
 
   it("selects the visible response turn nearest the viewport bottom", () => {
@@ -130,6 +216,7 @@ describe("selectPinnedUserInput", () => {
         ],
         viewportTop: 555,
         viewportBottom: 760,
+        pinnedBottom: DEFAULT_PINNED_BOTTOM,
       })?.item.id,
     ).toBe("u2");
   });
@@ -148,6 +235,7 @@ describe("selectPinnedUserInput", () => {
         ],
         viewportTop: 500,
         viewportBottom: 900,
+        pinnedBottom: DEFAULT_PINNED_BOTTOM,
       }),
     ).toBeNull();
   });

@@ -167,6 +167,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     onNearBottomChange,
     onNearHistoryStart,
     pinUserInputsEnabled,
+    pinnedBottom,
     onPinnedUserInputChange,
     pinnedUserInputOverlay,
     isLoadingOlderHistory,
@@ -388,9 +389,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         candidates: collectPinnedUserInputCandidates(),
         viewportTop: scrollContainer.scrollTop,
         viewportBottom: scrollContainer.scrollTop + scrollContainer.clientHeight,
+        pinnedBottom,
       }),
     );
-  }, [collectPinnedUserInputCandidates, onPinnedUserInputChange, pinUserInputsEnabled]);
+  }, [
+    collectPinnedUserInputCandidates,
+    onPinnedUserInputChange,
+    pinUserInputsEnabled,
+    pinnedBottom,
+  ]);
 
   const handleDomScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;

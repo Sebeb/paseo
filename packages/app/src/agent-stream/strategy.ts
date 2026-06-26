@@ -66,6 +66,7 @@ export interface StreamRenderInput {
   onNearBottomChange: (value: boolean) => void;
   onNearHistoryStart: () => void;
   pinUserInputsEnabled: boolean;
+  pinnedBottom: number;
   onPinnedUserInputChange: (state: PinnedUserInputState | null) => void;
   pinnedUserInputOverlay: ReactNode;
   isLoadingOlderHistory: boolean;
