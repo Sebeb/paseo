@@ -1,10 +1,10 @@
 # Patch Summary: Collapsible Thinking Groups
 
-Branch: `split/collapse-thinking`
+Branch: `feat/collapse-thinking`
 
 Base: `origin/main`
 
-Primary commit before this writeup: `f9a1fba72 feat(app): add collapsible thinking groups`
+Anchor commit: d3084cf9e03abf8f5b7ddb395e76d3423b16bd80 — feat(app): expand collapsed thinking preview on press
 
 ## Purpose
 
@@ -23,6 +23,7 @@ It also updates bottom anchoring so expanding/collapsing thinking groups does no
 - Optionally collapses the active turn while the agent is still running.
 - Shows group headers with message and tool-call counts.
 - Shows previews for collapsed active thinking groups when there are visible thinking messages.
+- Lets users expand a collapsed thinking group by pressing the lower half of its preview area.
 - Keeps final assistant messages outside the collapsed thinking group so the actual answer remains visible.
 - Preserves normal access to tool calls and thinking content through expand/collapse controls.
 
@@ -175,6 +176,7 @@ The stream view now:
 - Maintains per-group expanded/collapsed state.
 - Shows message/tool-call counts in group headers.
 - Shows preview text for collapsed active groups when allowed by `shouldShowThinkingGroupPreview`.
+- Adds an invisible accessible press target over the bottom half of a collapsed preview; pressing it expands the group without requiring the user to move back to the header.
 - Shows active/completed duration text in collapsed group headers using `turnTiming.runningStartedAt` and `turnTiming.byAssistantId`.
 - Handles scroll/anchor behavior when a group is expanded.
 
