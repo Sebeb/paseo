@@ -29,7 +29,7 @@ export function getWorkspaceRowRightVisibility(input: {
   const showShortcut = input.showShortcutBadge && input.shortcutNumber !== null;
   const showActionControls = input.isHovered || input.isTouchPlatform || input.isCompactLayout;
   return {
-    showCreateTab: false,
+    showCreateTab: input.hasCreateTabAction && showActionControls && !showShortcut,
     showKebabInSlot: input.hasArchiveAction && showActionControls && !showShortcut,
     showDiffStat: shouldShowWorkspaceDiffStat({ ...input, showShortcut }),
     showStatusSummary: shouldShowWorkspaceStatusSummary({

@@ -76,4 +76,15 @@ describe("getWorkspaceRowRightVisibility", () => {
     expect(visibility.showKebabInSlot).toBe(true);
     expect(visibility.shouldRenderActionSlot).toBe(true);
   });
+
+  it("shows create-tab controls for sidebar tabs on hover", () => {
+    const visibility = getVisibility({
+      hasCreateTabAction: true,
+      isHovered: true,
+    });
+
+    expect(visibility.showCreateTab).toBe(true);
+    expect(visibility.showStatusSummary).toBe(false);
+    expect(visibility.shouldRenderActionSlot).toBe(true);
+  });
 });

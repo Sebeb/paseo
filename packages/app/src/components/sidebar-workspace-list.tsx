@@ -54,7 +54,6 @@ import {
   Copy,
   CopyX,
   ExternalLink,
-  Globe,
   GitPullRequest,
   Settings,
   Settings2,
@@ -62,8 +61,6 @@ import {
   Pencil,
   Plus,
   RotateCw,
-  SquarePen,
-  SquareTerminal,
   Trash2,
   X,
 } from "lucide-react-native";
@@ -80,6 +77,7 @@ import { useProjectIconDataByProjectKey } from "@/projects/project-icons";
 import {
   buildHostNewWorkspaceRoute,
   buildProjectSettingsRoute,
+  buildSettingsHostSectionRoute,
   parseHostWorkspaceRouteFromPathname,
 } from "@/utils/host-routes";
 import {
@@ -182,6 +180,8 @@ import {
   WorkspaceTabPresentationResolver,
 } from "@/screens/workspace/workspace-tab-presentation";
 import { WorkspaceTabTooltipPreview } from "@/screens/workspace/workspace-tab-tooltip-preview";
+import { WorkspaceNewTabDropdown } from "@/screens/workspace/workspace-desktop-tabs-row";
+import type { TerminalProfileInput } from "@/screens/workspace/terminals/use-workspace-terminals";
 import { useWorkspaceTabClose } from "@/screens/workspace/use-workspace-tab-close";
 import {
   buildWorkspaceTabMenuEntries,
@@ -238,11 +238,7 @@ const ThemedCircleAlert = withUnistyles(CircleAlert);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 const ThemedPlus = withUnistyles(Plus);
-const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedX = withUnistyles(X);
-const ThemedSquarePen = withUnistyles(SquarePen);
-const ThemedSquareTerminal = withUnistyles(SquareTerminal);
-const ThemedGlobe = withUnistyles(Globe);
 
 interface EmbeddedSidebarTabItem {
   descriptor: WorkspaceTabDescriptor;
@@ -595,6 +591,7 @@ interface WorkspaceRowInnerProps {
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
   onPress: (event: GestureResponderEvent) => void;
+  onWorkspacePress?: () => void;
   drag: () => void;
   isDragging: boolean;
   isArchiving: boolean;
@@ -606,6 +603,7 @@ interface WorkspaceRowInnerProps {
   archivePendingLabel?: string;
   onArchive?: () => void;
   onCreateTab?: (event?: GestureResponderEvent) => void;
+  onTabCreated?: () => void;
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
   onRename?: () => void;
@@ -917,15 +915,6 @@ function ProjectRowTrailingActions({
 
 const trash2LeadingIcon = <ThemedTrash2 size={14} uniProps={foregroundMutedColorMapping} />;
 const settingsLeadingIcon = <ThemedSettings size={14} uniProps={foregroundMutedColorMapping} />;
-const VERTICAL_TABS_NEW_AGENT_ICON = (
-  <ThemedSquarePen size={14} uniProps={foregroundMutedColorMapping} />
-);
-const VERTICAL_TABS_NEW_TERMINAL_ICON = (
-  <ThemedSquareTerminal size={14} uniProps={foregroundMutedColorMapping} />
-);
-const VERTICAL_TABS_NEW_BROWSER_ICON = (
-  <ThemedGlobe size={14} uniProps={foregroundMutedColorMapping} />
-);
 const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
 const markAsReadLeadingIcon = (
   <ThemedCircleCheck size={14} uniProps={foregroundMutedColorMapping} />
@@ -1101,6 +1090,8 @@ function WorkspaceRowRightGroup({
   archiveShortcutKeys,
   onArchive,
   onCreateTab,
+  onTabCreated,
+  onWorkspacePress,
   onMarkAsRead,
   onCopyBranchName,
   onCopyPath,
@@ -1124,6 +1115,8 @@ function WorkspaceRowRightGroup({
   archiveShortcutKeys?: ShortcutKey[][] | null;
   onArchive?: () => void;
   onCreateTab?: (event?: GestureResponderEvent) => void;
+  onTabCreated?: () => void;
+  onWorkspacePress?: () => void;
   onMarkAsRead?: () => void;
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
@@ -1168,7 +1161,8 @@ function WorkspaceRowRightGroup({
           archivePendingLabel={archivePendingLabel}
           archiveShortcutKeys={archiveShortcutKeys}
           onArchive={onArchive}
-          onCreateTab={onCreateTab}
+          onTabCreated={onTabCreated}
+          onWorkspacePress={onWorkspacePress}
           onCopyBranchName={onCopyBranchName}
           onCopyPath={onCopyPath}
           onMarkAsRead={onMarkAsRead}
@@ -1192,7 +1186,8 @@ function WorkspaceRowActionSlot({
   archivePendingLabel,
   archiveShortcutKeys,
   onArchive,
-  onCreateTab,
+  onTabCreated,
+  onWorkspacePress,
   onCopyBranchName,
   onCopyPath,
   onMarkAsRead,
@@ -1210,25 +1205,27 @@ function WorkspaceRowActionSlot({
   archivePendingLabel?: string;
   archiveShortcutKeys?: ShortcutKey[][] | null;
   onArchive?: () => void;
-  onCreateTab?: (event?: GestureResponderEvent) => void;
+  onTabCreated?: () => void;
+  onWorkspacePress?: () => void;
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
   onMarkAsRead?: () => void;
   onRename?: () => void;
 }) {
-  const { t } = useTranslation();
   const showActionControls = showCreateTab || showCreateTabMenu || showKebab;
-  const actionControlCount = Number(showCreateTab) + Number(showCreateTabMenu) + Number(showKebab);
-  const handleCreateTabMenuSelect = useCallback(() => {
-    onCreateTab?.();
-  }, [onCreateTab]);
+  const tabHeaderActionCount = showCreateTab || showCreateTabMenu ? 3 : 0;
+  const actionControlCount = tabHeaderActionCount + Number(showKebab);
+  const handleTabCreated = useCallback(() => {
+    onTabCreated?.();
+  }, [onTabCreated]);
   const showTrailingMeta = Boolean((showDiffStat || showStatusSummary) && !showActionControls);
   const actionSlotStyle = useMemo(
     () => [
       styles.workspaceActionSlot,
       showTrailingMeta && styles.workspaceActionSlotDiff,
       actionControlCount === 2 && styles.workspaceActionSlotDouble,
-      actionControlCount >= 3 && styles.workspaceActionSlotTriple,
+      actionControlCount === 3 && styles.workspaceActionSlotTriple,
+      actionControlCount >= 4 && styles.workspaceActionSlotQuad,
     ],
     [actionControlCount, showTrailingMeta],
   );
@@ -1257,52 +1254,12 @@ function WorkspaceRowActionSlot({
       </View>
       {showActionControls ? (
         <View style={styles.workspaceActionOverlayRow}>
-          {showCreateTab ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("workspace.tabs.actions.newAgent")}
-              testID={`sidebar-workspace-new-tab-${workspace.workspaceKey}`}
-              onPress={onCreateTab}
-              style={newWorkspaceTabButtonStyle}
-              hitSlop={6}
-            >
-              {({ hovered, pressed }) => (
-                <ThemedPlus
-                  size={14}
-                  uniProps={
-                    hovered || pressed ? foregroundColorMapping : foregroundMutedColorMapping
-                  }
-                />
-              )}
-            </Pressable>
-          ) : null}
-          {showCreateTabMenu ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                accessibilityRole="button"
-                accessibilityLabel={t("workspace.tabs.actions.moreActions")}
-                testID={`sidebar-workspace-new-tab-menu-${workspace.workspaceKey}`}
-                style={newWorkspaceTabButtonStyle}
-                hitSlop={6}
-              >
-                {({ hovered, pressed }) => (
-                  <ThemedChevronDown
-                    size={14}
-                    uniProps={
-                      hovered || pressed ? foregroundColorMapping : foregroundMutedColorMapping
-                    }
-                  />
-                )}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" width={180}>
-                <DropdownMenuItem
-                  testID={`sidebar-workspace-new-tab-menu-agent-${workspace.workspaceKey}`}
-                  onSelect={handleCreateTabMenuSelect}
-                >
-                  {t("workspace.tabs.actions.newAgent")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          {showCreateTab || showCreateTabMenu ? (
+            <SidebarVerticalWorkspaceTabsHeaderActions
+              workspace={workspace}
+              onWorkspacePress={onWorkspacePress}
+              onTabCreated={handleTabCreated}
+            />
           ) : null}
           {showKebab && onArchive ? (
             <WorkspaceKebabMenu
@@ -2174,6 +2131,7 @@ function WorkspaceRowInner({
   shortcutNumber,
   showShortcutBadge,
   onPress,
+  onWorkspacePress,
   drag,
   isDragging,
   isArchiving,
@@ -2185,6 +2143,7 @@ function WorkspaceRowInner({
   archivePendingLabel,
   onArchive,
   onCreateTab,
+  onTabCreated,
   onCopyBranchName,
   onCopyPath,
   onRename,
@@ -2315,6 +2274,8 @@ function WorkspaceRowInner({
                   archiveShortcutKeys={archiveShortcutKeys}
                   onArchive={onArchive}
                   onCreateTab={onCreateTab}
+                  onTabCreated={onTabCreated}
+                  onWorkspacePress={onWorkspacePress}
                   onCopyBranchName={onCopyBranchName}
                   onCopyPath={onCopyPath}
                   onRename={onRename}
@@ -2590,6 +2551,11 @@ function WorkspaceRowWithMenu({
       workspace.workspaceId,
     ],
   );
+  const handleEmbeddedTabCreated = useCallback(() => {
+    if (!isWorkspaceExpanded) {
+      setWorkspaceExpanded(true);
+    }
+  }, [isWorkspaceExpanded, setWorkspaceExpanded]);
 
   useKeyboardActionHandler({
     handlerId: `worktree-archive-${workspace.workspaceKey}`,
@@ -2627,6 +2593,7 @@ function WorkspaceRowWithMenu({
         isDragging={isDragging}
         isArchiving={isArchiving}
         isCreating={isCreating}
+        onWorkspacePress={onWorkspacePress}
         dragHandleProps={dragHandleProps}
         archiveLabel={archiveLabel}
         archiveStatus={archiveStatus}
@@ -2636,6 +2603,7 @@ function WorkspaceRowWithMenu({
         onToggleExpanded={handleToggleWorkspaceExpanded}
         onArchive={handleArchive}
         onCreateTab={embeddedTabsEnabled ? handleCreateEmbeddedTab : undefined}
+        onTabCreated={embeddedTabsEnabled ? handleEmbeddedTabCreated : undefined}
         onCopyBranchName={onCopyBranchName}
         onCopyPath={handleCopyPath}
         onRename={handleOpenRename}
@@ -3778,9 +3746,11 @@ export function SidebarVerticalWorkspaceTabs({
 export function SidebarVerticalWorkspaceTabsHeaderActions({
   workspace,
   onWorkspacePress,
+  onTabCreated,
 }: {
   workspace: SidebarWorkspaceEntry;
   onWorkspacePress?: () => void;
+  onTabCreated?: () => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -3845,66 +3815,90 @@ export function SidebarVerticalWorkspaceTabsHeaderActions({
       kind: "draft",
       draftId: generateDraftId(),
     });
+    onTabCreated?.();
     navigateToSelectedWorkspace();
-  }, [focusMainPane, navigateToSelectedWorkspace, openWorkspaceTabFocused, persistenceKey]);
-
-  const handleCreateTerminalTab = useCallback(() => {
-    if (!persistenceKey) {
-      return;
-    }
-    if (!client || !isConnected) {
-      toast.error(t("workspace.terminal.hostDisconnected"));
-      return;
-    }
-    if (!workspaceDirectory) {
-      toast.error(t("workspace.header.toasts.workspacePathUnavailable"));
-      return;
-    }
-    focusMainPane();
-    void client
-      .createTerminal(workspaceDirectory, undefined, undefined, {
-        workspaceId: workspace.workspaceId,
-      })
-      .then((payload) => {
-        if (!payload.terminal && payload.error) {
-          throw new Error(payload.error);
-        }
-        if (!payload.terminal) {
-          return undefined;
-        }
-        const { terminal } = payload;
-        queryClient.setQueryData<ListTerminalsPayload>(terminalQueryKey, (current) =>
-          upsertCreatedTerminalPayload({
-            current,
-            terminal,
-            workspaceDirectory,
-          }),
-        );
-        void queryClient.invalidateQueries({ queryKey: terminalQueryKey });
-        openWorkspaceTabFocused(persistenceKey, {
-          kind: "terminal",
-          terminalId: terminal.id,
-        });
-        navigateToSelectedWorkspace();
-        return undefined;
-      })
-      .catch((error: unknown) => {
-        toast.error(error instanceof Error ? error.message : String(error));
-      });
   }, [
-    client,
     focusMainPane,
-    isConnected,
     navigateToSelectedWorkspace,
+    onTabCreated,
     openWorkspaceTabFocused,
     persistenceKey,
-    queryClient,
-    t,
-    terminalQueryKey,
-    toast,
-    workspace.workspaceId,
-    workspaceDirectory,
   ]);
+
+  const handleCreateTerminalTab = useCallback(
+    (profile?: TerminalProfileInput) => {
+      if (!persistenceKey) {
+        return;
+      }
+      if (!client || !isConnected) {
+        toast.error(t("workspace.terminal.hostDisconnected"));
+        return;
+      }
+      if (!workspaceDirectory) {
+        toast.error(t("workspace.header.toasts.workspacePathUnavailable"));
+        return;
+      }
+      focusMainPane();
+      const terminalOptions = profile
+        ? { command: profile.command, args: profile.args, workspaceId: workspace.workspaceId }
+        : { workspaceId: workspace.workspaceId };
+      void client
+        .createTerminal(workspaceDirectory, profile?.name, undefined, terminalOptions)
+        .then((payload) => {
+          if (!payload.terminal && payload.error) {
+            throw new Error(payload.error);
+          }
+          if (!payload.terminal) {
+            return undefined;
+          }
+          const { terminal } = payload;
+          queryClient.setQueryData<ListTerminalsPayload>(terminalQueryKey, (current) =>
+            upsertCreatedTerminalPayload({
+              current,
+              terminal,
+              workspaceDirectory,
+            }),
+          );
+          void queryClient.invalidateQueries({ queryKey: terminalQueryKey });
+          openWorkspaceTabFocused(persistenceKey, {
+            kind: "terminal",
+            terminalId: terminal.id,
+          });
+          onTabCreated?.();
+          navigateToSelectedWorkspace();
+          return undefined;
+        })
+        .catch((error: unknown) => {
+          toast.error(error instanceof Error ? error.message : String(error));
+        });
+    },
+    [
+      client,
+      focusMainPane,
+      isConnected,
+      navigateToSelectedWorkspace,
+      onTabCreated,
+      openWorkspaceTabFocused,
+      persistenceKey,
+      queryClient,
+      t,
+      terminalQueryKey,
+      toast,
+      workspace.workspaceId,
+      workspaceDirectory,
+    ],
+  );
+
+  const handleCreateTerminalWithProfile = useCallback(
+    (profile: TerminalProfileInput) => {
+      handleCreateTerminalTab(profile);
+    },
+    [handleCreateTerminalTab],
+  );
+
+  const handleEditProfiles = useCallback(() => {
+    router.push(buildSettingsHostSectionRoute(workspace.serverId, "terminals") as Href);
+  }, [workspace.serverId]);
 
   const handleCreateBrowserTab = useCallback(() => {
     if (!persistenceKey || !showCreateBrowserTab) {
@@ -3913,10 +3907,12 @@ export function SidebarVerticalWorkspaceTabsHeaderActions({
     focusMainPane();
     const { browserId } = createWorkspaceBrowser();
     openWorkspaceTabFocused(persistenceKey, { kind: "browser", browserId });
+    onTabCreated?.();
     navigateToSelectedWorkspace();
   }, [
     focusMainPane,
     navigateToSelectedWorkspace,
+    onTabCreated,
     openWorkspaceTabFocused,
     persistenceKey,
     showCreateBrowserTab,
@@ -3940,51 +3936,17 @@ export function SidebarVerticalWorkspaceTabsHeaderActions({
           </Text>
         </TooltipContent>
       </Tooltip>
-      <DropdownMenu>
-        <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
-          <TooltipTrigger asChild triggerRefProp="triggerRef">
-            <DropdownMenuTrigger
-              accessibilityRole="button"
-              accessibilityLabel={t("workspace.tabs.actions.moreActions")}
-              testID={`vertical-tabs-header-new-tab-menu-${workspace.workspaceKey}`}
-              style={newWorkspaceTabButtonStyle}
-            >
-              <ThemedChevronDown size={14} uniProps={foregroundMutedColorMapping} />
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" align="center" offset={8}>
-            <Text style={styles.verticalTabsHeaderTooltipText}>
-              {t("workspace.tabs.actions.moreActions")}
-            </Text>
-          </TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align="end" width={180}>
-          <DropdownMenuItem
-            leading={VERTICAL_TABS_NEW_AGENT_ICON}
-            testID={`vertical-tabs-header-new-tab-menu-agent-${workspace.workspaceKey}`}
-            onSelect={handleCreateAgentTab}
-          >
-            {t("workspace.tabs.actions.newAgent")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            leading={VERTICAL_TABS_NEW_TERMINAL_ICON}
-            testID={`vertical-tabs-header-new-tab-menu-terminal-${workspace.workspaceKey}`}
-            disabled={terminalDisabled}
-            onSelect={terminalDisabled ? undefined : handleCreateTerminalTab}
-          >
-            {t("workspace.tabs.actions.newTerminal")}
-          </DropdownMenuItem>
-          {showCreateBrowserTab ? (
-            <DropdownMenuItem
-              leading={VERTICAL_TABS_NEW_BROWSER_ICON}
-              testID={`vertical-tabs-header-new-tab-menu-browser-${workspace.workspaceKey}`}
-              onSelect={handleCreateBrowserTab}
-            >
-              {t("workspace.tabs.actions.newBrowser")}
-            </DropdownMenuItem>
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <WorkspaceNewTabDropdown
+        onCreateAgentTab={handleCreateAgentTab}
+        onCreateTerminal={handleCreateTerminalTab}
+        onCreateBrowser={handleCreateBrowserTab}
+        onCreateTerminalWithProfile={handleCreateTerminalWithProfile}
+        onEditProfiles={handleEditProfiles}
+        normalizedServerId={workspace.serverId}
+        showCreateBrowserTab={showCreateBrowserTab}
+        terminalDisabled={terminalDisabled}
+        testIDPrefix={`vertical-tabs-header-new-tab-menu-${workspace.workspaceKey}`}
+      />
       <DropdownMenu>
         <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
           <TooltipTrigger asChild triggerRefProp="triggerRef">
@@ -5162,6 +5124,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   workspaceActionSlotTriple: {
     width: 76,
+  },
+  workspaceActionSlotQuad: {
+    width: 102,
   },
   workspaceActionHidden: {
     opacity: 0,

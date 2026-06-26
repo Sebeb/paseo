@@ -241,7 +241,7 @@ function WorkspaceInlineAddTabButton({
   );
 }
 
-interface WorkspaceTabRowExtrasProps {
+export interface WorkspaceNewTabDropdownProps {
   onCreateAgentTab: () => void;
   onCreateTerminal: () => void;
   onCreateBrowser: () => void;
@@ -250,9 +250,10 @@ interface WorkspaceTabRowExtrasProps {
   normalizedServerId: string;
   showCreateBrowserTab: boolean;
   terminalDisabled: boolean;
+  testIDPrefix?: string;
 }
 
-function WorkspaceTabRowExtras({
+export function WorkspaceNewTabDropdown({
   onCreateAgentTab,
   onCreateTerminal,
   onCreateBrowser,
@@ -261,7 +262,8 @@ function WorkspaceTabRowExtras({
   normalizedServerId,
   showCreateBrowserTab,
   terminalDisabled,
-}: WorkspaceTabRowExtrasProps) {
+  testIDPrefix = "workspace-new-tab-menu",
+}: WorkspaceNewTabDropdownProps) {
   const { t } = useTranslation();
   const { config } = useDaemonConfig(normalizedServerId);
   const profiles = useMemo(
@@ -286,68 +288,107 @@ function WorkspaceTabRowExtras({
     [handlers, profiles],
   );
 
-  const launchers = usePinnedLaunchers({ serverId: normalizedServerId, onLaunch });
+  return (
+    <DropdownMenu>
+      <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
+        <TooltipTrigger asChild triggerRefProp="triggerRef">
+          <DropdownMenuTrigger
+            testID={`${testIDPrefix}-trigger`}
+            accessibilityRole="button"
+            accessibilityLabel={t("workspace.tabs.actions.moreActions")}
+            style={newTabActionButtonStyle}
+          >
+            <ThemedChevronDown size={14} uniProps={mutedColorMapping} />
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="center" offset={8}>
+          <Text style={styles.newTabTooltipText}>{t("workspace.tabs.actions.moreActions")}</Text>
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent side="bottom" align="end" offset={4} minWidth={200}>
+        <PinnableMenuItem
+          testID={`${testIDPrefix}-agent`}
+          target={DRAFT_TARGET}
+          label={t("workspace.tabs.actions.newAgent")}
+          leading={AGENT_ICON}
+          onSelect={onCreateAgentTab}
+        />
+        <PinnableMenuItem
+          testID={`${testIDPrefix}-terminal`}
+          target={TERMINAL_TARGET}
+          label={t("workspace.tabs.actions.newTerminal")}
+          leading={TERMINAL_ICON}
+          disabled={terminalDisabled}
+          onSelect={terminalDisabled ? undefined : onCreateTerminal}
+        />
+        {showCreateBrowserTab ? (
+          <PinnableMenuItem
+            testID={`${testIDPrefix}-browser`}
+            target={BROWSER_TARGET}
+            label={t("workspace.tabs.actions.newBrowser")}
+            leading={BROWSER_ICON}
+            onSelect={onCreateBrowser}
+          />
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>{t("workspace.tabs.actions.terminalProfilesMenu")}</DropdownMenuLabel>
+        {profiles.map((profile) => (
+          <PinnableProfileMenuItem
+            key={profile.id}
+            profile={profile}
+            disabled={terminalDisabled}
+            onLaunch={onLaunch}
+          />
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem testID={`${testIDPrefix}-edit-profiles`} onSelect={onEditProfiles}>
+          {t("workspace.tabs.actions.editTerminalProfiles")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function WorkspaceTabRowExtras(props: WorkspaceNewTabDropdownProps) {
+  const onLaunch = useWorkspaceNewTabDropdownLauncher(props);
+  const launchers = usePinnedLaunchers({
+    serverId: props.normalizedServerId,
+    onLaunch,
+  });
   return (
     <>
-      <DropdownMenu>
-        <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
-          <TooltipTrigger asChild triggerRefProp="triggerRef">
-            <DropdownMenuTrigger
-              testID="workspace-new-tab-menu-trigger"
-              accessibilityRole="button"
-              accessibilityLabel={t("workspace.tabs.actions.moreActions")}
-              style={newTabActionButtonStyle}
-            >
-              <ThemedChevronDown size={14} uniProps={mutedColorMapping} />
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" align="center" offset={8}>
-            <Text style={styles.newTabTooltipText}>{t("workspace.tabs.actions.moreActions")}</Text>
-          </TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent side="bottom" align="end" offset={4} minWidth={200}>
-          <PinnableMenuItem
-            testID="workspace-new-tab-menu-agent"
-            target={DRAFT_TARGET}
-            label={t("workspace.tabs.actions.newAgent")}
-            leading={AGENT_ICON}
-            onSelect={onCreateAgentTab}
-          />
-          <PinnableMenuItem
-            testID="workspace-new-tab-menu-terminal"
-            target={TERMINAL_TARGET}
-            label={t("workspace.tabs.actions.newTerminal")}
-            leading={TERMINAL_ICON}
-            disabled={terminalDisabled}
-            onSelect={terminalDisabled ? undefined : onCreateTerminal}
-          />
-          {showCreateBrowserTab ? (
-            <PinnableMenuItem
-              testID="workspace-new-tab-menu-browser"
-              target={BROWSER_TARGET}
-              label={t("workspace.tabs.actions.newBrowser")}
-              leading={BROWSER_ICON}
-              onSelect={onCreateBrowser}
-            />
-          ) : null}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>{t("workspace.tabs.actions.terminalProfilesMenu")}</DropdownMenuLabel>
-          {profiles.map((profile) => (
-            <PinnableProfileMenuItem
-              key={profile.id}
-              profile={profile}
-              disabled={terminalDisabled}
-              onLaunch={onLaunch}
-            />
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem testID="workspace-new-tab-menu-edit-profiles" onSelect={onEditProfiles}>
-            {t("workspace.tabs.actions.editTerminalProfiles")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <WorkspaceNewTabDropdown {...props} />
       <PinnedTargetsRow launchers={launchers} testIdPrefix="workspace-pinned-target" />
     </>
+  );
+}
+
+function useWorkspaceNewTabDropdownLauncher({
+  onCreateAgentTab,
+  onCreateTerminal,
+  onCreateBrowser,
+  onCreateTerminalWithProfile,
+  normalizedServerId,
+}: WorkspaceNewTabDropdownProps) {
+  const { config } = useDaemonConfig(normalizedServerId);
+  const profiles = useMemo(
+    () => resolveTerminalProfiles(config?.terminalProfiles),
+    [config?.terminalProfiles],
+  );
+  const handlers = useMemo<TabTargetHandlers>(
+    () => ({
+      createDraft: onCreateAgentTab,
+      createTerminal: onCreateTerminal,
+      createBrowser: onCreateBrowser,
+      createTerminalWithProfile: onCreateTerminalWithProfile,
+    }),
+    [onCreateAgentTab, onCreateBrowser, onCreateTerminal, onCreateTerminalWithProfile],
+  );
+  return useCallback(
+    (target: PinnedTabTarget) => {
+      runPinnedTabTarget(target, profiles, handlers);
+    },
+    [handlers, profiles],
   );
 }
 
