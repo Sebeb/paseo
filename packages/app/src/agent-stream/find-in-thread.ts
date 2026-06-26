@@ -1,7 +1,37 @@
+import MarkdownIt from "markdown-it";
 import type { ToolCallDetail } from "@getpaseo/protocol/agent-types";
 import { buildToolCallDisplayModel } from "@/utils/tool-call-display";
 import type { StreamItem, ToolCallItem } from "@/types/stream";
 import type { ThinkingGroupIndex } from "./collapse-thinking";
+
+const markdownVisibleTextParser = MarkdownIt({ typographer: true, linkify: true });
+
+interface MarkdownVisibleToken {
+  type: string;
+  content: string;
+  children?: MarkdownVisibleToken[];
+}
+
+export function extractMarkdownVisibleText(message: string): string {
+  if (!message) {
+    return "";
+  }
+  const tokens = markdownVisibleTextParser.parse(message, {}) as MarkdownVisibleToken[];
+  let result = "";
+  const walk = (entries: MarkdownVisibleToken[]) => {
+    for (const token of entries) {
+      if (token.children && token.children.length > 0) {
+        walk(token.children);
+        continue;
+      }
+      if (token.type === "text" || token.type === "code_inline") {
+        result += token.content;
+      }
+    }
+  };
+  walk(tokens);
+  return result;
+}
 
 export const FIND_PART_MESSAGE = "message";
 export const FIND_PART_TOOL_TITLE = "tool:title";
@@ -144,7 +174,7 @@ function appendFindRecordsForItem(
   }
   if (item.kind === "assistant_message") {
     if (options.includeThinking || !isThinkingItem) {
-      appendRecord(records, item.id, FIND_PART_MESSAGE, item.text);
+      appendRecord(records, item.id, FIND_PART_MESSAGE, extractMarkdownVisibleText(item.text));
     }
     return;
   }

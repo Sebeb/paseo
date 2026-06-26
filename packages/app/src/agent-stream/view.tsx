@@ -1183,7 +1183,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         isScanning={isFindScanning}
         scannedRecordCount={findScannedRecordCount}
         totalRecordCount={findTotalRecordCount}
-        onOpen={openFind}
         onClose={closeFind}
         onNext={moveToNextFindMatch}
         onPrevious={moveToPreviousFindMatch}
@@ -1195,6 +1194,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     return (
       <ToolCallSheetProvider>
         <View style={stylesheet.container}>
+          {findOverlay}
           <MessageOuterSpacingProvider disableOuterSpacing>
             {streamRenderStrategy.render({
               agentId,
@@ -1215,7 +1215,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               forwardListContentContainerStyle: stylesheet.forwardListContentContainer,
             })}
           </MessageOuterSpacingProvider>
-          {findOverlay}
           {!isNearBottom && (
             <Animated.View
               style={stylesheet.scrollToBottomContainer}
@@ -1336,7 +1335,6 @@ interface FindInThreadControlsProps {
   isScanning: boolean;
   scannedRecordCount: number;
   totalRecordCount: number;
-  onOpen: () => void;
   onClose: () => void;
   onNext: () => void;
   onPrevious: () => void;
@@ -1354,7 +1352,6 @@ function FindInThreadControls({
   isScanning,
   scannedRecordCount,
   totalRecordCount,
-  onOpen,
   onClose,
   onNext,
   onPrevious,
@@ -1384,21 +1381,7 @@ function FindInThreadControls({
   }, [includeThinking, onIncludeThinkingChange]);
 
   if (!isOpen) {
-    return (
-      <View pointerEvents="box-none" style={findInThreadStyles.host}>
-        <View style={findInThreadStyles.content}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t("agentStream.find.open")}
-            onPress={onOpen}
-            testID="find-in-thread-open"
-            style={findInThreadStyles.openButton}
-          >
-            <Search size={16} color={findInThreadStyles.icon.color} />
-          </Pressable>
-        </View>
-      </View>
-    );
+    return null;
   }
 
   return (
@@ -1454,7 +1437,7 @@ function FindInThreadControls({
                 <Check size={12} color={findInThreadStyles.checkboxIcon.color} />
               ) : null}
             </View>
-            <Text style={findInThreadStyles.checkboxLabel}>
+            <Text style={findInThreadStyles.checkboxLabel} numberOfLines={1}>
               {t("agentStream.find.searchThinking")}
             </Text>
           </Pressable>
@@ -2257,52 +2240,34 @@ const stylesheet = StyleSheet.create((theme) => ({
 
 const findInThreadStyles = StyleSheet.create((theme) => ({
   host: {
-    position: "absolute",
-    top: theme.spacing[3],
-    left: 0,
-    right: 0,
+    width: "100%",
     zIndex: 5,
-    pointerEvents: "box-none",
   },
   content: {
     width: "100%",
-    maxWidth: MAX_CONTENT_WIDTH,
     alignSelf: "center",
-    paddingHorizontal: theme.spacing[4],
-    alignItems: "flex-end",
+    alignItems: "stretch",
     pointerEvents: "box-none",
   },
   panel: {
-    minHeight: 42,
-    maxWidth: "100%",
+    width: "100%",
+    minHeight: 46,
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: theme.spacing[2],
-    paddingVertical: theme.spacing[1],
-    paddingHorizontal: theme.spacing[2],
-    borderRadius: theme.borderRadius.lg,
-    borderWidth: theme.borderWidth[1],
+    paddingVertical: theme.spacing[2],
+    paddingHorizontal: {
+      xs: theme.spacing[2],
+      md: theme.spacing[3],
+    },
+    borderBottomWidth: theme.borderWidth[1],
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface1,
-    ...theme.shadow.sm,
-  },
-  openButton: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: theme.borderRadius.full,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface1,
-    ...theme.shadow.sm,
   },
   input: {
-    width: {
-      xs: 128,
-      sm: 180,
-      md: 220,
-    },
+    flex: 1,
+    minWidth: 128,
     height: 32,
     paddingHorizontal: theme.spacing[2],
     paddingVertical: 0,
@@ -2334,16 +2299,19 @@ const findInThreadStyles = StyleSheet.create((theme) => ({
   },
   countText: {
     minWidth: 54,
+    flexShrink: 0,
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
     fontVariant: ["tabular-nums"],
   },
   scanningText: {
+    flexShrink: 1,
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
   },
   checkboxRow: {
     minHeight: 28,
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
@@ -2367,6 +2335,7 @@ const findInThreadStyles = StyleSheet.create((theme) => ({
     color: theme.colors.accentForeground,
   },
   checkboxLabel: {
+    flexShrink: 0,
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
   },

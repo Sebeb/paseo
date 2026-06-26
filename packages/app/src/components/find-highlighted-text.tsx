@@ -84,7 +84,7 @@ function normalizeRanges(
 
 const findHighlightedTextStylesheet = StyleSheet.create((theme) => ({
   highlight: {
-    backgroundColor: theme.colors.surface4,
+    backgroundColor: `${theme.colors.accent}80`,
     color: theme.colors.foreground,
   },
   activeHighlight: {
