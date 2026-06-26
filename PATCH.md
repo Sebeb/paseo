@@ -1,10 +1,10 @@
 # Patch Summary: Pinned User Input Overlay
 
-Branch: `split/pin-user-inputs`
+Branch: `feat/pin-user-inputs`
 
 Base: `origin/main`
 
-Primary commit before this writeup: `db9c96b9d feat(app): add pinned user input overlay`
+Anchor commit: ba85bd0382a6cb7db42b6656419aec614562a232 — feat(app): gate pinned prompts around tall composer
 
 ## Purpose
 
@@ -21,6 +21,7 @@ The implementation covers web and native stream strategies, persistent app setti
 - The pinned overlay tracks the source message location so it can animate and clear correctly as the original prompt returns to view or as the associated response leaves the viewport.
 - The overlay uses theme-aware gradient/mask styling so the pinned prompt reads as part of the stream instead of a detached modal.
 - Pinning is automatically suppressed while the composer occupies more than one quarter of the chat pane height, so a tall input box never competes with the pinned prompt for screen real estate.
+- When the next user message reaches the pinned area, the current pinned prompt is translated upward instead of overlapping the next prompt.
 
 ## New Core Module
 
@@ -54,6 +55,7 @@ The renderable selected state:
 - `item`: the selected user message.
 - `sourceTop`: top coordinate of the real user message.
 - `sourceBottom`: bottom coordinate of the real user message.
+- `translateY`: vertical offset applied to the overlay when the next user message pushes into the pinned region.
 
 The source coordinates let renderers calculate overlay placement and animation relative to the real message.
 
@@ -66,19 +68,17 @@ Private helper used by the selector. It returns true when a geometry intersects 
 
 This handles partially visible items at either edge.
 
-#### `getVisibleResponseDistanceFromViewportBottom(...)`
+#### `isCandidateResponseZoneRelevant(...)`
 
-Private helper that scans a candidate's response items and returns the nearest visible response distance from the viewport bottom.
+Private helper that decides whether a candidate still owns visible context.
 
 Implementation details:
 
-- Ignores response items that do not intersect the viewport.
-- For visible response items, clamps the visible bottom to `Math.min(responseItem.bottom, viewportBottom)`.
-- Computes `viewportBottom - visibleBottom`.
-- Keeps the smallest distance, which means the selected candidate is the response turn closest to the bottom of the current viewport.
-- Returns `null` if none of the candidate's response items are visible.
+- Returns true when any response item for the candidate intersects the viewport.
+- Also returns true when the next candidate's original user message is visible, so the current pinned prompt can slide away as the next prompt enters the pinned area.
+- Returns false once neither the response zone nor the next prompt is relevant.
 
-This makes the pinned prompt follow the response that is most contextually relevant to the user's current reading position.
+This keeps the overlay active long enough to hand off cleanly between adjacent prompt turns.
 
 #### `collectEstimatedPinnedUserInputCandidates(...)`
 
@@ -130,13 +130,14 @@ Selection rules:
 
 1. Return `null` when the feature is disabled.
 2. Return `null` when the viewport is invalid (`viewportBottom <= viewportTop`).
-3. Return `null` when any real user input candidate is visible. The overlay only appears when the original prompt has left the viewport.
-4. For each candidate, compute the visible response distance from the viewport bottom.
-5. Pick the candidate with the smallest non-null distance.
-6. Return that candidate's user message plus source coordinates.
-7. Return `null` when no candidate has a visible response.
+3. Compute `pinnedThresholdInContent = viewportTop + pinnedBottom`.
+4. Select the latest user-message candidate whose real bottom is above that pinned threshold.
+5. Return `null` if no candidate has crossed the pinned threshold.
+6. Return `null` if the selected candidate's response zone is no longer relevant.
+7. Compute `translateY` from the next candidate's top edge when that next prompt enters the pinned region.
+8. Return the selected user message, source coordinates, and `translateY`.
 
-This prevents duplicated prompts while the original is visible and chooses the prompt tied to the response nearest the reader's current scroll position.
+This prevents duplicated prompts while the original is near the overlay, keeps the pinned prompt tied to its response zone, and lets the next prompt physically push it out of the way.
 
 ## Stream Strategy Integration
 
@@ -194,6 +195,8 @@ Implementation details:
 - Renders a visual duplicate of the prompt with overlay-specific styling.
 - Keeps the original stream items unchanged; the pinned version is an additional visual affordance.
 - Clears the overlay when selection returns `null`.
+- Applies `translateY` through a Reanimated shared value so scroll-time push-away updates stay off the React render path.
+- Uses a compact overlay max height on compact form factors and a taller default on larger screens.
 - Integrates with existing stream layout so the overlay does not alter list item order.
 
 ### `packages/app/src/components/message.tsx`
