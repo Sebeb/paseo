@@ -192,6 +192,8 @@ All fields are optional with sensible defaults.
 
 `agents.metadataGeneration.providers` controls the preferred structured-generation fallback order for daemon-side metadata tasks such as commit messages, PR text, branch names, and generated agent titles. Entries are tried first in the configured order, then Paseo falls through to dynamically discovered defaults and finally the current selection when available.
 
+Agent and workspace titles are stored separately. The first agent in a workspace may initialize both its own agent title and the workspace title from the same generated or provider-native chat title; later agents only update their own agent title. First-agent worktree branch generation remains separate and only runs for the first worktree agent.
+
 Local speech model ids are intentionally narrow: STT uses `parakeet-tdt-0.6b-v2-int8`, TTS uses `kokoro-en-v0_19`, and turn detection uses the bundled Silero VAD model.
 
 Set these to select OpenAI instead of local speech:

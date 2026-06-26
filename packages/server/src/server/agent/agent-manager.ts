@@ -1400,6 +1400,25 @@ export class AgentManager {
     this.emitState(agent, { persist: false });
   }
 
+  supportsNativeThreadTitle(agentId: string): boolean {
+    const agent = this.agents.get(agentId);
+    return Boolean(agent?.session?.getNativeTitle);
+  }
+
+  async refreshNativeThreadTitle(agentId: string): Promise<string | null> {
+    const agent = this.agents.get(agentId);
+    const getNativeTitle = agent?.session?.getNativeTitle;
+    if (!agent || !getNativeTitle) {
+      return null;
+    }
+    const title = (await getNativeTitle.call(agent.session))?.trim() ?? "";
+    if (!title) {
+      return null;
+    }
+    await this.setTitle(agentId, title);
+    return title;
+  }
+
   async setLabels(agentId: string, labels: Record<string, string>): Promise<void> {
     const agent = this.requireAgent(agentId);
     await this.writeLabels(agent.id, labels);
@@ -3198,6 +3217,9 @@ export class AgentManager {
       this.emitState(agent);
     }
     void this.refreshRuntimeInfo(agent);
+    void this.refreshNativeThreadTitle(agent.id).catch((error) => {
+      this.logger.debug({ err: error, agentId: agent.id }, "Failed to refresh native thread title");
+    });
   }
 
   private async onStreamTurnFailed(params: {
