@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: d54e55578b7217f61d1f76cd9f5e1d5d2ad84777 — feat(app): expand sidebar workspace tab tree
+Anchor commit: 3d9fa47a874bf5948ec1935422dc085519a1b87a — feat(sidebar): add workspace sorting and visibility controls
 
 ## Purpose
 
@@ -19,6 +19,7 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
   - project/status grouping
   - workspace title source
   - auto-collapse workspaces
+  - workspace sort mode (manual, created, lastUpdated, **status**)
   - embedded tab sort mode (manual, created, lastUpdated, **status**)
   - recent tab count
   - sidebar badge mode
@@ -37,6 +38,8 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Keeps active secondary-pane tabs visible in the embedded sidebar list even though manual reordering only applies to the main pane.
 - Shows pending branch-operation badges on workspace rows while checkout-store git actions such as pull/push/merge/create-PR are running.
 - Uses the current sidebar sort order for close-successor selection and keyboard tab cycling, instead of falling back to pane insertion order.
+- Adds non-manual workspace sorting by creation time, last activity, or status urgency; manual workspace drag/drop remains available only in manual sort mode.
+- Auto-reveals the active workspace row by expanding its project and either expanding only the active workspace in auto-collapse mode or uncollapsing that workspace in normal mode.
 
 ## Restored Main Polish
 
@@ -62,6 +65,7 @@ This new persisted zustand store owns sidebar-specific display preferences.
 
 - `SidebarGroupMode = "project" | "status"`
 - `SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated" | "status"`
+- `SidebarWorkspaceSortMode = SidebarEmbeddedTabSortMode`
 - `SidebarEmbeddedRecentTabCount = 3 | 5 | 10 | "all"`
 - `SidebarBadgeMode = "diff" | "status" | "none"`
 
@@ -86,7 +90,7 @@ Returns a valid recent tab count:
 Returns a valid badge mode:
 
 - accepts `"status"`, `"none"`, and `"diff"`
-- falls back to `"diff"`
+- falls back to `"status"`
 
 #### Store Methods
 
@@ -107,6 +111,12 @@ Returns a valid badge mode:
 - Store and read per-server tab sort mode.
 - Always normalize values through `normalizeTabSortMode`.
 
+##### `getWorkspaceSortMode(serverId)` / `setWorkspaceSortMode(serverId, mode)`
+
+- Store and read per-server workspace sort mode.
+- Use the same value space and normalization as embedded tab sort mode: `"manual"`, `"created"`, `"lastUpdated"`, and `"status"`.
+- Empty server ids read as `"manual"` and are ignored on write.
+
 ##### `getEmbeddedRecentTabCount(serverId)` / `setEmbeddedRecentTabCount(serverId, count)`
 
 - Store and read per-server recent tab count.
@@ -125,6 +135,14 @@ Returns a valid badge mode:
 
 The store persists to `AsyncStorage` under `sidebar-group-mode`. It partializes only the preference maps and `autoCollapseWorkspaces`, not derived getter/setter functions.
 
+Persisted preference maps are:
+
+- `groupModeByServerId`
+- `workspaceSortModeByServerId`
+- `embeddedTabSortModeByServerId`
+- `embeddedRecentTabCountByServerId`
+- `badgeModeByServerId`
+
 ## Sidebar Grouping Selector
 
 ### `packages/app/src/components/sidebar/sidebar-grouping-selector.tsx`
@@ -136,11 +154,13 @@ This replaces the narrower display preferences menu with a broader sidebar contr
 Implementation details:
 
 - Reads app settings and sidebar view store state.
-- Reads current group mode, tab sort mode, recent count, badge mode, and auto-collapse state.
+- Reads current group mode, workspace sort mode, tab sort mode, recent count, badge mode, and auto-collapse state.
 - Writes per-server preferences only when `serverId` is non-null.
 - Shows embedded-tab controls only when `settings.tabLayoutMode !== "horizontal"`.
 - Uses `closeOnSelect = !showTabControls` so simple grouping closes the menu, while multi-control embedded tab settings can stay open.
 - Preserves the current `workspaceTitleSource` setting by writing through `updateSettings`.
+
+The workspace sort menu includes the same four options as tab sorting: Manual, Created, Last Updated, and **Status**. Status sorts workspaces by urgency, with recency and name as tiebreakers.
 
 The tab sort mode menu includes four options: Manual, Created, Last Updated, and **Status** (sorts by most urgent status, with recency as a tiebreaker).
 
@@ -150,6 +170,7 @@ The selector defines typed item components for:
 
 - workspace title source
 - group mode
+- workspace sort mode
 - tab sort mode
 - recent tab count
 - badge mode
@@ -605,6 +626,116 @@ Sequentially closes every recorded descendant for `parentTabId`, stopping and re
 
 ## Sidebar List And Row Changes
 
+### `packages/app/src/hooks/sidebar-workspaces-view-model.ts`
+
+The sidebar workspace view model now supports explicit workspace sorting while preserving manual ordering as the persisted/default behavior.
+
+#### `SidebarWorkspaceEntry`
+
+Adds data needed by sort and visibility decisions:
+
+- `createdAt: Date | null`
+- `activityAt: Date | null`
+- `statusBucket: SidebarStateBucket`
+- `statusEnteredAt: Date | null`
+
+#### `createSidebarWorkspaceEntry(...)`
+
+`packages/app/src/hooks/use-sidebar-workspaces-list.ts` now derives an effective workspace status before building each entry:
+
+- If the workspace descriptor status is not `done`, that descriptor status wins.
+- Otherwise, an active pending initial-agent create for the same server/workspace makes the row `running`, using the newest pending-create timestamp as `statusEnteredAt`.
+- Otherwise, the newest non-archived root agent in the workspace can promote the row to `needs_input`, `failed`, `attention`, or `running` via `deriveSidebarStateBucket`.
+- Subagents do not contribute directly to this workspace row activity calculation because workspace-level status is keyed to root agent activity.
+
+#### `sortSidebarWorkspaceProjects({ projects, sortMode })`
+
+Sorts workspaces within each project:
+
+- `"manual"` returns the original `projects` array by identity.
+- `"created"` sorts by `createdAt` descending.
+- `"lastUpdated"` sorts by `activityAt ?? createdAt ?? statusEnteredAt` descending.
+- `"status"` sorts by urgency rank first, then the same last-updated timestamp descending, then workspace name.
+
+Workspace status urgency rank:
+
+| Bucket        | Rank |
+| ------------- | ---- |
+| `needs_input` | 0    |
+| `failed`      | 1    |
+| `attention`   | 2    |
+| `running`     | 3    |
+| `done`        | 4    |
+
+Name tiebreaking uses `localeCompare` with `{ numeric: true, sensitivity: "base" }`, then falls back to `workspaceKey`.
+
+#### `useSidebarWorkspacesList(...)`
+
+- Reads `getWorkspaceSortMode(serverId)` from `useSidebarViewStore`.
+- In manual mode, returns the host-project structure order and relies on `useSidebarOrderStore` for persisted drag order.
+- In non-manual modes, hydrates each structural workspace row from the session workspace map before sorting so sort decisions use current timestamps/status.
+- Subscribes to `agents` and pending create attempts only for status sort, because those are only needed for effective status.
+- Continues writing missing project/workspace keys into the manual order store from the unsorted `baseProjects`, so switching back to manual preserves the user's order.
+
+### `packages/app/src/components/sidebar/sidebar-workspace-row-visibility.ts`
+
+This pure helper centralizes the trailing-slot arbitration for workspace rows.
+
+#### `getWorkspaceRowRightVisibility(input)`
+
+Input:
+
+```ts
+interface WorkspaceRowRightVisibilityInput {
+  badgeMode: SidebarBadgeMode;
+  expanded: boolean;
+  hasArchiveAction: boolean;
+  hasCreateTabAction: boolean;
+  hasDiffStat: boolean;
+  hasVcOperationBadges: boolean;
+  isCompactLayout: boolean;
+  isHovered: boolean;
+  isTouchPlatform: boolean;
+  showShortcutBadge: boolean;
+  shortcutNumber: number | null;
+  tabStatusSummary: SidebarTabStatusSummary;
+}
+```
+
+Output:
+
+```ts
+interface WorkspaceRowRightVisibility {
+  showCreateTab: boolean;
+  showKebabInSlot: boolean;
+  showVcOperationBadges: boolean;
+  showDiffStat: boolean;
+  showStatusSummary: boolean;
+  shouldRenderActionSlot: boolean;
+}
+```
+
+Behavior:
+
+- `showCreateTab` is currently always `false`.
+- Action controls are considered visible on hover, touch platforms, or compact layout.
+- A shortcut badge suppresses kebab, VC operation badges, diff stat, and status summary.
+- In `status` badge mode, a collapsed workspace row with non-empty tab status badges keeps those status badges visible even while hovered, so action controls do not replace the attention signal.
+- In `diff` badge mode, diff stats show only when there is a diff stat, the row is not hovered, and no shortcut badge is visible.
+- VC operation badges show only when there are pending operations and neither action controls, shortcut badges, nor status summaries should occupy the slot.
+- The action slot is still rendered when archive/create actions exist, when diff mode has diff/VC metadata, when VC operations exist in other modes, or when a collapsed status-mode row has status badges.
+
+### `packages/app/src/utils/sidebar-active-workspace-reveal.ts`
+
+Adds `findActiveSidebarWorkspaceRevealTarget({ projects, selection, serverId, selectionEnabled })`.
+
+Behavior:
+
+- Returns `null` unless route-based selection is enabled, there is a selection, and the selection's server id matches the current sidebar server.
+- Scans visible projects for the selected workspace id.
+- Returns `{ projectKey, workspaceKey }` for the containing project/workspace when found.
+- Returns `null` when the active workspace is not present in the current sidebar model.
+
 ### `packages/app/src/components/sidebar/sidebar-vc-operation-badge.tsx`
 
 Adds the compact git-operation badges shown on workspace rows when checkout actions are in progress.
@@ -630,13 +761,14 @@ Adds the compact git-operation badges shown on workspace rows when checkout acti
 
 ### `packages/app/src/components/sidebar-workspace-list.tsx`
 
-The sidebar list now supports nested embedded tabs under workspace rows, subtree status aggregation, workspace git-operation badges, and full embedded-tab context menus.
+The sidebar list now supports nested embedded tabs under workspace rows, subtree status aggregation, workspace git-operation badges, workspace sorting, active-row reveal, and full embedded-tab context menus.
 
 Key behavior:
 
 - Reads workspace tab layouts and pane state.
 - Builds embedded tab rows for each workspace.
 - Applies per-server tab sort and recent-count preferences.
+- Applies per-server workspace sort preferences in `useSidebarWorkspacesList`.
 - Applies manual order merges through `mergeEmbeddedVisibleTabOrder`.
 - Supports workspace collapse/expand and auto-collapse behavior.
 - Supports status-mode grouping via `SidebarStatusWorkspaceList`.
@@ -644,6 +776,8 @@ Key behavior:
 - Uses `SidebarWorkspaceRowContent` for workspace row presentation and `SidebarEntryRowContent` for embedded tab rows.
 - Provides context menu actions for workspace and embedded tabs.
 - Treats non-main-pane active tabs as forced-visible embedded rows so split panes stay reachable from the sidebar.
+- Renders workspace rows through a `DraggableList` only when `workspaceSortMode === "manual"`; created/lastUpdated/status modes render a static list so drag gestures cannot rewrite a derived sort order.
+- Uses `findActiveSidebarWorkspaceRevealTarget` whenever the route points at a workspace. The containing project is expanded, and the workspace is uncollapsed. When auto-collapse is enabled, `setOnlyWorkspaceExpanded(activeWorkspaceKey, allWorkspaceKeys)` collapses all other visible workspaces.
 
 #### `useSidebarTabStatusSummaries`
 
@@ -661,10 +795,11 @@ Added `ProjectContextMenuContent` — a `ContextMenuContent` panel mirroring the
 #### `WorkspaceRowRightGroup` / `WorkspaceRowActionSlot`
 
 - Workspace rows now query `usePendingCheckoutBranchActionIds` using the workspace directory.
+- Workspace rows call `getWorkspaceRowRightVisibility` to decide which right-side content should occupy the stable trailing slot.
 - Trailing metadata is split into:
   - `WorkspaceRowTrailingMeta` for diff stat / PR hint / status badges / VC operation badges.
   - `WorkspaceRowActionControls` for hover-visible create-tab and kebab actions.
-- When branch-operation badges are visible, they replace diff/status trailing metadata for that row.
+- When branch-operation badges are visible, they replace diff/status trailing metadata for that row unless a collapsed status summary or shortcut badge has priority.
 
 #### `EmbeddedWorkspaceTabs`
 
