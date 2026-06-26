@@ -4,7 +4,7 @@ Branch: `feat/vertical-pane-tabs`
 
 Base: `origin/main`
 
-Anchor commit: 6efae7bbf30e70ec3f515da79be85cf643f719a9 — feat(sidebar): add vertical tab quick actions
+Anchor commit: d906cf0a35df459c24426eecfeb10d87f8339679 — docs(patch): refresh PATCH.md for feat/vertical-pane-tabs
 
 ## Purpose
 
