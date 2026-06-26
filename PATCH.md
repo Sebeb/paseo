@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: 9aa72edc0eb5d40faaf9129fbc951305300b1f36 — docs(patch): refresh PATCH.md for feat/sidebar-workspace-tabs
+Anchor commit: 4467d5e3522e86cfca540b4de3b593460b06e2c2 — feat(sidebar): refine workspace tab collapse controls
 
 ## Purpose
 
@@ -18,6 +18,7 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Adds sidebar grouping controls for:
   - project/status grouping
   - workspace title source
+  - auto-collapse projects
   - auto-collapse workspaces
   - workspace sort mode (manual, created, lastUpdated, **status**)
   - embedded tab sort mode (manual, created, lastUpdated, **status**)
@@ -39,7 +40,7 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Shows pending branch-operation badges on workspace rows while checkout-store git actions such as pull/push/merge/create-PR are running.
 - Uses the current sidebar sort order for close-successor selection and keyboard tab cycling, instead of falling back to pane insertion order.
 - Adds non-manual workspace sorting by creation time, last activity, or status urgency; manual workspace drag/drop remains available only in manual sort mode.
-- Auto-reveals the active workspace row by expanding its project and either expanding only the active workspace in auto-collapse mode or uncollapsing that workspace in normal mode.
+- Auto-reveals the active workspace row by expanding its project, respecting project auto-collapse, and either expanding only the active workspace in workspace auto-collapse mode or uncollapsing that workspace in normal mode.
 
 ## Restored Main Polish
 
@@ -131,9 +132,13 @@ Returns a valid badge mode:
 
 - Stores the global auto-collapse toggle.
 
+##### `setAutoCollapseProjects(enabled)`
+
+- Stores the global project auto-collapse toggle.
+
 #### Persistence
 
-The store persists to `AsyncStorage` under `sidebar-group-mode`. It partializes only the preference maps and `autoCollapseWorkspaces`, not derived getter/setter functions.
+The store persists to `AsyncStorage` under `sidebar-group-mode`. It partializes only the preference maps, `autoCollapseProjects`, and `autoCollapseWorkspaces`, not derived getter/setter functions.
 
 Persisted preference maps are:
 
@@ -142,6 +147,11 @@ Persisted preference maps are:
 - `embeddedTabSortModeByServerId`
 - `embeddedRecentTabCountByServerId`
 - `badgeModeByServerId`
+
+Persisted global toggles are:
+
+- `autoCollapseProjects`
+- `autoCollapseWorkspaces`
 
 ## Sidebar Grouping Selector
 
@@ -154,15 +164,21 @@ This replaces the narrower display preferences menu with a broader sidebar contr
 Implementation details:
 
 - Reads app settings and sidebar view store state.
-- Reads current group mode, workspace sort mode, tab sort mode, recent count, badge mode, and auto-collapse state.
+- Reads current group mode, workspace sort mode, tab sort mode, recent count, badge mode, project auto-collapse state, and workspace auto-collapse state.
 - Writes per-server preferences only when `serverId` is non-null.
 - Shows embedded-tab controls only when `settings.tabLayoutMode !== "horizontal"`.
+- Shows the workspace auto-collapse toggle only for the sidebar tab layout; the project auto-collapse toggle is always available from the sidebar controls.
 - Uses `closeOnSelect = !showTabControls` so simple grouping closes the menu, while multi-control embedded tab settings can stay open.
 - Preserves the current `workspaceTitleSource` setting by writing through `updateSettings`.
 
 The workspace sort menu includes the same four options as tab sorting: Manual, Created, Last Updated, and **Status**. Status sorts workspaces by urgency, with recency and name as tiebreakers.
 
 The tab sort mode menu includes four options: Manual, Created, Last Updated, and **Status** (sorts by most urgent status, with recency as a tiebreaker).
+
+The top-level menu includes two persistent toggle items:
+
+- **Auto collapse projects** toggles `autoCollapseProjects` and keeps the menu open.
+- **Auto collapse workspaces** toggles `autoCollapseWorkspaces`, keeps the menu open, and is only rendered while the app uses sidebar tab layout.
 
 #### Menu Item Components
 
@@ -777,7 +793,8 @@ Key behavior:
 - Provides context menu actions for workspace and embedded tabs.
 - Treats non-main-pane active tabs as forced-visible embedded rows so split panes stay reachable from the sidebar.
 - Renders workspace rows through a `DraggableList` only when `workspaceSortMode === "manual"`; created/lastUpdated/status modes render a static list so drag gestures cannot rewrite a derived sort order.
-- Uses `findActiveSidebarWorkspaceRevealTarget` whenever the route points at a workspace. The containing project is expanded, and the workspace is uncollapsed. When auto-collapse is enabled, `setOnlyWorkspaceExpanded(activeWorkspaceKey, allWorkspaceKeys)` collapses all other visible workspaces.
+- Uses `findActiveSidebarWorkspaceRevealTarget` whenever the route points at a workspace. The containing project is expanded, or becomes the only expanded project when `autoCollapseProjects` is enabled. The workspace is uncollapsed, or becomes the only expanded workspace when sidebar-layout `autoCollapseWorkspaces` is enabled.
+- Tracks the last auto-revealed workspace key to avoid repeatedly rewriting collapsed-section state for the same active workspace.
 
 #### `useSidebarTabStatusSummaries`
 
@@ -791,6 +808,8 @@ Old `SidebarStatusSummaryBadges`, `StatusSummaryCountBadge`, and `SidebarTabStat
 `ProjectHeaderTrailingContent` was removed. Project rows build their trailing content inline and pass `SidebarEntryStatusBadges` directly.
 
 Added `ProjectContextMenuContent` — a `ContextMenuContent` panel mirroring the project kebab menu, wrapping the project row with `ContextMenu`/`ContextMenuTrigger`.
+
+`ProjectModeList` also routes project disclosure clicks through `handleToggleProjectCollapsed`. When `autoCollapseProjects` is enabled and the clicked project is currently collapsed, it calls `setOnlyProjectExpanded(projectKey, allProjectKeys)` so opening one project collapses all other visible projects. Otherwise it falls back to the normal toggle handler.
 
 #### `WorkspaceRowRightGroup` / `WorkspaceRowActionSlot`
 
@@ -826,6 +845,8 @@ Implementation details:
 - Supports middle-click close on web by attaching an `auxclick` handler directly to the row element.
 - Allows drag handles only for depth-0 main-pane rows in manual mode.
 - Wraps both the row and kebab surface around the same `WorkspaceTabMenuEntry[]` produced by `buildWorkspaceTabMenuEntries`.
+- Passes `surface: "vertical"` when building embedded sidebar tab menu entries so left/right bulk close commands use vertical tab semantics.
+- Applies `entry.iconRotation === "clockwise-90"` to arrow menu icons so vertical close-left/close-right affordances point in the correct visual direction. The same rotation support is used by the mobile tab dropdown.
 
 #### Embedded tab menus and bulk close
 
