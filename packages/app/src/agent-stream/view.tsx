@@ -1807,6 +1807,9 @@ function CollapsibleThinkingGroup({
     }
     onExpandedChange(!expanded);
   }, [expanded, onExpandStart, onExpandedChange]);
+  const handlePreviewExpandPress = useCallback(() => {
+    onExpandedChange(true);
+  }, [onExpandedChange]);
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
   const Icon = expanded ? ChevronDown : ChevronRight;
 
@@ -1829,7 +1832,12 @@ function CollapsibleThinkingGroup({
         <ThinkingGroupHeaderCounts counts={counts} />
       </Pressable>
       {expanded ? <View style={thinkingGroupStyles.content}>{children}</View> : null}
-      {showPreview ? <ThinkingGroupPreview messages={previewMessages} /> : null}
+      {showPreview ? (
+        <ThinkingGroupPreview
+          messages={previewMessages}
+          onBottomHalfPress={handlePreviewExpandPress}
+        />
+      ) : null}
     </View>
   );
 }
@@ -1994,7 +2002,14 @@ function ThinkingGroupHeaderCounts({
   );
 }
 
-function ThinkingGroupPreview({ messages }: { messages: ThinkingGroupPreviewMessage[] }) {
+function ThinkingGroupPreview({
+  messages,
+  onBottomHalfPress,
+}: {
+  messages: ThinkingGroupPreviewMessage[];
+  onBottomHalfPress: () => void;
+}) {
+  const { t } = useTranslation();
   const scrollRef = useRef<React.ElementRef<typeof ScrollView>>(null);
   const viewportHeightRef = useRef(0);
   const contentHeightRef = useRef(0);
@@ -2084,6 +2099,13 @@ function ThinkingGroupPreview({ messages }: { messages: ThinkingGroupPreviewMess
       </ScrollView>
       <PreviewFade edge="top" />
       <PreviewFade edge="bottom" />
+      <Pressable
+        accessibilityLabel={t("agentStream.thinking.label")}
+        accessibilityRole="button"
+        accessibilityState={COLLAPSED_THINKING_PREVIEW_ACCESSIBILITY_STATE}
+        onPress={onBottomHalfPress}
+        style={thinkingGroupStyles.previewExpandTarget}
+      />
     </View>
   );
 }
@@ -2156,6 +2178,7 @@ const primaryColorMapping = (theme: Theme) => ({
 const mutedColorMapping = (theme: Theme) => ({
   color: theme.colors.foregroundMuted,
 });
+const COLLAPSED_THINKING_PREVIEW_ACCESSIBILITY_STATE = { expanded: false };
 
 const pressableStyle = ({
   pressed,
@@ -2835,6 +2858,13 @@ const thinkingGroupStyles = StyleSheet.create((theme) => ({
   },
   previewFadeWeak: {
     opacity: 0.24,
+  },
+  previewExpandTarget: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: "50%",
   },
 }));
 
