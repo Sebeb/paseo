@@ -157,6 +157,45 @@ describe("workspace message schemas", () => {
     expect(response.type).toBe("fetch_agent_history_response");
   });
 
+  test("parses agent timeline prompt index request and response", () => {
+    const request = SessionInboundMessageSchema.parse({
+      type: "agent.timeline.prompt_index.request",
+      requestId: "req-prompt-index",
+      agentId: "agent-1",
+    });
+    const response = SessionOutboundMessageSchema.parse({
+      type: "agent.timeline.prompt_index.response",
+      payload: {
+        requestId: "req-prompt-index",
+        agentId: "agent-1",
+        epoch: "epoch-1",
+        window: { minSeq: 1, maxSeq: 4, nextSeq: 5 },
+        rows: [
+          {
+            id: "user-1",
+            kind: "user_message",
+            seqStart: 1,
+            seqEnd: 1,
+            textPreview: "hello",
+            hasImages: false,
+            hasAttachments: false,
+          },
+          {
+            id: "assistant-1",
+            kind: "assistant_message",
+            seqStart: 2,
+            seqEnd: 4,
+            textLength: 120,
+          },
+        ],
+        error: null,
+      },
+    });
+
+    expect(request.type).toBe("agent.timeline.prompt_index.request");
+    expect(response.type).toBe("agent.timeline.prompt_index.response");
+  });
+
   test("parses recent provider session descriptors without legacy handle fields", () => {
     const parsed = RecentProviderSessionDescriptorPayloadSchema.parse({
       providerId: "custom-codex",

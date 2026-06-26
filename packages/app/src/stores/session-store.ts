@@ -23,6 +23,7 @@ import type {
 } from "@getpaseo/protocol/agent-types";
 import type {
   ServerInfoStatusPayload,
+  AgentTimelinePromptIndexResponseMessage,
   ProjectPlacementPayload,
   ServerCapabilities,
   WorkspaceDescriptorPayload,
@@ -311,6 +312,8 @@ export interface AgentTimelineCursorState {
   endSeq: number;
 }
 
+export type AgentTimelinePromptIndex = AgentTimelinePromptIndexResponseMessage["payload"];
+
 export type WorkspaceRestoreStatus = "restoring" | "failed" | "needs-host-upgrade";
 
 // Per-session state
@@ -344,6 +347,7 @@ export interface SessionState {
   agentTimelineCursor: Map<string, AgentTimelineCursorState>;
   agentTimelineHasOlder: Map<string, boolean>;
   agentTimelineOlderFetchInFlight: Map<string, boolean>;
+  agentTimelinePromptIndex: Map<string, AgentTimelinePromptIndex>;
   historySyncGeneration: number;
   agentHistorySyncGeneration: Map<string, number>;
   agentAuthoritativeHistoryApplied: Map<string, boolean>;
@@ -451,6 +455,12 @@ interface SessionStoreActions {
     serverId: string,
     state: Map<string, boolean> | ((prev: Map<string, boolean>) => Map<string, boolean>),
   ) => void;
+  setAgentTimelinePromptIndex: (
+    serverId: string,
+    state:
+      | Map<string, AgentTimelinePromptIndex>
+      | ((prev: Map<string, AgentTimelinePromptIndex>) => Map<string, AgentTimelinePromptIndex>),
+  ) => void;
   bumpHistorySyncGeneration: (serverId: string) => void;
   markAgentHistorySynchronized: (serverId: string, agentId: string) => void;
   setAgentAuthoritativeHistoryApplied: (
@@ -555,6 +565,7 @@ function createInitialSessionState(serverId: string, client: DaemonClient): Sess
     agentTimelineCursor: new Map(),
     agentTimelineHasOlder: new Map(),
     agentTimelineOlderFetchInFlight: new Map(),
+    agentTimelinePromptIndex: new Map(),
     historySyncGeneration: 0,
     agentHistorySyncGeneration: new Map(),
     agentAuthoritativeHistoryApplied: new Map(),
@@ -1075,6 +1086,27 @@ export const useSessionStore = create<SessionStore>()(
             sessions: {
               ...prev.sessions,
               [serverId]: { ...session, agentTimelineOlderFetchInFlight: nextState },
+            },
+          };
+        });
+      },
+
+      setAgentTimelinePromptIndex: (serverId, state) => {
+        set((prev) => {
+          const session = prev.sessions[serverId];
+          if (!session) {
+            return prev;
+          }
+          const nextState =
+            typeof state === "function" ? state(session.agentTimelinePromptIndex) : state;
+          if (session.agentTimelinePromptIndex === nextState) {
+            return prev;
+          }
+          return {
+            ...prev,
+            sessions: {
+              ...prev.sessions,
+              [serverId]: { ...session, agentTimelinePromptIndex: nextState },
             },
           };
         });

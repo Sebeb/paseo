@@ -249,12 +249,13 @@ describe("agent detach RPC", () => {
     expect(parsed.type).toBe("agent.detach.response");
   });
 
-  test("parses the agentDetach server feature gate", () => {
+  test("parses agent stream server feature gates", () => {
     const parsed = parseServerInfoStatusPayload({
       status: "server_info",
       serverId: "srv-test",
       features: {
         agentDetach: true,
+        timelinePromptIndex: true,
       },
     });
 
@@ -262,6 +263,7 @@ describe("agent detach RPC", () => {
       throw new Error("Expected server info payload to parse");
     }
     expect(parsed.features?.agentDetach).toBe(true);
+    expect(parsed.features?.timelinePromptIndex).toBe(true);
   });
 });
 

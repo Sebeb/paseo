@@ -5,6 +5,8 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StreamItem } from "@/types/stream";
+import type { AgentTimelinePromptIndex } from "@/stores/session-store";
+import type { AgentTimelinePromptIndexRow } from "@getpaseo/protocol/messages";
 import type { StreamSegmentRenderers, StreamViewportHandle } from "./strategy";
 import { createWebStreamStrategy } from "./strategy-web";
 
@@ -91,6 +93,9 @@ function renderViewport(input: {
   root: Root;
   isMobileBreakpoint?: boolean;
   promptScrollMarkers?: boolean;
+  promptIndex?: AgentTimelinePromptIndex | null;
+  loadedHistoryStartSeq?: number | null;
+  expectsFullHistoryPromptIndex?: boolean;
   historyVirtualized?: StreamItem[];
   historyMounted?: StreamItem[];
   liveHead?: StreamItem[];
@@ -114,6 +119,9 @@ function renderViewport(input: {
         historyMounted,
         liveHead,
       },
+      promptIndex: input.promptIndex ?? null,
+      loadedHistoryStartSeq: input.loadedHistoryStartSeq ?? null,
+      expectsFullHistoryPromptIndex: input.expectsFullHistoryPromptIndex ?? false,
       boundary: {
         hasVirtualizedHistory: historyVirtualized.length > 0,
         hasMountedHistory: historyMounted.length > 0,
@@ -143,6 +151,36 @@ function renderViewport(input: {
   });
 
   return viewportRef;
+}
+
+function promptIndexRow(
+  id: string,
+  kind: AgentTimelinePromptIndexRow["kind"],
+  seqStart: number,
+  input: Partial<AgentTimelinePromptIndexRow> = {},
+): AgentTimelinePromptIndexRow {
+  return {
+    id,
+    kind,
+    seqStart,
+    seqEnd: seqStart,
+    ...input,
+  };
+}
+
+function createPromptIndex(rows: AgentTimelinePromptIndexRow[]): AgentTimelinePromptIndex {
+  return {
+    requestId: "prompt-index",
+    agentId: "agent",
+    epoch: "epoch",
+    window: {
+      minSeq: 1,
+      maxSeq: rows.at(-1)?.seqEnd ?? 0,
+      nextSeq: (rows.at(-1)?.seqEnd ?? 0) + 1,
+    },
+    rows,
+    error: null,
+  };
 }
 
 function setScrollableMetrics(input: {
@@ -282,6 +320,9 @@ describe("createWebStreamStrategy", () => {
               historyMounted: [],
               liveHead: [],
             },
+            promptIndex: null,
+            loadedHistoryStartSeq: null,
+            expectsFullHistoryPromptIndex: false,
             boundary: {
               hasVirtualizedHistory: true,
               hasMountedHistory: false,
@@ -331,6 +372,9 @@ describe("createWebStreamStrategy", () => {
               historyMounted: [userMessage(1), userMessage(2)],
               liveHead: [],
             },
+            promptIndex: null,
+            loadedHistoryStartSeq: null,
+            expectsFullHistoryPromptIndex: false,
             boundary: {
               hasVirtualizedHistory: false,
               hasMountedHistory: true,
@@ -401,6 +445,9 @@ describe("createWebStreamStrategy", () => {
               ],
               liveHead: [],
             },
+            promptIndex: null,
+            loadedHistoryStartSeq: null,
+            expectsFullHistoryPromptIndex: false,
             boundary: {
               hasVirtualizedHistory: false,
               hasMountedHistory: true,
@@ -799,6 +846,76 @@ describe("createWebStreamStrategy", () => {
 
     expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledWith({
       top: 273,
+      behavior: "auto",
+    });
+  });
+
+  it("positions unloaded full-history prompt markers before the user scrolls older history into view", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    renderViewport({
+      root,
+      loadedHistoryStartSeq: 4,
+      promptIndex: createPromptIndex([
+        promptIndexRow("old-user", "user_message", 1, { textPreview: "Old prompt" }),
+        promptIndexRow("old-assistant", "assistant_message", 2),
+        promptIndexRow("loaded-user", "user_message", 4, { textPreview: "Loaded prompt" }),
+      ]),
+      historyMounted: [userMessage(4)],
+    });
+
+    const scrollContainer = getRequiredElement(container, '[data-testid="agent-chat-scroll"]');
+    setScrollableMetrics({ scrollContainer, viewportHeight: 400, contentHeight: 1200 });
+    const loadedAnchor = getRequiredElement(container, "[data-stream-item-id='message-4']");
+    setElementOffsetTop(loadedAnchor, 316);
+    refreshScrollMetrics(scrollContainer);
+
+    const oldMarker = getRequiredElement(
+      container,
+      "[data-testid='prompt-scroll-marker-old-user']",
+    );
+    const loadedMarker = getRequiredElement(
+      container,
+      "[data-testid='prompt-scroll-marker-message-4']",
+    );
+
+    expect(Number.parseFloat(oldMarker.style.top)).toBeCloseTo(0);
+    expect(Number.parseFloat(loadedMarker.style.top)).toBeGreaterThan(
+      Number.parseFloat(oldMarker.style.top),
+    );
+  });
+
+  it("starts loading older history when an unloaded prompt marker is clicked", () => {
+    const onNearHistoryStart = vi.fn();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    renderViewport({
+      root,
+      loadedHistoryStartSeq: 4,
+      promptIndex: createPromptIndex([
+        promptIndexRow("old-user", "user_message", 1, { textPreview: "Old prompt" }),
+        promptIndexRow("old-assistant", "assistant_message", 2),
+        promptIndexRow("loaded-user", "user_message", 4, { textPreview: "Loaded prompt" }),
+      ]),
+      historyMounted: [userMessage(4)],
+      onNearHistoryStart,
+    });
+
+    const scrollContainer = getRequiredElement(container, '[data-testid="agent-chat-scroll"]');
+    setScrollableMetrics({ scrollContainer, viewportHeight: 400, contentHeight: 1200 });
+    refreshScrollMetrics(scrollContainer);
+    vi.mocked(HTMLElement.prototype.scrollTo).mockClear();
+
+    const marker = getRequiredElement(container, "[data-testid='prompt-scroll-marker-old-user']");
+    act(() => {
+      marker.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onNearHistoryStart).toHaveBeenCalled();
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledWith({
+      top: 0,
       behavior: "auto",
     });
   });

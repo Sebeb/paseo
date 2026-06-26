@@ -71,6 +71,7 @@ import type {
   AgentTimelineFetchResult,
   ManagedAgent,
 } from "./agent/agent-manager.js";
+import { createPromptIndexRows } from "./agent/timeline-prompt-index.js";
 import { createAgentCommand } from "./agent/create-agent/create.js";
 import {
   archiveAgentCommand,
@@ -1357,6 +1358,7 @@ export class Session {
       this.dispatchVoiceAndControlMessage(msg) ??
       this.dispatchAgentRewindMessage(msg) ??
       this.dispatchAgentRelationshipMessage(msg) ??
+      this.dispatchAgentTimelineMessage(msg) ??
       this.dispatchAgentLifecycleMessage(msg) ??
       this.dispatchAgentConfigMessage(msg) ??
       this.dispatchCheckoutMessage(msg) ??
@@ -1470,12 +1472,21 @@ export class Session {
         return this.handleRefreshAgentRequest(msg);
       case "cancel_agent_request":
         return this.handleCancelAgentRequest(msg.agentId, msg.requestId);
-      case "fetch_agent_timeline_request":
-        return this.handleFetchAgentTimelineRequest(msg);
       case "agent_permission_response":
         return this.handleAgentPermissionResponse(msg.agentId, msg.requestId, msg.response);
       case "clear_agent_attention":
         return this.handleClearAgentAttention(msg.agentId, msg.requestId);
+      default:
+        return undefined;
+    }
+  }
+
+  private dispatchAgentTimelineMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "fetch_agent_timeline_request":
+        return this.handleFetchAgentTimelineRequest(msg);
+      case "agent.timeline.prompt_index.request":
+        return this.handleAgentTimelinePromptIndexRequest(msg);
       default:
         return undefined;
     }
@@ -5244,6 +5255,56 @@ export class Session {
     }
 
     return this.selectProjectedTimelineProjection(input);
+  }
+
+  private async handleAgentTimelinePromptIndexRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.timeline.prompt_index.request" }>,
+  ): Promise<void> {
+    try {
+      await ensureAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      const timeline = this.agentManager.fetchTimeline(msg.agentId, {
+        direction: "tail",
+        limit: 0,
+      });
+      const page = selectProjectedTimelinePage({
+        rows: timeline.rows,
+        bounds: timeline.window,
+        direction: "tail",
+        limit: 0,
+      });
+
+      this.emit({
+        type: "agent.timeline.prompt_index.response",
+        payload: {
+          requestId: msg.requestId,
+          agentId: msg.agentId,
+          epoch: timeline.epoch,
+          window: timeline.window,
+          rows: createPromptIndexRows(page.entries),
+          error: null,
+        },
+      });
+    } catch (error) {
+      this.sessionLogger.error(
+        { err: error, agentId: msg.agentId },
+        "Failed to handle agent.timeline.prompt_index.request",
+      );
+      this.emit({
+        type: "agent.timeline.prompt_index.response",
+        payload: {
+          requestId: msg.requestId,
+          agentId: msg.agentId,
+          epoch: "",
+          window: { minSeq: 0, maxSeq: 0, nextSeq: 0 },
+          rows: [],
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
   }
 
   private async handleFetchAgentTimelineRequest(

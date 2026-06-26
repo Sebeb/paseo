@@ -518,6 +518,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
   const clearAgentStreamHead = useSessionStore((state) => state.clearAgentStreamHead);
   const setAgentTimelineCursor = useSessionStore((state) => state.setAgentTimelineCursor);
   const setAgentTimelineHasOlder = useSessionStore((state) => state.setAgentTimelineHasOlder);
+  const setAgentTimelinePromptIndex = useSessionStore((state) => state.setAgentTimelinePromptIndex);
   const setInitializingAgents = useSessionStore((state) => state.setInitializingAgents);
   const bumpHistorySyncGeneration = useSessionStore((state) => state.bumpHistorySyncGeneration);
   const markAgentHistorySynchronized = useSessionStore(
@@ -1665,6 +1666,14 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
         next.delete(agentId);
         return next;
       });
+      setAgentTimelinePromptIndex(serverId, (prev) => {
+        if (!prev.has(agentId)) {
+          return prev;
+        }
+        const next = new Map(prev);
+        next.delete(agentId);
+        return next;
+      });
 
       // Remove draft input
       clearDraftInput({
@@ -1769,6 +1778,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
     setAgentStreamState,
     clearAgentStreamHead,
     setAgentTimelineCursor,
+    setAgentTimelinePromptIndex,
     setInitializingAgents,
     setAgents,
     setWorkspaces,

@@ -1264,6 +1264,12 @@ export const FetchAgentTimelineRequestMessageSchema = z.object({
   projection: z.enum(["projected", "canonical"]).optional(),
 });
 
+export const AgentTimelinePromptIndexRequestMessageSchema = z.object({
+  type: z.literal("agent.timeline.prompt_index.request"),
+  agentId: z.string(),
+  requestId: z.string(),
+});
+
 export const SetAgentModeRequestMessageSchema = z.object({
   type: z.literal("set_agent_mode_request"),
   agentId: z.string(),
@@ -2048,6 +2054,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ShutdownServerRequestMessageSchema,
   RestartServerRequestMessageSchema,
   FetchAgentTimelineRequestMessageSchema,
+  AgentTimelinePromptIndexRequestMessageSchema,
   SetAgentModeRequestMessageSchema,
   SetAgentModelRequestMessageSchema,
   SetAgentThinkingRequestMessageSchema,
@@ -2319,6 +2326,8 @@ export const ServerInfoStatusPayloadSchema = z
         providerUsageList: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: z.boolean().optional(),
+        // COMPAT(timelinePromptIndex): added in v0.1.X, drop the gate when daemon floor >= v0.1.X.
+        timelinePromptIndex: z.boolean().optional(),
       })
       .optional(),
   })
@@ -2695,6 +2704,41 @@ export const FetchAgentHistoryResponseMessageSchema = z.object({
     requestId: z.string(),
     entries: z.array(AgentDirectoryResponseEntrySchema),
     pageInfo: AgentDirectoryPageInfoSchema,
+  }),
+});
+
+export const AgentTimelinePromptIndexRowSchema = z.object({
+  id: z.string(),
+  kind: z.enum([
+    "user_message",
+    "assistant_message",
+    "tool_call",
+    "thought",
+    "todo_list",
+    "activity_log",
+    "compaction",
+  ]),
+  seqStart: z.number().int().nonnegative(),
+  seqEnd: z.number().int().nonnegative(),
+  textPreview: z.string().optional(),
+  hasImages: z.boolean().optional(),
+  hasAttachments: z.boolean().optional(),
+  textLength: z.number().int().nonnegative().optional(),
+});
+
+export const AgentTimelinePromptIndexResponseMessageSchema = z.object({
+  type: z.literal("agent.timeline.prompt_index.response"),
+  payload: z.object({
+    requestId: z.string(),
+    agentId: z.string(),
+    epoch: z.string(),
+    window: z.object({
+      minSeq: z.number().int().nonnegative(),
+      maxSeq: z.number().int().nonnegative(),
+      nextSeq: z.number().int().nonnegative(),
+    }),
+    rows: z.array(AgentTimelinePromptIndexRowSchema),
+    error: z.string().nullable(),
   }),
 });
 
@@ -4099,6 +4143,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentStatusMessageSchema,
   FetchAgentsResponseMessageSchema,
   FetchAgentHistoryResponseMessageSchema,
+  AgentTimelinePromptIndexResponseMessageSchema,
   FetchRecentProviderSessionsResponseMessageSchema,
   FetchWorkspacesResponseMessageSchema,
   ProjectAddResponseSchema,
@@ -4517,6 +4562,13 @@ export type ClientHeartbeatMessage = z.infer<typeof ClientHeartbeatMessageSchema
 export type ListCommandsRequest = z.infer<typeof ListCommandsRequestSchema>;
 export type ListCommandsResponse = z.infer<typeof ListCommandsResponseSchema>;
 export type RegisterPushTokenMessage = z.infer<typeof RegisterPushTokenMessageSchema>;
+export type AgentTimelinePromptIndexRow = z.infer<typeof AgentTimelinePromptIndexRowSchema>;
+export type AgentTimelinePromptIndexRequestMessage = z.infer<
+  typeof AgentTimelinePromptIndexRequestMessageSchema
+>;
+export type AgentTimelinePromptIndexResponseMessage = z.infer<
+  typeof AgentTimelinePromptIndexResponseMessageSchema
+>;
 
 // Terminal message types
 export type ListTerminalsRequest = z.infer<typeof ListTerminalsRequestSchema>;

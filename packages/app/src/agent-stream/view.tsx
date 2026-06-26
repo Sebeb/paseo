@@ -76,7 +76,11 @@ import type {
   AgentPermissionResponse,
 } from "@getpaseo/protocol/agent-types";
 import type { AgentScreenAgent } from "@/hooks/use-agent-screen-state-machine";
-import { useSessionStore } from "@/stores/session-store";
+import {
+  useSessionStore,
+  type AgentTimelineCursorState,
+  type AgentTimelinePromptIndex,
+} from "@/stores/session-store";
 import { useFileExplorerActions } from "@/hooks/use-file-explorer-actions";
 import { useLoadOlderAgentHistory } from "@/hooks/use-load-older-agent-history";
 import type { ToastApi } from "@/components/toast-host";
@@ -148,6 +152,40 @@ const PINNED_USER_INPUT_TOP_PADDING = 15;
 const PINNED_USER_INPUT_MAX_HEIGHT_DEFAULT = 118;
 const PINNED_USER_INPUT_MAX_HEIGHT_COMPACT = 59;
 const PINNED_USER_INPUT_GRADIENT_HEIGHT = 15;
+
+type SessionStoreSnapshot = ReturnType<typeof useSessionStore.getState>;
+
+function selectSessionClient(state: SessionStoreSnapshot, serverId: string): DaemonClient | null {
+  return state.sessions[serverId]?.client ?? null;
+}
+
+function selectServerSupportsPromptIndex(state: SessionStoreSnapshot, serverId: string): boolean {
+  return state.sessions[serverId]?.serverInfo?.features?.timelinePromptIndex === true;
+}
+
+function selectAgentStreamHead(
+  state: SessionStoreSnapshot,
+  serverId: string,
+  agentId: string,
+): StreamItem[] | undefined {
+  return state.sessions[serverId]?.agentStreamHead?.get(agentId);
+}
+
+function selectAgentTimelinePromptIndex(
+  state: SessionStoreSnapshot,
+  serverId: string,
+  agentId: string,
+): AgentTimelinePromptIndex | null {
+  return state.sessions[serverId]?.agentTimelinePromptIndex.get(agentId) ?? null;
+}
+
+function selectAgentTimelineCursor(
+  state: SessionStoreSnapshot,
+  serverId: string,
+  agentId: string,
+): AgentTimelineCursorState | null {
+  return state.sessions[serverId]?.agentTimelineCursor.get(agentId) ?? null;
+}
 
 function getPinnedUserInputOverlayHeight(maxContentHeight: number): number {
   return PINNED_USER_INPUT_TOP_PADDING + maxContentHeight + PINNED_USER_INPUT_GRADIENT_HEIGHT;
@@ -308,6 +346,239 @@ function renderListEmptyComponent(input: {
       <Text style={stylesheet.emptyStateText}>{input.emptyText}</Text>
     </View>
   );
+}
+
+function setPromptIndexForAgent(input: {
+  previous: Map<string, AgentTimelinePromptIndex>;
+  agentId: string;
+  payload: AgentTimelinePromptIndex;
+}): Map<string, AgentTimelinePromptIndex> {
+  const current = input.previous.get(input.agentId);
+  if (
+    current &&
+    current.epoch === input.payload.epoch &&
+    current.rows.length === input.payload.rows.length &&
+    current.window.minSeq === input.payload.window.minSeq &&
+    current.window.maxSeq === input.payload.window.maxSeq
+  ) {
+    return input.previous;
+  }
+  const next = new Map(input.previous);
+  next.set(input.agentId, input.payload);
+  return next;
+}
+
+type SetAgentTimelinePromptIndex = (
+  serverId: string,
+  state:
+    | Map<string, AgentTimelinePromptIndex>
+    | ((prev: Map<string, AgentTimelinePromptIndex>) => Map<string, AgentTimelinePromptIndex>),
+) => void;
+
+function useClearPinnedUserInputWhenDisabled(input: {
+  pinUserInputsEnabled: boolean;
+  setPinnedUserInput: (value: PinnedUserInputState | null) => void;
+}) {
+  const { pinUserInputsEnabled, setPinnedUserInput } = input;
+  useEffect(() => {
+    if (!pinUserInputsEnabled) {
+      setPinnedUserInput(null);
+    }
+  }, [pinUserInputsEnabled, setPinnedUserInput]);
+}
+
+function useAgentTimelinePromptIndexLoader(input: {
+  agentId: string;
+  client: DaemonClient | null;
+  promptIndex: AgentTimelinePromptIndex | null;
+  resolvedServerId: string;
+  serverSupportsPromptIndex: boolean;
+  setAgentTimelinePromptIndex: SetAgentTimelinePromptIndex;
+}) {
+  const {
+    agentId,
+    client,
+    promptIndex,
+    resolvedServerId,
+    serverSupportsPromptIndex,
+    setAgentTimelinePromptIndex,
+  } = input;
+  useEffect(() => {
+    if (!serverSupportsPromptIndex || !client || promptIndex) {
+      return;
+    }
+    const promptIndexClient = client;
+    let canceled = false;
+    async function loadPromptIndex() {
+      try {
+        const payload = await promptIndexClient.fetchAgentTimelinePromptIndex(agentId);
+        if (canceled) {
+          return;
+        }
+        setAgentTimelinePromptIndex(resolvedServerId, (previous) =>
+          setPromptIndexForAgent({
+            previous,
+            agentId,
+            payload,
+          }),
+        );
+      } catch (error) {
+        console.warn("[AgentStream] Failed to load timeline prompt index", agentId, error);
+      }
+    }
+    void loadPromptIndex();
+    return () => {
+      canceled = true;
+    };
+  }, [
+    agentId,
+    client,
+    promptIndex,
+    resolvedServerId,
+    serverSupportsPromptIndex,
+    setAgentTimelinePromptIndex,
+  ]);
+}
+
+function useFindKeyboardActions(input: {
+  agentId: string;
+  isPaneFocused: boolean;
+  isFindOpen: boolean;
+  openFind: () => void;
+  closeFind: () => void;
+  moveFindMatch: (delta: 1 | -1) => void;
+}) {
+  const { agentId, isPaneFocused, isFindOpen, openFind, closeFind, moveFindMatch } = input;
+  const handleFindKeyboardAction = useCallback(
+    (action: KeyboardActionDefinition): boolean => {
+      if (!isPaneFocused) {
+        return false;
+      }
+      switch (action.id) {
+        case "agent.find.open":
+          openFind();
+          return true;
+        case "agent.find.next":
+          if (!isFindOpen) return false;
+          moveFindMatch(1);
+          return true;
+        case "agent.find.previous":
+          if (!isFindOpen) return false;
+          moveFindMatch(-1);
+          return true;
+        case "agent.find.close":
+          if (!isFindOpen) return false;
+          closeFind();
+          return true;
+        default:
+          return false;
+      }
+    },
+    [closeFind, isFindOpen, isPaneFocused, moveFindMatch, openFind],
+  );
+
+  useKeyboardActionHandler({
+    handlerId: `agent-find:${agentId}`,
+    actions: FIND_KEYBOARD_ACTIONS,
+    enabled: isPaneFocused,
+    priority: 80,
+    isActive: () => isPaneFocused,
+    handle: handleFindKeyboardAction,
+  });
+}
+
+function useAgentStreamInlinePathPress(input: {
+  agent: AgentScreenAgent;
+  isMobile: boolean;
+  onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  resolvedServerId: string;
+  workspaceRoot: string;
+}) {
+  const { agent, isMobile, onOpenWorkspaceFile, resolvedServerId, workspaceRoot } = input;
+  const openFileExplorerForCheckout = usePanelStore((state) => state.openFileExplorerForCheckout);
+  const setExplorerTabForCheckout = usePanelStore((state) => state.setExplorerTabForCheckout);
+  const { requestDirectoryListing } = useFileExplorerActions({
+    serverId: resolvedServerId,
+    workspaceId: agent.workspaceId,
+    workspaceRoot,
+  });
+
+  return useStableEvent((target: InlinePathTarget, disposition: OpenFileDisposition) => {
+    if (!target.path) {
+      return;
+    }
+
+    const normalized = normalizeInlinePathTarget(target.path, agent.cwd);
+    if (!normalized) {
+      return;
+    }
+
+    if (normalized.file) {
+      const location = normalizeWorkspaceFileLocation({
+        path: normalized.file,
+        lineStart: target.lineStart,
+        lineEnd: target.lineEnd,
+      });
+      if (!location) {
+        return;
+      }
+
+      if (onOpenWorkspaceFile) {
+        onOpenWorkspaceFile({
+          location,
+          disposition,
+        });
+        return;
+      }
+
+      if (agent.workspaceId) {
+        navigateToPreparedWorkspaceTab({
+          serverId: resolvedServerId,
+          workspaceId: agent.workspaceId,
+          target: createWorkspaceFileTabTarget(location),
+        });
+      }
+      return;
+    }
+
+    void requestDirectoryListing(normalized.directory, {
+      recordHistory: false,
+      setCurrentPath: false,
+    });
+
+    const checkout = {
+      serverId: resolvedServerId,
+      cwd: agent.cwd,
+      isGit: agent.projectPlacement?.checkout?.isGit ?? true,
+    };
+    setExplorerTabForCheckout({ ...checkout, tab: "files" });
+    openFileExplorerForCheckout({
+      isCompact: isMobile,
+      checkout,
+    });
+  });
+}
+
+function useEffectiveStreamData(input: {
+  streamItems: StreamItem[];
+  streamHead: StreamItem[] | undefined;
+}): { effectiveStreamItems: StreamItem[]; effectiveStreamHead: StreamItem[] | undefined } {
+  const { streamItems, streamHead } = input;
+  // Freeze stream data while this tab slot is hidden to prevent offscreen FlatList
+  // cell-window renders on every 48ms flush from background agents.
+  // When isActive flips back to true, the context change triggers a re-render and
+  // the component reads the current (fresh) streamItems/streamHead from props.
+  const isActive = useContext(MountedTabActiveContext);
+  const frozenStreamItemsRef = useRef(streamItems);
+  const frozenStreamHeadRef = useRef(streamHead);
+  if (isActive) {
+    frozenStreamItemsRef.current = streamItems;
+    frozenStreamHeadRef.current = streamHead;
+  }
+  return {
+    effectiveStreamItems: isActive ? streamItems : frozenStreamItemsRef.current,
+    effectiveStreamHead: isActive ? streamHead : frozenStreamHeadRef.current,
+  };
 }
 
 function renderHistoryStreamItem(input: {
@@ -489,24 +760,29 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const activeFindMatchIdRef = useRef<string | null>(null);
     const preservedFindMatchIdRef = useRef<string | null>(null);
     const findMatchesRef = useRef<FindInThreadMatch[]>([]);
-    const openFileExplorerForCheckout = usePanelStore((state) => state.openFileExplorerForCheckout);
-    const setExplorerTabForCheckout = usePanelStore((state) => state.setExplorerTabForCheckout);
     const collapseThinkingBehavior = useAppSettings().settings.collapseThinking;
 
     // Get serverId (fallback to agent's serverId if not provided)
     const resolvedServerId = serverId ?? agent.serverId ?? "";
 
-    const client = useSessionStore((state) => state.sessions[resolvedServerId]?.client ?? null);
+    const client = useSessionStore((state) => selectSessionClient(state, resolvedServerId));
+    const serverSupportsPromptIndex = useSessionStore((state) =>
+      selectServerSupportsPromptIndex(state, resolvedServerId),
+    );
     const streamHead = useSessionStore((state) =>
-      state.sessions[resolvedServerId]?.agentStreamHead?.get(agentId),
+      selectAgentStreamHead(state, resolvedServerId, agentId),
+    );
+    const promptIndex = useSessionStore((state) =>
+      selectAgentTimelinePromptIndex(state, resolvedServerId, agentId),
+    );
+    const timelineCursor = useSessionStore((state) =>
+      selectAgentTimelineCursor(state, resolvedServerId, agentId),
+    );
+    const setAgentTimelinePromptIndex = useSessionStore(
+      (state) => state.setAgentTimelinePromptIndex,
     );
 
     const workspaceRoot = agent.cwd?.trim() || "";
-    const { requestDirectoryListing } = useFileExplorerActions({
-      serverId: resolvedServerId,
-      workspaceId: agent.workspaceId,
-      workspaceRoot,
-    });
     const { isLoadingOlder, hasOlder, loadOlder } = useLoadOlderAgentHistory({
       serverId: resolvedServerId,
       agentId,
@@ -534,86 +810,35 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       setActiveFindMatchId(null);
     }, [agentId]);
 
-    useEffect(() => {
-      if (!pinUserInputsEnabled) {
-        setPinnedUserInput(null);
-      }
-    }, [pinUserInputsEnabled]);
+    useClearPinnedUserInputWhenDisabled({
+      pinUserInputsEnabled,
+      setPinnedUserInput,
+    });
+    useAgentTimelinePromptIndexLoader({
+      agentId,
+      client,
+      promptIndex,
+      resolvedServerId,
+      serverSupportsPromptIndex,
+      setAgentTimelinePromptIndex,
+    });
 
-    const handleInlinePathPress = useStableEvent(
-      (target: InlinePathTarget, disposition: OpenFileDisposition) => {
-        if (!target.path) {
-          return;
-        }
-
-        const normalized = normalizeInlinePathTarget(target.path, agent.cwd);
-        if (!normalized) {
-          return;
-        }
-
-        if (normalized.file) {
-          const location = normalizeWorkspaceFileLocation({
-            path: normalized.file,
-            lineStart: target.lineStart,
-            lineEnd: target.lineEnd,
-          });
-          if (!location) {
-            return;
-          }
-
-          if (onOpenWorkspaceFile) {
-            onOpenWorkspaceFile({
-              location,
-              disposition,
-            });
-            return;
-          }
-
-          if (agent.workspaceId) {
-            navigateToPreparedWorkspaceTab({
-              serverId: resolvedServerId,
-              workspaceId: agent.workspaceId,
-              target: createWorkspaceFileTabTarget(location),
-            });
-          }
-          return;
-        }
-
-        void requestDirectoryListing(normalized.directory, {
-          recordHistory: false,
-          setCurrentPath: false,
-        });
-
-        const checkout = {
-          serverId: resolvedServerId,
-          cwd: agent.cwd,
-          isGit: agent.projectPlacement?.checkout?.isGit ?? true,
-        };
-        setExplorerTabForCheckout({ ...checkout, tab: "files" });
-        openFileExplorerForCheckout({
-          isCompact: isMobile,
-          checkout,
-        });
-      },
-    );
+    const handleInlinePathPress = useAgentStreamInlinePathPress({
+      agent,
+      isMobile,
+      onOpenWorkspaceFile,
+      resolvedServerId,
+      workspaceRoot,
+    });
 
     const handleToolCallOpenFile = useStableEvent((filePath: string) => {
       handleInlinePathPress({ raw: filePath, path: filePath }, "main");
     });
 
-    // Freeze stream data while this tab slot is hidden to prevent offscreen FlatList
-    // cell-window renders on every 48ms flush from background agents.
-    // When isActive flips back to true, the context change triggers a re-render and
-    // the component reads the current (fresh) streamItems/streamHead from props.
-    const isActive = useContext(MountedTabActiveContext);
-    const frozenStreamItemsRef = useRef(streamItems);
-    const frozenStreamHeadRef = useRef(streamHead);
-    if (isActive) {
-      frozenStreamItemsRef.current = streamItems;
-      frozenStreamHeadRef.current = streamHead;
-    }
-    const effectiveStreamItems = isActive ? streamItems : frozenStreamItemsRef.current;
-    const effectiveStreamHead = isActive ? streamHead : frozenStreamHeadRef.current;
+    const { effectiveStreamItems, effectiveStreamHead } = useEffectiveStreamData({
+      streamItems,
+      streamHead,
+    });
     const chronologicalStreamItems = useMemo(
       () => [...effectiveStreamItems, ...(effectiveStreamHead ?? EMPTY_STREAM_HEAD)],
       [effectiveStreamHead, effectiveStreamItems],
@@ -792,41 +1017,13 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       moveFindMatch(-1);
     }, [moveFindMatch]);
 
-    const handleFindKeyboardAction = useCallback(
-      (action: KeyboardActionDefinition): boolean => {
-        if (!isPaneFocused) {
-          return false;
-        }
-        switch (action.id) {
-          case "agent.find.open":
-            openFind();
-            return true;
-          case "agent.find.next":
-            if (!isFindOpen) return false;
-            moveFindMatch(1);
-            return true;
-          case "agent.find.previous":
-            if (!isFindOpen) return false;
-            moveFindMatch(-1);
-            return true;
-          case "agent.find.close":
-            if (!isFindOpen) return false;
-            closeFind();
-            return true;
-          default:
-            return false;
-        }
-      },
-      [closeFind, isFindOpen, isPaneFocused, moveFindMatch, openFind],
-    );
-
-    useKeyboardActionHandler({
-      handlerId: `agent-find:${agentId}`,
-      actions: FIND_KEYBOARD_ACTIONS,
-      enabled: isPaneFocused,
-      priority: 80,
-      isActive: () => isPaneFocused,
-      handle: handleFindKeyboardAction,
+    useFindKeyboardActions({
+      agentId,
+      isPaneFocused,
+      isFindOpen,
+      openFind,
+      closeFind,
+      moveFindMatch,
     });
 
     useEffect(() => {
@@ -1370,6 +1567,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             {streamRenderStrategy.render({
               agentId,
               segments: renderModel.segments,
+              promptIndex,
+              loadedHistoryStartSeq: timelineCursor?.startSeq ?? null,
+              expectsFullHistoryPromptIndex: serverSupportsPromptIndex,
               boundary,
               renderers,
               listEmptyComponent,
