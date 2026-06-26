@@ -1,4 +1,10 @@
-# Find in Chat Thread
+# Patch Summary: Find in Chat Thread
+
+Branch: `feat/find-in-chat-thread`
+
+Base: `origin/main`
+
+Anchor commit: 4912da8b4ee261726a7ce2031c35d8ab6291a75f — feat(app): refine find-in-thread matching and toolbar
 
 ## Summary
 
@@ -17,6 +23,7 @@ The feature is client-only. It does not add server, daemon, protocol, storage, o
   - Live match count.
   - A `Search thinking` checkbox.
   - Close button.
+- The find controls render as a full-width top toolbar above the stream content when open and do not render a floating open button when closed.
 - `Enter` in the find input navigates to the next match.
 - `Shift+Enter` navigates to the previous match.
 - `Esc` closes find and clears highlights.
@@ -41,6 +48,7 @@ The feature is client-only. It does not add server, daemon, protocol, storage, o
 - Uses `buildCollapseThinkingGroups` output to distinguish final assistant messages from grouped
   thinking items.
 - Performs case-insensitive, literal substring matching.
+- Extracts visible text from assistant markdown before indexing final assistant messages, so search matches rendered text and inline code instead of markdown syntax.
 - Produces non-overlapping matches ordered by stream item and text offset.
 - Builds per-item highlight maps keyed by item id and part id.
 
@@ -68,6 +76,8 @@ Native uses the frame-sliced JavaScript runner without adding a native threading
 - Restarts scanning when loaded history changes.
 - Tracks active match, progressive count, and scanning state.
 - Opens/closes/navigates through keyboard actions.
+- Mounts the open find toolbar before the stream content so it participates in top-of-pane layout instead of floating over messages.
+- Returns `null` for the closed find controls state; find is opened through keyboard actions instead of an always-visible stream button.
 - Expands collapse-thinking groups before navigating to a match inside them.
 - Passes highlight ranges into visible row renderers.
 
@@ -75,7 +85,7 @@ Native uses the frame-sliced JavaScript runner without adding a native threading
 `scrollToStreamItemTop(itemId)` through the stream viewport handle so find navigation can jump to
 matches across mounted, virtualized, and native list rows.
 
-`packages/app/src/components/find-highlighted-text.tsx` provides a reusable plain text highlighter.
+`packages/app/src/components/find-highlighted-text.tsx` provides a reusable plain text highlighter. Highlights use a translucent accent background so search hits read as search matches instead of neutral surface blocks.
 
 `packages/app/src/components/message.tsx` applies highlights to:
 
