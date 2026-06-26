@@ -4,7 +4,7 @@ Branch: `feat/vertical-pane-tabs`
 
 Base: `origin/main`
 
-Anchor commit: 136db80606f134ba460f05ac2cba79d7402c15c7 — feat(app): add vertical workspace tab controls
+Anchor commit: 6efae7bbf30e70ec3f515da79be85cf643f719a9 — feat(sidebar): add vertical tab quick actions
 
 ## Purpose
 
@@ -112,6 +112,17 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
   - `tabBarOrientation?: "horizontal" | "vertical"`
   - `verticalTabsSelected?: boolean`
   - per-row display-preference sections for sort, badge mode, and recent-tab count
+- `WorkspaceNewTabDropdown(props: WorkspaceNewTabDropdownProps)` is exported for reuse by other tab surfaces.
+- `interface WorkspaceNewTabDropdownProps` contains:
+  - `onCreateAgentTab(): void`
+  - `onCreateTerminal(): void`
+  - `onCreateBrowser(): void`
+  - `onCreateTerminalWithProfile(profile: TerminalProfileInput): void`
+  - `onEditProfiles(): void`
+  - `normalizedServerId: string`
+  - `showCreateBrowserTab: boolean`
+  - `terminalDisabled: boolean`
+  - `testIDPrefix?: string`
 
 **Behavior**
 
@@ -131,6 +142,8 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
 - Vertical rows move close buttons and overflow affordances into overlay positions that do not widen the rail, and they suppress the icon status badge in favor of the denser right-side presentation.
 - Hover/focus tooltips for vertical rows use `workspace-tab-tooltip-preview.tsx` so truncated vertical entries still expose file/agent context.
 - Per-pane display menus expose a `Vertical tabs` toggle and reuse the same display-preference sections as the sidebar features.
+- The shared new-tab dropdown exposes the same create-agent, create-terminal, create-browser, terminal-profile, edit-profile, and pinnable-target behavior used by the desktop tab row. The desktop row wraps that dropdown with the pinned launcher row; sidebar call sites reuse only the dropdown.
+- `testIDPrefix` defaults to `workspace-new-tab-menu` for the desktop row and lets sidebar call sites generate workspace-specific trigger/item ids without duplicating dropdown logic.
 
 ## Sidebar Mode And Vertical Sidebar Rail
 
@@ -146,13 +159,18 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
 - When `tabLayoutMode === "vertical"` on desktop, the left sidebar grows a separate resizable vertical-tabs rail.
 - The rail width is stored in the panel store using the vertical-tabs width keys and is clamped between dedicated min/max constants separate from the normal sidebar width.
 - The rail shows a workspace-specific header, an empty state when no workspace is selected, and a scroll context used to add the same top border treatment as the main sidebar when scrolled.
+- The vertical rail header shows a quick new-agent button, the shared new-tab dropdown, and the shared display-preferences menu.
+- The rail header's shared dropdown can create draft, terminal, terminal-profile, and Electron browser tabs. It focuses the workspace's main pane before opening the tab, reports disconnected hosts and missing workspace paths through toast errors, updates the terminal query cache after terminal creation, and routes `Edit terminal profiles` to the host terminal settings section.
 - When `tabLayoutMode === "sidebar"` on desktop, the standard sidebar workspace list becomes expandable and renders embedded tabs beneath each workspace.
 - The embedded list is driven from the workspace layout store's main pane tab order, then post-processed through the sidebar ordering helpers so user drag order stays stable even when sort mode changes away from `manual`.
 - The sidebar can cap the number of shown embedded tabs via a persisted `recentTabCount` preference and expose `Show all` / `Show less` toggles per workspace.
 - Workspace rows get a richer right-hand control policy:
-  - hover/desktop shows archive and kebab actions;
-  - touch/compact keeps those actions visible;
+  - hover/desktop shows create-tab controls plus archive/kebab actions when available;
+  - touch/compact keeps those controls visible;
+  - keyboard shortcut badges suppress row actions while the shortcut overlay is active;
   - diff badges and status summaries hide while row actions or shortcut badges are visible.
+- Creating a tab from a collapsed sidebar workspace expands that workspace so the newly created embedded tab is visible.
+- Workspace row action slots reserve enough width for the three tab-header controls plus the kebab menu, so the quick actions do not overlap status or diff metadata.
 
 ## Shared Sidebar Display Preferences, Sorting, And Badges
 
@@ -195,6 +213,7 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
 - Badge mode rules:
   - sidebar workspace rows can show diff stats, propagated status summaries, or nothing;
   - vertical tab bars only expose `status` or `none`.
+- `getWorkspaceRowRightVisibility()` returns `showCreateTab: true` when a workspace row has a create-tab action, the row action controls are visible by hover/touch/compact layout, and no shortcut badge is being shown.
 
 ## Shared Sidebar Row And Status Primitives
 
