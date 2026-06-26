@@ -4637,7 +4637,7 @@ function ProjectBlock({
         chevron={rowModel.chevron}
         onPress={handleToggleCollapsed}
         serverId={serverId}
-        canCreateWorktree={rowModel.trailingAction === "new_worktree"}
+        canCreateWorktree={rowModel.trailingAction.kind === "new_worktree"}
         isProjectActive={active}
         onWorkspacePress={onWorkspacePress}
         onWorktreeCreated={onWorktreeCreated}
@@ -4900,10 +4900,16 @@ function ProjectModeList({
     [parentGestureRef],
   );
 
-  const projectIconByProjectKey = useProjectIconDataByProjectKey({
-    serverId,
-    projects,
-  });
+  const projectIconTargets = useMemo(
+    () =>
+      projects.map((project) => ({
+        projectKey: project.projectKey,
+        serverId: project.serverId ?? project.hosts[0]?.serverId ?? "",
+        iconWorkingDir: project.iconWorkingDir,
+      })),
+    [projects],
+  );
+  const projectIconByProjectKey = useProjectIconDataByProjectKey({ projects: projectIconTargets });
 
   useEffect(() => {
     const timeouts = creatingWorkspaceTimeoutsRef.current;
@@ -4984,7 +4990,7 @@ function ProjectModeList({
       }
 
       const reorderedProjectKeys = reorderedProjects.map((project) => project.projectKey);
-      const currentProjectOrder = getProjectOrder(serverId);
+      const currentProjectOrder = getProjectOrder();
       if (
         !hasVisibleOrderChanged({
           currentOrder: currentProjectOrder,
@@ -4995,7 +5001,6 @@ function ProjectModeList({
       }
 
       setProjectOrder(
-        serverId,
         mergeWithRemainder({
           currentOrder: currentProjectOrder,
           reorderedVisibleKeys: reorderedProjectKeys,
@@ -5012,7 +5017,7 @@ function ProjectModeList({
       }
 
       const reorderedWorkspaceKeys = reorderedWorkspaces.map((workspace) => workspace.workspaceKey);
-      const currentWorkspaceOrder = getWorkspaceOrder(serverId, projectKey);
+      const currentWorkspaceOrder = getWorkspaceOrder(projectKey);
       if (
         !hasVisibleOrderChanged({
           currentOrder: currentWorkspaceOrder,
@@ -5023,7 +5028,6 @@ function ProjectModeList({
       }
 
       setWorkspaceOrder(
-        serverId,
         projectKey,
         mergeWithRemainder({
           currentOrder: currentWorkspaceOrder,

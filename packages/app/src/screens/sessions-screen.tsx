@@ -10,9 +10,9 @@ import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { AgentList } from "@/components/agent-list";
 import { useAgentHistory } from "@/hooks/use-agent-history";
-import { buildHostOpenProjectRoute } from "@/utils/host-routes";
+import { buildHostOpenProjectRoute, buildOpenProjectRoute } from "@/utils/host-routes";
 
-export function SessionsScreen({ serverId }: { serverId: string }) {
+export function SessionsScreen({ serverId = null }: { serverId?: string | null }) {
   const isFocused = useIsFocused();
 
   if (!isFocused) {
@@ -22,7 +22,7 @@ export function SessionsScreen({ serverId }: { serverId: string }) {
   return <SessionsScreenContent serverId={serverId} />;
 }
 
-function SessionsScreenContent({ serverId }: { serverId: string }) {
+function SessionsScreenContent({ serverId }: { serverId: string | null }) {
   const { t } = useTranslation();
   const { agents, hasMore, isInitialLoad, isLoadingMore, isRevalidating, loadMore, refreshAll } =
     useAgentHistory({
@@ -49,7 +49,7 @@ function SessionsScreenContent({ serverId }: { serverId: string }) {
   }, [agents]);
 
   const handleBack = useCallback(() => {
-    router.navigate(buildHostOpenProjectRoute(serverId));
+    router.navigate(serverId ? buildHostOpenProjectRoute(serverId) : buildOpenProjectRoute());
   }, [serverId]);
 
   const listFooterComponent = useMemo(

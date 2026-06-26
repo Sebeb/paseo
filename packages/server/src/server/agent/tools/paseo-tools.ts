@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ensureValidJson } from "../../json-utils.js";
 import type { Logger } from "pino";
+import { resolve } from "node:path";
 
 import type { AgentMode, AgentProvider } from "../agent-sdk-types.js";
 import type { AgentManager, WaitForAgentResult } from "../agent-manager.js";
@@ -378,6 +379,7 @@ const WorktreeSummarySchema = z.object({
   createdAt: z.string(),
   branchName: z.string().optional(),
   head: z.string().optional(),
+  workspaceIds: z.array(z.string()).optional(),
 });
 
 function resolveTerminalKeyToken(key: string, literal: boolean): string {
@@ -2422,10 +2424,25 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           reason: "mcp:list-worktrees",
         },
       );
+      const activeWorkspaces = options.listActiveWorkspaces
+        ? await options.listActiveWorkspaces()
+        : [];
+      const workspaceIdsByPath = new Map<string, string[]>();
+      for (const workspace of activeWorkspaces) {
+        const workspacePath = resolve(workspace.cwd);
+        const ids = workspaceIdsByPath.get(workspacePath) ?? [];
+        ids.push(workspace.workspaceId);
+        workspaceIdsByPath.set(workspacePath, ids);
+      }
+      const worktreesWithWorkspaceIds = worktrees.map((worktree) =>
+        Object.assign({}, worktree, {
+          workspaceIds: workspaceIdsByPath.get(resolve(worktree.path)) ?? [],
+        }),
+      );
 
       return {
         content: [],
-        structuredContent: ensureValidJson({ worktrees }),
+        structuredContent: ensureValidJson({ worktrees: worktreesWithWorkspaceIds }),
       };
     },
   );

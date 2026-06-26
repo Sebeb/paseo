@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 
 export type SidebarGroupMode = "project" | "status";
 export type SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated" | "status";
@@ -8,15 +8,23 @@ export type SidebarEmbeddedRecentTabCount = 3 | 5 | 10 | "all";
 export type SidebarBadgeMode = "diff" | "status" | "none";
 export type SidebarTabBarBadgeMode = "status" | "none";
 
+const SIDEBAR_VIEW_STORAGE_KEY = "sidebar-view";
+const LEGACY_SIDEBAR_GROUP_MODE_STORAGE_KEY = "sidebar-group-mode";
+const SIDEBAR_VIEW_STORE_VERSION = 1;
+
 interface SidebarViewStoreState {
+  groupMode: SidebarGroupMode;
+  hostFilter: string | null;
   groupModeByServerId: Record<string, SidebarGroupMode>;
   embeddedTabSortModeByServerId: Record<string, SidebarEmbeddedTabSortMode>;
   embeddedRecentTabCountByServerId: Record<string, SidebarEmbeddedRecentTabCount>;
   badgeModeByServerId: Record<string, SidebarBadgeMode>;
   tabBarBadgeModeByServerId: Record<string, SidebarTabBarBadgeMode>;
   autoCollapseWorkspaces: boolean;
+  setGroupMode: (serverIdOrMode: string, mode?: SidebarGroupMode) => void;
+  setHostFilter: (serverId: string | null) => void;
+  reconcileHostFilter: (serverIds: readonly string[]) => void;
   getGroupMode: (serverId: string) => SidebarGroupMode;
-  setGroupMode: (serverId: string, mode: SidebarGroupMode) => void;
   getEmbeddedTabSortMode: (serverId: string) => SidebarEmbeddedTabSortMode;
   setEmbeddedTabSortMode: (serverId: string, mode: SidebarEmbeddedTabSortMode) => void;
   getEmbeddedRecentTabCount: (serverId: string) => SidebarEmbeddedRecentTabCount;
@@ -26,6 +34,29 @@ interface SidebarViewStoreState {
   getTabBarBadgeMode: (serverId: string) => SidebarTabBarBadgeMode;
   setTabBarBadgeMode: (serverId: string, mode: SidebarTabBarBadgeMode) => void;
   setAutoCollapseWorkspaces: (enabled: boolean) => void;
+}
+
+interface SidebarViewPersistedState {
+  groupMode: SidebarGroupMode;
+  hostFilter: string | null;
+  groupModeByServerId: Record<string, SidebarGroupMode>;
+  embeddedTabSortModeByServerId: Record<string, SidebarEmbeddedTabSortMode>;
+  embeddedRecentTabCountByServerId: Record<string, SidebarEmbeddedRecentTabCount>;
+  badgeModeByServerId: Record<string, SidebarBadgeMode>;
+  tabBarBadgeModeByServerId: Record<string, SidebarTabBarBadgeMode>;
+  autoCollapseWorkspaces: boolean;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSidebarGroupMode(value: unknown): value is SidebarGroupMode {
+  return value === "project" || value === "status";
+}
+
+function normalizeGroupMode(value: unknown): SidebarGroupMode {
+  return isSidebarGroupMode(value) ? value : "project";
 }
 
 function normalizeTabSortMode(value: unknown): SidebarEmbeddedTabSortMode {
@@ -46,29 +77,122 @@ function normalizeTabBarBadgeMode(value: unknown): SidebarTabBarBadgeMode {
   return value === "status" || value === "none" ? value : "status";
 }
 
+function normalizeRecord<T>(value: unknown, normalize: (entry: unknown) => T): Record<string, T> {
+  if (!isRecord(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, entry]) => [key.trim(), normalize(entry)])
+      .filter(([key]) => key),
+  );
+}
+
+function readLegacyGroupMode(persistedState: Record<string, unknown>): SidebarGroupMode | null {
+  const groupModeByServerId = persistedState.groupModeByServerId;
+  if (!isRecord(groupModeByServerId)) return null;
+
+  const modes = Object.values(groupModeByServerId).filter(isSidebarGroupMode);
+  if (modes.length === 0) return null;
+  return modes.includes("status") ? "status" : "project";
+}
+
+export function migrateSidebarViewState(persistedState: unknown): SidebarViewPersistedState {
+  if (!isRecord(persistedState)) {
+    return createDefaultPersistedState();
+  }
+
+  const groupModeByServerId = normalizeRecord(
+    persistedState.groupModeByServerId,
+    normalizeGroupMode,
+  );
+  const legacyGroupMode = readLegacyGroupMode(persistedState);
+
+  return {
+    groupMode:
+      legacyGroupMode ??
+      (isSidebarGroupMode(persistedState.groupMode) ? persistedState.groupMode : "project"),
+    hostFilter: typeof persistedState.hostFilter === "string" ? persistedState.hostFilter : null,
+    groupModeByServerId,
+    embeddedTabSortModeByServerId: normalizeRecord(
+      persistedState.embeddedTabSortModeByServerId,
+      normalizeTabSortMode,
+    ),
+    embeddedRecentTabCountByServerId: normalizeRecord(
+      persistedState.embeddedRecentTabCountByServerId,
+      normalizeRecentTabCount,
+    ),
+    badgeModeByServerId: normalizeRecord(persistedState.badgeModeByServerId, normalizeBadgeMode),
+    tabBarBadgeModeByServerId: normalizeRecord(
+      persistedState.tabBarBadgeModeByServerId,
+      normalizeTabBarBadgeMode,
+    ),
+    autoCollapseWorkspaces: persistedState.autoCollapseWorkspaces === true,
+  };
+}
+
+function createDefaultPersistedState(): SidebarViewPersistedState {
+  return {
+    groupMode: "project",
+    hostFilter: null,
+    groupModeByServerId: {},
+    embeddedTabSortModeByServerId: {},
+    embeddedRecentTabCountByServerId: {},
+    badgeModeByServerId: {},
+    tabBarBadgeModeByServerId: {},
+    autoCollapseWorkspaces: false,
+  };
+}
+
+export function createSidebarViewStorage(
+  backingStorage: StateStorage = AsyncStorage,
+): StateStorage {
+  return {
+    getItem: async (name) => {
+      const value = await backingStorage.getItem(name);
+      if (value !== null || name !== SIDEBAR_VIEW_STORAGE_KEY) return value;
+      return backingStorage.getItem(LEGACY_SIDEBAR_GROUP_MODE_STORAGE_KEY);
+    },
+    setItem: (name, value) => backingStorage.setItem(name, value),
+    removeItem: (name) => backingStorage.removeItem(name),
+  };
+}
+
 export const useSidebarViewStore = create<SidebarViewStoreState>()(
   persist(
     (set, get) => ({
+      groupMode: "project",
+      hostFilter: null,
       groupModeByServerId: {},
       embeddedTabSortModeByServerId: {},
       embeddedRecentTabCountByServerId: {},
       badgeModeByServerId: {},
       tabBarBadgeModeByServerId: {},
       autoCollapseWorkspaces: false,
-      getGroupMode: (serverId) => {
-        const key = serverId.trim();
-        if (!key) return "project";
-        return get().groupModeByServerId[key] ?? "project";
-      },
-      setGroupMode: (serverId, mode) => {
-        const key = serverId.trim();
+      setGroupMode: (serverIdOrMode, maybeMode) => {
+        if (maybeMode === undefined) {
+          set({ groupMode: normalizeGroupMode(serverIdOrMode) });
+          return;
+        }
+
+        const key = serverIdOrMode.trim();
         if (!key) return;
         set((state) => ({
           groupModeByServerId: {
             ...state.groupModeByServerId,
-            [key]: mode,
+            [key]: maybeMode,
           },
         }));
+      },
+      setHostFilter: (serverId) => set({ hostFilter: serverId }),
+      reconcileHostFilter: (serverIds) =>
+        set((state) => {
+          if (!state.hostFilter || serverIds.includes(state.hostFilter)) return state;
+          return { hostFilter: null };
+        }),
+      getGroupMode: (serverId) => {
+        const key = serverId.trim();
+        if (!key) return "project";
+        return get().groupModeByServerId[key] ?? get().groupMode;
       },
       getEmbeddedTabSortMode: (serverId) => {
         const key = serverId.trim();
@@ -135,9 +259,12 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
       },
     }),
     {
-      name: "sidebar-group-mode",
-      storage: createJSONStorage(() => AsyncStorage),
+      name: SIDEBAR_VIEW_STORAGE_KEY,
+      version: SIDEBAR_VIEW_STORE_VERSION,
+      storage: createJSONStorage(createSidebarViewStorage),
       partialize: (state) => ({
+        groupMode: state.groupMode,
+        hostFilter: state.hostFilter,
         groupModeByServerId: state.groupModeByServerId,
         embeddedTabSortModeByServerId: state.embeddedTabSortModeByServerId,
         embeddedRecentTabCountByServerId: state.embeddedRecentTabCountByServerId,
@@ -145,6 +272,7 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
         tabBarBadgeModeByServerId: state.tabBarBadgeModeByServerId,
         autoCollapseWorkspaces: state.autoCollapseWorkspaces,
       }),
+      migrate: migrateSidebarViewState,
     },
   ),
 );

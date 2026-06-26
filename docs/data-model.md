@@ -150,6 +150,7 @@ Single file, validated with `PersistedConfigSchema`.
   daemon: {
     listen: "127.0.0.1:6767",
     hostnames: true | string[],   // legacy alias `allowedHosts` is migrated on load
+    trustedProxies: true | string[], // defaults to ["loopback"]; Express proxy names/CIDRs
     mcp: { enabled: boolean, injectIntoAgents: boolean },
     appendSystemPrompt: string,    // appended to supported provider system/developer prompts
     cors: { allowedOrigins: string[] },
@@ -190,6 +191,8 @@ Single file, validated with `PersistedConfigSchema`.
 All fields are optional with sensible defaults.
 
 `agents.metadataGeneration.providers` controls the preferred structured-generation fallback order for daemon-side metadata tasks such as commit messages, PR text, branch names, and generated agent titles. Entries are tried first in the configured order, then Paseo falls through to dynamically discovered defaults and finally the current selection when available.
+
+Agent and workspace titles are stored separately. The first agent in a workspace may initialize both its own agent title and the workspace title from the same generated or provider-native chat title; later agents only update their own agent title. First-agent worktree branch generation remains separate and only runs for the first worktree agent.
 
 Local speech model ids are intentionally narrow: STT uses `parakeet-tdt-0.6b-v2-int8`, TTS uses `kokoro-en-v0_19`, and turn detection uses the bundled Silero VAD model.
 

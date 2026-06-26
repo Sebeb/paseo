@@ -187,6 +187,7 @@ const CODEX_APP_SERVER_CAPABILITIES: AgentCapabilityFlags = {
   supportsMcpServers: true,
   supportsReasoningStream: true,
   supportsToolInvocations: true,
+  supportsNativeThreadTitle: true,
   supportsRewindConversation: true,
   supportsRewindFiles: false,
   supportsRewindBoth: false,
@@ -3825,6 +3826,30 @@ export class CodexAppServerAgentSession implements AgentSession {
         mcpServers: this.config.mcpServers,
       },
     };
+  }
+
+  async getNativeTitle(): Promise<string | null> {
+    if (!this.client || !this.currentThreadId) {
+      return null;
+    }
+    try {
+      const response = toObjectRecord(
+        await this.client.request("thread/list", {
+          limit: 50,
+          ...(this.config.cwd ? { cwd: this.config.cwd } : {}),
+        }),
+      );
+      const threads = Array.isArray(response?.data) ? response.data.filter(isRecord) : [];
+      const thread = threads.find((entry) => entry.id === this.currentThreadId);
+      const name = typeof thread?.name === "string" ? thread.name.trim() : "";
+      return name || null;
+    } catch (error) {
+      this.logger.debug(
+        { err: error, threadId: this.currentThreadId },
+        "Failed to resolve Codex native thread title",
+      );
+      return null;
+    }
   }
 
   async revertConversation(input: { messageId: string }): Promise<void> {

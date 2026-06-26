@@ -87,6 +87,10 @@ interface PreparedSessionConfig {
   launchConfig: AgentSessionConfig;
 }
 
+interface NormalizeConfigOptions {
+  resolveDefaultModel?: boolean;
+}
+
 interface TimeoutOptions {
   operation: Promise<void>;
   timeoutMs: number;
@@ -817,8 +821,11 @@ export class AgentManager {
   }
 
   async listDraftCommands(config: AgentSessionConfig): Promise<AgentSlashCommand[]> {
-    const normalizedConfig = await this.normalizeConfig(config);
+    const normalizedConfig = await this.normalizeConfig(config, { resolveDefaultModel: false });
     const client = this.requireClient(normalizedConfig.provider);
+    if (!normalizedConfig.model) {
+      return [];
+    }
     const available = await client.isAvailable();
     if (!available) {
       throw new Error(
@@ -851,8 +858,11 @@ export class AgentManager {
   }
 
   async listDraftFeatures(config: AgentSessionConfig): Promise<AgentFeature[]> {
-    const normalizedConfig = await this.normalizeConfig(config);
+    const normalizedConfig = await this.normalizeConfig(config, { resolveDefaultModel: false });
     const client = this.requireClient(normalizedConfig.provider);
+    if (!normalizedConfig.model) {
+      return [];
+    }
     const available = await client.isAvailable();
     if (!available) {
       throw new Error(
@@ -1388,6 +1398,25 @@ export class AgentManager {
     this.touchUpdatedAt(agent);
     await this.persistSnapshot(agent, { title: normalizedTitle });
     this.emitState(agent, { persist: false });
+  }
+
+  supportsNativeThreadTitle(agentId: string): boolean {
+    const agent = this.agents.get(agentId);
+    return Boolean(agent?.session?.getNativeTitle);
+  }
+
+  async refreshNativeThreadTitle(agentId: string): Promise<string | null> {
+    const agent = this.agents.get(agentId);
+    const getNativeTitle = agent?.session?.getNativeTitle;
+    if (!agent || !getNativeTitle) {
+      return null;
+    }
+    const title = (await getNativeTitle.call(agent.session))?.trim() ?? "";
+    if (!title) {
+      return null;
+    }
+    await this.setTitle(agentId, title);
+    return title;
   }
 
   async setLabels(agentId: string, labels: Record<string, string>): Promise<void> {
@@ -3188,6 +3217,9 @@ export class AgentManager {
       this.emitState(agent);
     }
     void this.refreshRuntimeInfo(agent);
+    void this.refreshNativeThreadTitle(agent.id).catch((error) => {
+      this.logger.debug({ err: error, agentId: agent.id }, "Failed to refresh native thread title");
+    });
   }
 
   private async onStreamTurnFailed(params: {
@@ -3632,7 +3664,10 @@ export class AgentManager {
     }
   }
 
-  private async normalizeConfig(config: AgentSessionConfig): Promise<AgentSessionConfig> {
+  private async normalizeConfig(
+    config: AgentSessionConfig,
+    options: NormalizeConfigOptions = {},
+  ): Promise<AgentSessionConfig> {
     const normalized: AgentSessionConfig = { ...config };
 
     // Always resolve cwd to absolute path for consistent history file lookup
@@ -3663,18 +3698,11 @@ export class AgentManager {
       normalized.model = trimmed.length > 0 && trimmed !== "default" ? trimmed : undefined;
     }
 
-    if (!normalized.model) {
-      const client = this.clients.get(normalized.provider);
-      if (client) {
-        try {
-          const catalog = await client.fetchCatalog({ cwd: normalized.cwd, force: false });
-          const defaultModel = catalog.models.find((model) => model.isDefault) ?? catalog.models[0];
-          if (defaultModel) {
-            normalized.model = defaultModel.id;
-          }
-        } catch {
-          // Provider may not support model listing — leave model undefined
-        }
+    const shouldResolveDefaultModel = options.resolveDefaultModel ?? true;
+    if (shouldResolveDefaultModel && !normalized.model) {
+      const defaultModelId = await this.resolveDefaultModelId(normalized);
+      if (defaultModelId) {
+        normalized.model = defaultModelId;
       }
     }
 
@@ -3688,6 +3716,20 @@ export class AgentManager {
     }
 
     return normalized;
+  }
+
+  private async resolveDefaultModelId(config: AgentSessionConfig): Promise<string | undefined> {
+    const client = this.clients.get(config.provider);
+    if (!client) {
+      return undefined;
+    }
+    try {
+      const catalog = await client.fetchCatalog({ cwd: config.cwd, force: false });
+      return (catalog.models.find((model) => model.isDefault) ?? catalog.models[0])?.id;
+    } catch {
+      // Provider may not support model listing — leave model undefined.
+      return undefined;
+    }
   }
 
   private async prepareSessionConfig(

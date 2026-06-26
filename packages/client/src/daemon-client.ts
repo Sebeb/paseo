@@ -10,6 +10,7 @@ import {
   RenameTerminalResponseSchema,
   RestartRequestedStatusPayloadSchema,
   ShutdownRequestedStatusPayloadSchema,
+  DaemonUpdateResponseSchema,
   SessionInboundMessageSchema,
   type ServerInfoStatusPayload,
   WSOutboundMessageSchema,
@@ -68,6 +69,7 @@ import type {
   ProviderUsageListResponseMessage,
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
+  DiagnosticsResponse,
   AgentRewindResponseMessage,
   ListTerminalsResponse,
   CreateTerminalResponse,
@@ -352,6 +354,7 @@ type ProviderDiagnosticPayload = ProviderDiagnosticResponseMessage["payload"];
 type ProviderUsageListPayload = ProviderUsageListResponseMessage["payload"];
 type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
 type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
+type DiagnosticsPayload = DiagnosticsResponse["payload"];
 type ReadProjectConfigPayload = Extract<
   SessionOutboundMessage,
   { type: "read_project_config_response" }
@@ -468,6 +471,7 @@ export interface FetchAgentTimelineOptions {
 type AgentRefreshedStatusPayload = z.infer<typeof AgentRefreshedStatusPayloadSchema>;
 type RestartRequestedStatusPayload = z.infer<typeof RestartRequestedStatusPayloadSchema>;
 type ShutdownRequestedStatusPayload = z.infer<typeof ShutdownRequestedStatusPayloadSchema>;
+type DaemonUpdateResponse = z.infer<typeof DaemonUpdateResponseSchema>;
 type FetchAgentsPayload = Extract<
   SessionOutboundMessage,
   { type: "fetch_agents_response" }
@@ -2670,6 +2674,30 @@ export class DaemonClient {
     });
   }
 
+  async updateDaemon(requestId?: string): Promise<DaemonUpdateResponse["payload"]> {
+    const resolvedRequestId = this.createRequestId(requestId);
+    const message = SessionInboundMessageSchema.parse({
+      type: "daemon.update.request",
+      requestId: resolvedRequestId,
+    });
+    return this.sendRequest({
+      requestId: resolvedRequestId,
+      message,
+      timeout: 300_000, // 5 minutes — npm update can be slow on remote machines
+      options: { skipQueue: true },
+      select: (msg) => {
+        const parsed = DaemonUpdateResponseSchema.safeParse(msg);
+        if (!parsed.success) {
+          return null;
+        }
+        if (parsed.data.payload.requestId !== resolvedRequestId) {
+          return null;
+        }
+        return parsed.data.payload;
+      },
+    });
+  }
+
   // ============================================================================
   // Audio / Voice
   // ============================================================================
@@ -3788,6 +3816,16 @@ export class DaemonClient {
       },
       responseType: "daemon.get_pairing_offer.response",
       timeout: 10000,
+    });
+  }
+
+  async collectDiagnostics(requestId?: string): Promise<DiagnosticsPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "diagnostics.request",
+      },
+      timeout: 30000,
     });
   }
 

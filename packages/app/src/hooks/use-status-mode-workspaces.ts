@@ -1,13 +1,107 @@
 import { useMemo } from "react";
+import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
-import { useSessionStore } from "@/stores/session-store";
+import { useSessionStore, type SessionState } from "@/stores/session-store";
 import {
+  buildSidebarStatusWorkspacePlacements,
   createSidebarWorkspaceEntry,
   type SidebarProjectEntry,
+  type SidebarStatusWorkspacePlacement,
   type SidebarWorkspaceEntry,
+  type SidebarWorkspacePlacement,
 } from "./use-sidebar-workspaces-list";
 
-const EMPTY_WORKSPACES: SidebarWorkspaceEntry[] = [];
+const EMPTY_WORKSPACES: SidebarStatusWorkspacePlacement[] = [];
+const EMPTY_WORKSPACE_ENTRIES: SidebarWorkspaceEntry[] = [];
+const EMPTY_STATUS_SESSIONS: StatusModeSession[] = [];
+const EMPTY_PENDING_CREATE_ATTEMPTS: ReturnType<
+  typeof useCreateFlowStore.getState
+>["pendingByDraftId"] = {};
+
+interface StatusModeSessionSource {
+  workspaces: SessionState["workspaces"];
+  agents: SessionState["agents"];
+}
+
+export interface StatusModeSession {
+  serverId: string;
+  workspaces: SessionState["workspaces"];
+  agents: SessionState["agents"];
+}
+
+export function selectStatusModeSessions(
+  sessions: Record<string, StatusModeSessionSource | undefined>,
+  serverIds: readonly string[],
+): StatusModeSession[] {
+  const statusSessions: StatusModeSession[] = [];
+  for (const serverId of serverIds) {
+    const session = sessions[serverId];
+    if (!session) {
+      continue;
+    }
+    statusSessions.push({
+      serverId,
+      workspaces: session.workspaces,
+      agents: session.agents,
+    });
+  }
+  return statusSessions;
+}
+
+export function areStatusModeSessionsEqual(
+  left: readonly StatusModeSession[],
+  right: readonly StatusModeSession[],
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftSession = left[index];
+    const rightSession = right[index];
+    if (
+      !leftSession ||
+      !rightSession ||
+      leftSession.serverId !== rightSession.serverId ||
+      leftSession.workspaces !== rightSession.workspaces ||
+      leftSession.agents !== rightSession.agents
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function useStatusModeWorkspacePlacements(input: {
+  placements: SidebarWorkspacePlacement[];
+  enabled?: boolean;
+}): SidebarStatusWorkspacePlacement[] {
+  const isEnabled = input.enabled !== false && input.placements.length > 0;
+  const serverIds = useMemo(
+    () => Array.from(new Set(input.placements.map((placement) => placement.serverId))),
+    [input.placements],
+  );
+  const statusSessions = useStoreWithEqualityFn(
+    useSessionStore,
+    (state) =>
+      isEnabled ? selectStatusModeSessions(state.sessions, serverIds) : EMPTY_STATUS_SESSIONS,
+    areStatusModeSessionsEqual,
+  );
+  const pendingCreateAttempts = useCreateFlowStore((state) =>
+    isEnabled ? state.pendingByDraftId : EMPTY_PENDING_CREATE_ATTEMPTS,
+  );
+
+  return useMemo(() => {
+    if (!isEnabled) {
+      return EMPTY_WORKSPACES;
+    }
+
+    return buildSidebarStatusWorkspacePlacements({
+      placements: input.placements,
+      sessions: statusSessions,
+      pendingCreateAttempts,
+    });
+  }, [input.placements, isEnabled, pendingCreateAttempts, statusSessions]);
+}
 
 export function useStatusModeWorkspaceEntries(input: {
   serverId: string | null;
@@ -23,21 +117,22 @@ export function useStatusModeWorkspaceEntries(input: {
 
   return useMemo(() => {
     if (!input.serverId || input.projects.length === 0 || !workspaces) {
-      return EMPTY_WORKSPACES;
+      return EMPTY_WORKSPACE_ENTRIES;
     }
 
     const entries: SidebarWorkspaceEntry[] = [];
     for (const placedWorkspace of input.projects.flatMap((project) => project.workspaces)) {
       const workspace = workspaces.get(placedWorkspace.workspaceId);
+      if (!workspace) {
+        continue;
+      }
       entries.push(
-        workspace
-          ? createSidebarWorkspaceEntry({
-              serverId: input.serverId,
-              workspace,
-              pendingCreateAttempts,
-              agents,
-            })
-          : placedWorkspace,
+        createSidebarWorkspaceEntry({
+          serverId: input.serverId,
+          workspace,
+          pendingCreateAttempts,
+          agents,
+        }),
       );
     }
     return entries;

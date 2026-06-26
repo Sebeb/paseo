@@ -106,6 +106,7 @@ function createWorkspace(input: Partial<SidebarWorkspaceEntry> = {}): SidebarWor
     serverId: "server",
     workspaceId: "workspace",
     projectKey: "project",
+    projectName: "Project",
     projectRootPath: "/repo/project",
     workspaceDirectory: "/repo/project/workspace",
     projectKind: "git",
