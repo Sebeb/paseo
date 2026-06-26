@@ -15,6 +15,7 @@ export interface PinnedUserInputState {
   item: Extract<StreamItem, { kind: "user_message" }>;
   sourceTop: number;
   sourceBottom: number;
+  translateY: number;
 }
 
 export interface SelectPinnedUserInputInput {
@@ -22,6 +23,7 @@ export interface SelectPinnedUserInputInput {
   candidates: PinnedUserInputCandidate[];
   viewportTop: number;
   viewportBottom: number;
+  pinnedBottom: number;
 }
 
 export interface CollectEstimatedPinnedUserInputCandidatesInput {
@@ -39,28 +41,36 @@ function isVisible(input: {
   return input.bottom > input.viewportTop && input.top < input.viewportBottom;
 }
 
-function getVisibleResponseDistanceFromViewportBottom(input: {
-  responseItems: PinnedUserInputGeometry[];
+function isCandidateResponseZoneRelevant(input: {
+  candidate: PinnedUserInputCandidate;
+  next: PinnedUserInputCandidate | undefined;
   viewportTop: number;
   viewportBottom: number;
-}): number | null {
-  let nearestDistance: number | null = null;
-  for (const responseItem of input.responseItems) {
+}): boolean {
+  for (const responseItem of input.candidate.responseItems) {
     if (
-      !isVisible({
+      isVisible({
         top: responseItem.top,
         bottom: responseItem.bottom,
         viewportTop: input.viewportTop,
         viewportBottom: input.viewportBottom,
       })
     ) {
-      continue;
+      return true;
     }
-    const visibleBottom = Math.min(responseItem.bottom, input.viewportBottom);
-    const distance = input.viewportBottom - visibleBottom;
-    nearestDistance = nearestDistance === null ? distance : Math.min(nearestDistance, distance);
   }
-  return nearestDistance;
+  if (
+    input.next &&
+    isVisible({
+      top: input.next.input.top,
+      bottom: input.next.input.bottom,
+      viewportTop: input.viewportTop,
+      viewportBottom: input.viewportBottom,
+    })
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export function collectEstimatedPinnedUserInputCandidates(
@@ -134,43 +144,56 @@ export function selectPinnedUserInput(
     return null;
   }
 
-  for (const candidate of input.candidates) {
-    if (
-      isVisible({
-        top: candidate.input.top,
-        bottom: candidate.input.bottom,
-        viewportTop: input.viewportTop,
-        viewportBottom: input.viewportBottom,
-      })
-    ) {
-      return null;
+  // The active candidate is the latest user_message whose real bottom has scrolled
+  // above the pinned overlay's bottom (in viewport coordinates). Equivalently:
+  // candidate.bottom < viewportTop + pinnedBottom.
+  const pinnedThresholdInContent = input.viewportTop + input.pinnedBottom;
+  let activeIndex: number | null = null;
+  for (let i = 0; i < input.candidates.length; i += 1) {
+    if (input.candidates[i].input.bottom < pinnedThresholdInContent) {
+      activeIndex = i;
+    } else {
+      break;
     }
   }
 
-  let selected: PinnedUserInputCandidate | null = null;
-  let selectedDistance: number | null = null;
-  for (const candidate of input.candidates) {
-    const distance = getVisibleResponseDistanceFromViewportBottom({
-      responseItems: candidate.responseItems,
-      viewportTop: input.viewportTop,
-      viewportBottom: input.viewportBottom,
-    });
-    if (distance === null) {
-      continue;
-    }
-    if (selectedDistance === null || distance < selectedDistance) {
-      selected = candidate;
-      selectedDistance = distance;
-    }
-  }
-
-  if (!selected || selected.input.item.kind !== "user_message") {
+  if (activeIndex === null) {
     return null;
   }
 
+  const active = input.candidates[activeIndex];
+  const next = input.candidates[activeIndex + 1];
+
+  if (
+    !isCandidateResponseZoneRelevant({
+      candidate: active,
+      next,
+      viewportTop: input.viewportTop,
+      viewportBottom: input.viewportBottom,
+    })
+  ) {
+    return null;
+  }
+
+  if (active.input.item.kind !== "user_message") {
+    return null;
+  }
+
+  // The next candidate physically pushes the pinned overlay up once its top crosses
+  // the pinned's bottom in viewport. translateY tracks the next message's top so the
+  // overlay's bottom stays glued to it.
+  let translateY = 0;
+  if (next) {
+    const nextTopInViewport = next.input.top - input.viewportTop;
+    if (nextTopInViewport < input.pinnedBottom) {
+      translateY = nextTopInViewport - input.pinnedBottom;
+    }
+  }
+
   return {
-    item: selected.input.item,
-    sourceTop: selected.input.top,
-    sourceBottom: selected.input.bottom,
+    item: active.input.item,
+    sourceTop: active.input.top,
+    sourceBottom: active.input.bottom,
+    translateY,
   };
 }

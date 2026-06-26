@@ -3,7 +3,7 @@ import type { TFunction } from "i18next";
 import { SquarePen } from "lucide-react-native";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Text, View } from "react-native";
+import { Text, View, type LayoutChangeEvent } from "react-native";
 import ReanimatedAnimated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet } from "react-native-unistyles";
@@ -55,6 +55,7 @@ import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
 import { useContainerWidthBelow } from "@/hooks/use-container-width";
 import { useFormPreferences } from "@/hooks/use-form-preferences";
+import { useAppSettings } from "@/hooks/use-settings";
 import {
   clearHistorySyncErrorAfterSuccessfulSync,
   reconcileMissingAgentStateWithPresentAgent,
@@ -1217,6 +1218,37 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
     }),
     [text, setText, attachments, setAttachments, clear, isHydrated, composerState],
   );
+
+  // Pinned user inputs are gated on the setting AND on the composer staying
+  // under ~1/4 of the chat pane height. Refs hold the latest measured values so
+  // we only re-render the stream when the resolved flag actually flips.
+  const { settings: appSettings } = useAppSettings();
+  const composerHeightRef = useRef(0);
+  const paneHeightRef = useRef(0);
+  const [composerFitsForPin, setComposerFitsForPin] = useState(true);
+  const recomputeComposerFitsForPin = useCallback(() => {
+    const composer = composerHeightRef.current;
+    const pane = paneHeightRef.current;
+    const fits = pane <= 0 || composer * 4 <= pane;
+    setComposerFitsForPin((previous) => (previous === fits ? previous : fits));
+  }, []);
+  const handleComposerHeightChangeForPane = useCallback(
+    (height: number) => {
+      composerHeightRef.current = height;
+      recomputeComposerFitsForPin();
+      handleComposerHeightChange(height);
+    },
+    [handleComposerHeightChange, recomputeComposerFitsForPin],
+  );
+  const handlePaneLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      paneHeightRef.current = event.nativeEvent.layout.height;
+      recomputeComposerFitsForPin();
+    },
+    [recomputeComposerFitsForPin],
+  );
+  const pinUserInputsEnabled = appSettings.pinUserInputs && composerFitsForPin;
+
   const streamSection = (
     <RenderProfile id={`AgentStreamSection:${agentId}`}>
       <AgentStreamSection
@@ -1229,6 +1261,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
         hasAppliedAuthoritativeHistory={hasAppliedAuthoritativeHistory}
         toast={toastApi}
         onOpenWorkspaceFile={onOpenWorkspaceFile}
+        pinUserInputsEnabled={pinUserInputsEnabled}
       />
     </RenderProfile>
   );
@@ -1247,7 +1280,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
         onAttentionPromptSend={onAttentionPromptSend}
         onAddImages={handleAddImagesCallback}
         onAddFiles={handleAddFilesCallback}
-        onComposerHeightChange={handleComposerHeightChange}
+        onComposerHeightChange={handleComposerHeightChangeForPane}
         onMessageSent={handleMessageSent}
       />
     </RenderProfile>
@@ -1265,7 +1298,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
           onGenericFilesDropped={handleGenericFilesDropped}
           disabled={isArchivingCurrentAgent}
         >
-          <View style={styles.container} testID="agent-chat-space">
+          <View style={styles.container} onLayout={handlePaneLayout} testID="agent-chat-space">
             {contentContainer}
 
             {composerSection}
@@ -1302,6 +1335,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   hasAppliedAuthoritativeHistory,
   toast,
   onOpenWorkspaceFile,
+  pinUserInputsEnabled,
 }: {
   streamViewRef: React.RefObject<AgentStreamViewHandle | null>;
   serverId: string;
@@ -1312,6 +1346,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   hasAppliedAuthoritativeHistory: boolean;
   toast: ReturnType<typeof useToastHost>["api"];
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  pinUserInputsEnabled: boolean;
 }) {
   const streamItemsRaw = useSessionStore((state) =>
     agentId ? state.sessions[serverId]?.agentStreamTail?.get(agentId) : undefined,
@@ -1357,6 +1392,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
       toast={toast}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
       isPaneFocused={isPaneFocused}
+      pinUserInputsEnabled={pinUserInputsEnabled}
     />
   );
 });

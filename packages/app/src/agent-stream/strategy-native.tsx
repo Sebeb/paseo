@@ -68,6 +68,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
     onNearBottomChange,
     onNearHistoryStart,
     pinUserInputsEnabled,
+    pinnedBottom,
     onPinnedUserInputChange,
     pinnedUserInputOverlay,
     isLoadingOlderHistory,
@@ -140,9 +141,15 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
         candidates: collectPinnedUserInputCandidates(),
         viewportTop,
         viewportBottom,
+        pinnedBottom,
       }),
     );
-  }, [collectPinnedUserInputCandidates, onPinnedUserInputChange, pinUserInputsEnabled]);
+  }, [
+    collectPinnedUserInputCandidates,
+    onPinnedUserInputChange,
+    pinUserInputsEnabled,
+    pinnedBottom,
+  ]);
 
   const clearNativeViewportSettling = useCallback(() => {
     if (nativeViewportSettlingFrameIdRef.current !== null) {
