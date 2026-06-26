@@ -845,7 +845,7 @@ export const ru: TranslationResources = {
         expand: "Развернуть рабочее пространство",
         title: "Tabs",
         noWorkspaceSelected: "No workspace selected",
-        showAll: "Показать все",
+        showAll: "Показать все {{count}}",
         showAllLabel: "Показать все вкладки",
         showLess: "Показать меньше",
         showLessLabel: "Показать меньше вкладок",

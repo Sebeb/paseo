@@ -22,6 +22,8 @@ function createWorkspace(
     projectKind: input.projectKind ?? "git",
     workspaceKind: input.workspaceKind ?? "local_checkout",
     name: input.name ?? "main",
+    createdAt: input.createdAt ?? null,
+    activityAt: input.activityAt ?? null,
     status: input.status ?? "done",
     statusEnteredAt: input.statusEnteredAt ?? null,
     archivingAt: input.archivingAt ?? null,
@@ -84,6 +86,7 @@ describe("normalizeWorkspaceDescriptor", () => {
       scripts,
     });
 
+    expect(workspace.activityAt).toBeNull();
     expect(workspace.scripts).toEqual([
       {
         scriptName: "web",
@@ -98,6 +101,29 @@ describe("normalizeWorkspaceDescriptor", () => {
       },
     ]);
     expect(workspace.scripts).not.toBe(scripts);
+  });
+
+  it("normalizes workspace created and activity timestamps", () => {
+    const workspace = normalizeWorkspaceDescriptor({
+      id: "1",
+      projectId: "1",
+      projectDisplayName: "Project 1",
+      projectRootPath: "/repo",
+      workspaceDirectory: "/repo",
+      projectKind: "git",
+      workspaceKind: "checkout",
+      name: "main",
+      createdAt: "2026-06-01T10:00:00.000Z",
+      archivingAt: null,
+      status: "done",
+      statusEnteredAt: null,
+      activityAt: "2026-06-02T10:00:00.000Z",
+      diffStat: null,
+      scripts: [],
+    });
+
+    expect(workspace.createdAt?.toISOString()).toBe("2026-06-01T10:00:00.000Z");
+    expect(workspace.activityAt?.toISOString()).toBe("2026-06-02T10:00:00.000Z");
   });
 
   it("canonicalizes the workspace directory and treats a blank one as empty", () => {

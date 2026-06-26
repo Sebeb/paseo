@@ -305,6 +305,8 @@ function createLegacyWorkspace(
     workspaceKind: resolveLegacyWorkspaceKind(checkout),
     name: resolveLegacyWorkspaceName(entry, workspaceDirectory),
     title: null,
+    createdAt: null,
+    activityAt: null,
     status,
     statusEnteredAt,
     archivingAt: null,

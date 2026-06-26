@@ -537,6 +537,24 @@ describe("workspace message schemas", () => {
     ).toBe(statusEnteredAt);
   });
 
+  test("accepts missing createdAt for legacy workspace descriptors", () => {
+    const parsed = WorkspaceDescriptorPayloadSchema.parse({
+      id: "ws-created-at",
+      projectId: "proj",
+      projectDisplayName: "repo",
+      projectRootPath: "/repo",
+      workspaceDirectory: "/repo",
+      projectKind: "git",
+      workspaceKind: "worktree",
+      name: "feature",
+      status: "done",
+      activityAt: null,
+      scripts: [],
+    });
+
+    expect(parsed.createdAt).toBeUndefined();
+  });
+
   test("preserves explicit statusEnteredAt: null for empty workspaces", () => {
     // The server emits `statusEnteredAt: null` for workspaces with no
     // contributing agents (the "done with no agents" case). The client must

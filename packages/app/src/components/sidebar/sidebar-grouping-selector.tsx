@@ -18,6 +18,7 @@ import {
   type SidebarEmbeddedTabSortMode,
   type SidebarGroupMode,
   type SidebarTabBarBadgeMode,
+  type SidebarWorkspaceSortMode,
 } from "@/stores/sidebar-view-store";
 import { isWeb as platformIsWeb } from "@/constants/platform";
 
@@ -30,6 +31,13 @@ const GROUP_MODE_ITEMS: Array<{ value: SidebarGroupMode; label: string }> = [
 ];
 
 const TAB_SORT_ITEMS: Array<{ value: SidebarEmbeddedTabSortMode; label: string }> = [
+  { value: "manual", label: "Manual" },
+  { value: "created", label: "Created" },
+  { value: "lastUpdated", label: "Last updated" },
+  { value: "status", label: "Status" },
+];
+
+const WORKSPACE_SORT_ITEMS: Array<{ value: SidebarWorkspaceSortMode; label: string }> = [
   { value: "manual", label: "Manual" },
   { value: "created", label: "Created" },
   { value: "lastUpdated", label: "Last updated" },
@@ -64,8 +72,12 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
   const groupMode = useSidebarViewStore((state) =>
     serverId ? state.getGroupMode(serverId) : "project",
   );
+  const workspaceSortMode = useSidebarViewStore((state) =>
+    serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
   const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
   const setGroupMode = useSidebarViewStore((state) => state.setGroupMode);
+  const setWorkspaceSortMode = useSidebarViewStore((state) => state.setWorkspaceSortMode);
   const setAutoCollapseWorkspaces = useSidebarViewStore((state) => state.setAutoCollapseWorkspaces);
   const showSidebarSpecificControls = settings.tabLayoutMode !== "horizontal";
   const showTabControls = settings.tabLayoutMode === "sidebar";
@@ -80,6 +92,13 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
     [serverId, setGroupMode],
   );
 
+  const handleWorkspaceSortSelect = useCallback(
+    (mode: SidebarWorkspaceSortMode) => {
+      if (!serverId) return;
+      setWorkspaceSortMode(serverId, mode);
+    },
+    [serverId, setWorkspaceSortMode],
+  );
   const handleAutoCollapseSelect = useCallback(() => {
     setAutoCollapseWorkspaces(!autoCollapseWorkspaces);
   }, [autoCollapseWorkspaces, setAutoCollapseWorkspaces]);
@@ -146,6 +165,19 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
             >
               Auto collapse workspaces
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <View style={styles.menuHeader}>
+              <Text style={styles.menuHeaderLabel}>Workspaces sort</Text>
+            </View>
+            {WORKSPACE_SORT_ITEMS.map((item) => (
+              <WorkspaceSortMenuItem
+                key={item.value}
+                item={item}
+                isSelected={workspaceSortMode === item.value}
+                closeOnSelect={false}
+                onSelect={handleWorkspaceSortSelect}
+              />
+            ))}
           </>
         ) : null}
         <SidebarDisplayPreferencesMenuSections
@@ -360,6 +392,30 @@ function TabSortMenuItem({
   return (
     <DropdownMenuItem
       testID={`sidebar-tab-sort-${item.value}`}
+      selected={isSelected}
+      closeOnSelect={closeOnSelect}
+      onSelect={handleSelect}
+    >
+      {item.label}
+    </DropdownMenuItem>
+  );
+}
+
+function WorkspaceSortMenuItem({
+  item,
+  isSelected,
+  closeOnSelect,
+  onSelect,
+}: {
+  item: { value: SidebarWorkspaceSortMode; label: string };
+  isSelected: boolean;
+  closeOnSelect: boolean;
+  onSelect: (mode: SidebarWorkspaceSortMode) => void;
+}) {
+  const handleSelect = useCallback(() => onSelect(item.value), [item.value, onSelect]);
+  return (
+    <DropdownMenuItem
+      testID={`sidebar-workspace-sort-${item.value}`}
       selected={isSelected}
       closeOnSelect={closeOnSelect}
       onSelect={handleSelect}

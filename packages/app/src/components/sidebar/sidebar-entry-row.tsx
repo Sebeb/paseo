@@ -114,6 +114,7 @@ export function SidebarEntryPrimaryStatusBadge({ summary }: { summary: SidebarTa
 function SidebarEntryStatusBadge({ kind, count }: { kind: SidebarEntryStatusKind; count: number }) {
   const definition = SIDEBAR_ENTRY_STATUS_DEFINITIONS[kind];
   const badgeStyle = useMemo(() => [styles.statusBadge, getStatusBadgeColorStyle(kind)], [kind]);
+  const countLabel = formatStatusBadgeCount(count);
   if (count <= 0) {
     return null;
   }
@@ -132,26 +133,21 @@ function SidebarEntryStatusBadge({ kind, count }: { kind: SidebarEntryStatusKind
     );
   }
   if (kind === "in_progress") {
-    if (shouldShowStatusCount(kind, count)) {
-      return (
-        <View
-          style={styles.statusBadgeInProgressCount}
-          testID={`sidebar-entry-status-badge-${kind}`}
-        >
-          <Text style={styles.statusBadgeInProgressCountText}>{count}</Text>
-        </View>
-      );
-    }
     return (
       <View style={styles.statusBadgePlain} testID={`sidebar-entry-status-badge-${kind}`}>
         <ThemedSyncedLoader size={12} uniProps={blueColorMapping} />
+        {shouldShowStatusCount(kind, count) ? (
+          <View style={styles.statusBadgeInProgressCountOverlay} pointerEvents="none">
+            <Text style={styles.statusBadgeInProgressCountText}>{countLabel}</Text>
+          </View>
+        ) : null}
       </View>
     );
   }
   return (
     <View style={badgeStyle} testID={`sidebar-entry-status-badge-${kind}`}>
       {shouldShowStatusCount(kind, count) ? (
-        <Text style={styles.statusBadgeCount}>{count}</Text>
+        <Text style={styles.statusBadgeCount}>{countLabel}</Text>
       ) : (
         <StatusBadgeIcon kind={kind} />
       )}
@@ -214,6 +210,10 @@ function shouldShowStatusCount(kind: SidebarEntryStatusKind, count: number): boo
     return false;
   }
   return count > 1;
+}
+
+function formatStatusBadgeCount(count: number): string {
+  return count >= 10 ? "+" : String(count);
 }
 
 function getStatusBadgeColorStyle(kind: SidebarEntryStatusKind) {
@@ -332,12 +332,11 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.medium,
     lineHeight: 12,
   },
-  statusBadgeInProgressCount: {
-    width: 14,
-    height: 14,
+  statusBadgeInProgressCountOverlay: {
+    position: "absolute",
+    inset: 0,
     alignItems: "center",
     justifyContent: "center",
-    flexShrink: 0,
   },
   statusBadgeInProgressCountText: {
     color: theme.colors.palette.blue[500],

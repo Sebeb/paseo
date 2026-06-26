@@ -56,6 +56,7 @@ import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import { useClearWorkspaceAttention } from "@/hooks/use-clear-workspace-attention";
+import { useAppSettings, type WorkspaceTitleSource } from "@/hooks/use-settings";
 import {
   SidebarWorkspaceRowFrame,
   SidebarWorkspaceRowContent,
@@ -365,6 +366,7 @@ function StatusWorkspaceRowWithMenu({
 }) {
   const { t } = useTranslation();
   const toast = useToast();
+  const { settings: appSettings } = useAppSettings();
   const [isHidingWorkspace, setIsHidingWorkspace] = useState(false);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const workspaceDirectory = resolveWorkspaceDirectory({
@@ -482,6 +484,7 @@ function StatusWorkspaceRowWithMenu({
     <ContextMenu>
       <StatusWorkspaceRowInner
         workspace={workspace}
+        workspaceTitleSource={appSettings.workspaceTitleSource}
         projectName={projectName}
         selected={selected}
         shortcutNumber={shortcutNumber}
@@ -527,6 +530,7 @@ function StatusWorkspaceRowWithMenu({
 
 function StatusWorkspaceRowInner({
   workspace,
+  workspaceTitleSource,
   projectName,
   selected,
   shortcutNumber,
@@ -545,6 +549,7 @@ function StatusWorkspaceRowInner({
   pendingBranchActionIds,
 }: {
   workspace: SidebarWorkspaceEntry;
+  workspaceTitleSource: WorkspaceTitleSource;
   projectName: string;
   selected: boolean;
   shortcutNumber: number | null;
@@ -602,6 +607,7 @@ function StatusWorkspaceRowInner({
             >
               <SidebarWorkspaceRowContent
                 workspace={workspace}
+                workspaceTitleSource={workspaceTitleSource}
                 subtitle={projectName}
                 scriptIconKind={scriptIconKind}
                 isHovered={isHovered}

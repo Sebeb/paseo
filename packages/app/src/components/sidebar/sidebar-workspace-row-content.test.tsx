@@ -114,6 +114,8 @@ function createWorkspace(input: Partial<SidebarWorkspaceEntry> = {}): SidebarWor
     name: "main",
     title: null,
     currentBranch: "main",
+    createdAt: null,
+    activityAt: null,
     statusBucket: "done",
     statusEnteredAt: null,
     archivingAt: null,
@@ -143,6 +145,24 @@ describe("SidebarWorkspaceRowContent", () => {
 
     expect(queryByTestId("workspace-kind-icon-local_checkout")).not.toBeNull();
     expect(container.querySelector('[data-icon="Monitor"]')).not.toBeNull();
+  });
+
+  it("renders the branch as the primary label when configured", () => {
+    const { getByText, queryByText } = render(
+      <SidebarWorkspaceRowContent
+        workspace={createWorkspace({
+          name: "Payments Refactor",
+          title: "Payments Refactor",
+          currentBranch: "feat/payments-refactor",
+        })}
+        workspaceTitleSource="branch"
+        isHovered={false}
+        isLoading={false}
+      />,
+    );
+
+    expect(getByText("feat/payments-refactor")).not.toBeNull();
+    expect(queryByText("Payments Refactor")).toBeNull();
   });
 
   it("overlays the embedded expand control in the workspace icon slot", () => {

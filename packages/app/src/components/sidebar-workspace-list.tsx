@@ -87,7 +87,7 @@ import {
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
-import { useAppSettings } from "@/hooks/use-settings";
+import { useAppSettings, type WorkspaceTitleSource } from "@/hooks/use-settings";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useSessionStore, type Agent } from "@/stores/session-store";
 import {
@@ -102,6 +102,7 @@ import {
   useSidebarViewStore,
   type SidebarBadgeMode,
   type SidebarEmbeddedRecentTabCount,
+  type SidebarWorkspaceSortMode,
 } from "@/stores/sidebar-view-store";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import { createWorkspaceBrowser, useBrowserStore } from "@/stores/browser-store";
@@ -175,6 +176,7 @@ import {
   getProjectAncestorHighlighted,
   getWorkspaceAncestorHighlighted,
 } from "@/utils/sidebar-active-ancestor-highlight";
+import { findActiveSidebarWorkspaceRevealTarget } from "@/utils/sidebar-active-workspace-reveal";
 import { useWorkspaceArchive } from "@/workspace/use-workspace-archive";
 import { generateDraftId } from "@/stores/draft-keys";
 import { deriveWorkspacePaneState } from "@/screens/workspace/workspace-pane-state";
@@ -604,6 +606,7 @@ interface WorkspaceRowInnerProps {
   workspace: SidebarWorkspaceEntry;
   badgeMode: SidebarBadgeMode;
   tabStatusSummary: SidebarTabStatusSummary;
+  workspaceTitleSource: WorkspaceTitleSource;
   selected: boolean;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
@@ -2254,7 +2257,7 @@ function ProjectHeaderEntryContent({
         onRemoveProject,
         removeProjectStatus,
       })}
-      showHoverRightContext={showTrailingActions && !showShortcut}
+      showHoverRightContext={showTrailingActions && !showShortcut && !showStatusSummary}
       shortcutBadge={
         showShortcut && shortcutNumber !== null
           ? createElement(SidebarWorkspaceShortcutBadge, { number: shortcutNumber })
@@ -2293,6 +2296,7 @@ function WorkspaceRowInner({
   workspace,
   badgeMode,
   tabStatusSummary,
+  workspaceTitleSource,
   selected,
   shortcutNumber,
   showShortcutBadge,
@@ -2415,6 +2419,7 @@ function WorkspaceRowInner({
             >
               <SidebarWorkspaceRowContent
                 workspace={workspace}
+                workspaceTitleSource={workspaceTitleSource}
                 scriptIconKind={scriptIconKind}
                 isHovered={isHovered}
                 isLoading={isArchiving || isCreating}
@@ -2751,6 +2756,7 @@ function WorkspaceRowWithMenu({
         workspace={workspace}
         badgeMode={badgeMode}
         tabStatusSummary={tabStatusSummary}
+        workspaceTitleSource={appSettings.workspaceTitleSource}
         selected={getWorkspaceAncestorHighlighted({ selected, embeddedTabsEnabled })}
         shortcutNumber={shortcutNumber}
         showShortcutBadge={showShortcutBadge}
@@ -3474,6 +3480,7 @@ function EmbeddedWorkspaceTabs({
   const hiddenTabCount = Math.max(0, treeRows.length - recentVisibleRows.length);
   const shouldShowVisibilityToggle = recentTabCount !== "all" && hiddenTabCount > 0;
   const visibleRows = showAllTabs ? treeRows : recentVisibleRows;
+  const totalTabCount = sortedItems.length;
   const handleToggleShowAllTabs = useCallback(
     (event: GestureResponderEvent) => {
       event.stopPropagation();
@@ -3484,9 +3491,13 @@ function EmbeddedWorkspaceTabs({
   const visibilityToggleFooter = useMemo(
     () =>
       shouldShowVisibilityToggle ? (
-        <EmbeddedTabsVisibilityToggle expanded={showAllTabs} onPress={handleToggleShowAllTabs} />
+        <EmbeddedTabsVisibilityToggle
+          expanded={showAllTabs}
+          totalTabCount={totalTabCount}
+          onPress={handleToggleShowAllTabs}
+        />
       ) : null,
-    [handleToggleShowAllTabs, shouldShowVisibilityToggle, showAllTabs],
+    [handleToggleShowAllTabs, shouldShowVisibilityToggle, showAllTabs, totalTabCount],
   );
 
   const handlePressTab = useCallback(
@@ -3878,6 +3889,7 @@ function EmbeddedWorkspaceTabs({
           {shouldShowVisibilityToggle ? (
             <EmbeddedTabsVisibilityToggle
               expanded={showAllTabs}
+              totalTabCount={totalTabCount}
               onPress={handleToggleShowAllTabs}
             />
           ) : null}
@@ -4226,9 +4238,11 @@ export function SidebarVerticalWorkspaceTabsHeaderActions({
 
 function EmbeddedTabsVisibilityToggle({
   expanded,
+  totalTabCount,
   onPress,
 }: {
   expanded: boolean;
+  totalTabCount: number;
   onPress: (event: GestureResponderEvent) => void;
 }) {
   const { t } = useTranslation();
@@ -4247,7 +4261,7 @@ function EmbeddedTabsVisibilityToggle({
       <Text style={styles.embeddedTabsVisibilityToggleText}>
         {expanded
           ? t("sidebar.workspace.embeddedTabs.showLess")
-          : t("sidebar.workspace.embeddedTabs.showAll")}
+          : t("sidebar.workspace.embeddedTabs.showAll", { count: totalTabCount })}
       </Text>
     </Pressable>
   );
@@ -4437,6 +4451,7 @@ function ProjectBlock({
   creatingWorkspaceIds,
   activeWorkspaceSelection,
   workspaceKeysForAutoCollapse,
+  workspaceSortMode,
 }: {
   project: SidebarProjectEntry;
   collapsed: boolean;
@@ -4460,6 +4475,7 @@ function ProjectBlock({
   creatingWorkspaceIds: ReadonlySet<string>;
   activeWorkspaceSelection: ActiveWorkspaceSelection | null;
   workspaceKeysForAutoCollapse: readonly string[];
+  workspaceSortMode: SidebarWorkspaceSortMode;
 }) {
   const rowModel = useMemo(
     () =>
@@ -4623,6 +4639,35 @@ function ProjectBlock({
     [collapsed, onToggleCollapsed, project.projectKey, project.workspaces, setWorkspacesCollapsed],
   );
 
+  let workspaceRows: ReactNode = null;
+  if (!collapsed && project.workspaces.length > 0) {
+    workspaceRows =
+      workspaceSortMode === "manual" ? (
+        <DraggableList
+          testID={`sidebar-workspace-list-${project.projectKey}`}
+          data={project.workspaces}
+          keyExtractor={workspaceKeyExtractor}
+          renderItem={renderWorkspace}
+          onDragEnd={handleWorkspaceDragEnd}
+          extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+          scrollEnabled={false}
+          useDragHandle
+          nestable={useNestable}
+          simultaneousGestureRef={parentGestureRef}
+          containerStyle={styles.workspaceListContainer}
+        />
+      ) : (
+        <View
+          style={styles.workspaceListContainer}
+          testID={`sidebar-workspace-list-${project.projectKey}`}
+        >
+          {project.workspaces.map((workspace) => (
+            <View key={workspace.workspaceKey}>{renderWorkspaceRow(workspace)}</View>
+          ))}
+        </View>
+      );
+  }
+
   return (
     <View style={styles.projectBlock}>
       <ProjectHeaderRowWithMenu
@@ -4649,21 +4694,7 @@ function ProjectBlock({
         dragHandleProps={dragHandleProps}
       />
 
-      {!collapsed && project.workspaces.length > 0 ? (
-        <DraggableList
-          testID={`sidebar-workspace-list-${project.projectKey}`}
-          data={project.workspaces}
-          keyExtractor={workspaceKeyExtractor}
-          renderItem={renderWorkspace}
-          onDragEnd={handleWorkspaceDragEnd}
-          extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
-          scrollEnabled={false}
-          useDragHandle
-          nestable={useNestable}
-          simultaneousGestureRef={parentGestureRef}
-          containerStyle={styles.workspaceListContainer}
-        />
-      ) : null}
+      {workspaceRows}
     </View>
   );
 }
@@ -4701,6 +4732,7 @@ function areProjectBlockDataPropsEqual(
     previous.canRemoveProject === next.canRemoveProject &&
     previous.selectionEnabled === next.selectionEnabled &&
     previous.badgeMode === next.badgeMode &&
+    previous.workspaceSortMode === next.workspaceSortMode &&
     previous.showShortcutBadges === next.showShortcutBadges &&
     previous.shortcutIndexByWorkspaceKey === next.shortcutIndexByWorkspaceKey &&
     previous.creatingWorkspaceIds === next.creatingWorkspaceIds &&
@@ -4864,12 +4896,21 @@ function ProjectModeList({
   const badgeMode = useSidebarViewStore((state) =>
     serverId ? state.getBadgeMode(serverId) : "status",
   );
+  const workspaceSortMode = useSidebarViewStore((state) =>
+    serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
   const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
   const collapsedWorkspaceKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedWorkspaceKeys,
   );
   const setOnlyWorkspaceExpanded = useSidebarCollapsedSectionsStore(
     (state) => state.setOnlyWorkspaceExpanded,
+  );
+  const setWorkspaceCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.setWorkspaceCollapsed,
+  );
+  const setProjectCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.setProjectCollapsed,
   );
   const canRemoveProject = useSessionStore((state) =>
     serverId ? state.sessions[serverId]?.serverInfo?.features?.projectRemove === true : false,
@@ -4958,28 +4999,49 @@ function ProjectModeList({
   }, [creatingWorkspaceIds, projects]);
 
   useEffect(() => {
-    if (!autoCollapseWorkspaces) {
+    const revealTarget = findActiveSidebarWorkspaceRevealTarget({
+      projects,
+      selection: activeWorkspaceSelection,
+      serverId,
+      selectionEnabled,
+    });
+    if (!revealTarget) {
       return;
     }
+
+    if (collapsedProjectKeys.has(revealTarget.projectKey)) {
+      setProjectCollapsed(revealTarget.projectKey, false);
+    }
+
+    if (!autoCollapseWorkspaces) {
+      if (collapsedWorkspaceKeys.has(revealTarget.workspaceKey)) {
+        setWorkspaceCollapsed(revealTarget.workspaceKey, false);
+      }
+      return;
+    }
+
     const expandedWorkspaceKeys = workspaceKeysForAutoCollapse.filter(
       (workspaceKey) => !collapsedWorkspaceKeys.has(workspaceKey),
     );
-    if (expandedWorkspaceKeys.length <= 1) {
+    const needsActiveWorkspaceExpanded = collapsedWorkspaceKeys.has(revealTarget.workspaceKey);
+    const needsInactiveWorkspacesCollapsed =
+      expandedWorkspaceKeys.some((workspaceKey) => workspaceKey !== revealTarget.workspaceKey) ||
+      expandedWorkspaceKeys.length === 0;
+    if (!needsActiveWorkspaceExpanded && !needsInactiveWorkspacesCollapsed) {
       return;
     }
-    const activeWorkspaceKey = activeWorkspaceSelectionKey(activeWorkspaceSelection);
-    const workspaceKeyToKeep = expandedWorkspaceKeys.includes(activeWorkspaceKey)
-      ? activeWorkspaceKey
-      : expandedWorkspaceKeys[0];
-    if (!workspaceKeyToKeep) {
-      return;
-    }
-    setOnlyWorkspaceExpanded(workspaceKeyToKeep, workspaceKeysForAutoCollapse);
+    setOnlyWorkspaceExpanded(revealTarget.workspaceKey, workspaceKeysForAutoCollapse);
   }, [
     activeWorkspaceSelection,
     autoCollapseWorkspaces,
+    collapsedProjectKeys,
     collapsedWorkspaceKeys,
+    projects,
+    selectionEnabled,
+    serverId,
+    setProjectCollapsed,
     setOnlyWorkspaceExpanded,
+    setWorkspaceCollapsed,
     workspaceKeysForAutoCollapse,
   ]);
 
@@ -5090,12 +5152,14 @@ function ProjectModeList({
           creatingWorkspaceIds={creatingWorkspaceIds}
           activeWorkspaceSelection={activeWorkspaceSelection}
           workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
+          workspaceSortMode={workspaceSortMode}
         />
       );
     },
     [
       collapsedProjectKeys,
       activeWorkspaceSelection,
+      workspaceSortMode,
       handleWorktreeCreated,
       handleWorkspaceReorder,
       onWorkspacePress,

@@ -11,11 +11,13 @@ import { getHostRuntimeStore, useHostRegistryLoaded, useHosts } from "@/runtime/
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useSidebarViewStore } from "@/stores/sidebar-view-store";
 import { shouldSuppressWorkspaceForLocalArchive } from "@/contexts/session-workspace-upserts";
+import { resolveWorkspaceMapKeyByIdentity } from "@/utils/workspace-identity";
 import {
   buildSidebarWorkspacePlacementModel,
   computeSidebarOrderUpdates,
   createSidebarWorkspaceEntry,
   deriveSidebarLoadingState,
+  sortSidebarWorkspaceProjects,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
   type SidebarWorkspacePlacement,
@@ -119,6 +121,18 @@ export function useSidebarWorkspacesList(options?: {
     reconcileHostFilter(allServerIds);
   }, [allServerIds, hostRegistryLoaded, reconcileHostFilter]);
 
+  const sortServerId =
+    effectiveHostFilter ?? (serverIds.length === 1 ? (serverIds[0] ?? null) : null);
+  const workspaceSortMode = useSidebarViewStore((state) =>
+    sortServerId ? state.getWorkspaceSortMode(sortServerId) : "manual",
+  );
+  const sortSessions = useSessionStore((state) =>
+    workspaceSortMode === "manual" ? undefined : state.sessions,
+  );
+  const pendingCreateAttempts = useCreateFlowStore((state) =>
+    workspaceSortMode === "status" ? state.pendingByDraftId : undefined,
+  );
+
   const persistedProjectOrder = useSidebarOrderStore((state) => state.projectOrder ?? EMPTY_ORDER);
 
   const hydratedServerIds = useStoreWithEqualityFn(
@@ -137,7 +151,38 @@ export function useSidebarWorkspacesList(options?: {
     [hostProjects],
   );
 
-  const projects = sidebarModel.projects.length > 0 ? sidebarModel.projects : EMPTY_PROJECTS;
+  const baseProjects = sidebarModel.projects.length > 0 ? sidebarModel.projects : EMPTY_PROJECTS;
+  const projects = useMemo(() => {
+    if (workspaceSortMode === "manual" || baseProjects.length === 0) {
+      return baseProjects;
+    }
+
+    return sortSidebarWorkspaceProjects({
+      projects: baseProjects.map((project) => ({
+        ...project,
+        workspaces: project.workspaces.map((placedWorkspace) => {
+          const session = sortSessions?.[placedWorkspace.serverId];
+          const workspaceMapKey = session
+            ? resolveWorkspaceMapKeyByIdentity({
+                workspaces: session.workspaces,
+                workspaceId: placedWorkspace.workspaceId,
+              })
+            : null;
+          const workspace = workspaceMapKey ? session?.workspaces.get(workspaceMapKey) : null;
+          return workspace
+            ? createSidebarWorkspaceEntry({
+                serverId: placedWorkspace.serverId,
+                workspace,
+                pendingCreateAttempts,
+                agents: workspaceSortMode === "status" ? session?.agents : undefined,
+              })
+            : placedWorkspace;
+        }),
+      })),
+      sortMode: workspaceSortMode,
+    });
+  }, [baseProjects, pendingCreateAttempts, sortSessions, workspaceSortMode]);
+
   const workspacePlacements =
     sidebarModel.workspaces.length > 0 ? sidebarModel.workspaces : EMPTY_WORKSPACES;
   const projectNamesByKey =
@@ -146,7 +191,7 @@ export function useSidebarWorkspacesList(options?: {
   useEffect(() => {
     const orderStore = useSidebarOrderStore.getState();
     const updates = computeSidebarOrderUpdates({
-      projects,
+      projects: baseProjects,
       persistedProjectOrder,
       getWorkspaceOrder: (projectKey) =>
         orderStore.workspaceOrderByProject[projectKey] ?? EMPTY_ORDER,
@@ -158,7 +203,7 @@ export function useSidebarWorkspacesList(options?: {
     for (const { projectKey, order } of updates.workspaceOrders) {
       orderStore.setWorkspaceOrder(projectKey, order);
     }
-  }, [persistedProjectOrder, projects]);
+  }, [baseProjects, persistedProjectOrder]);
 
   const refreshAll = useCallback(() => {
     if (!isActive) return;

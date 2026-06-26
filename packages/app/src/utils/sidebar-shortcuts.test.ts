@@ -31,6 +31,8 @@ function workspace(input: {
     name: input.name,
     title: null,
     currentBranch: null,
+    createdAt: null,
+    activityAt: null,
     statusBucket: input.statusBucket ?? "done",
     archivingAt: null,
     statusEnteredAt: input.statusEnteredAt ?? null,
@@ -49,6 +51,7 @@ function project(projectKey: string, workspaces: SidebarWorkspaceEntry[]): Sideb
     projectName: projectKey,
     projectKind: "git",
     iconWorkingDir: workspaces[0]?.workspaceDirectory ?? "",
+    canCreateWorktree: true,
     hosts: [
       {
         serverId: workspaces[0]?.serverId ?? "s1",

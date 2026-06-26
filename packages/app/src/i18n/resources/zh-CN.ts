@@ -818,7 +818,7 @@ export const zhCN: TranslationResources = {
         expand: "展开工作区",
         title: "Tabs",
         noWorkspaceSelected: "No workspace selected",
-        showAll: "显示全部",
+        showAll: "显示全部 {{count}}",
         showAllLabel: "显示所有标签",
         showLess: "显示更少",
         showLessLabel: "显示更少标签",

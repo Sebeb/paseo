@@ -21,6 +21,8 @@ function workspace(overrides: Partial<SidebarWorkspaceEntry> = {}): SidebarWorks
     name: "paseo",
     title: null,
     currentBranch: null,
+    createdAt: null,
+    activityAt: null,
     statusBucket: "done",
     diffStat: null,
     prHint: null,
@@ -36,16 +38,18 @@ function workspace(overrides: Partial<SidebarWorkspaceEntry> = {}): SidebarWorks
 
 function project(overrides: Partial<SidebarProjectEntry> = {}): SidebarProjectEntry {
   const projectKind = overrides.projectKind ?? "git";
+  const hosts = overrides.hosts ?? [
+    { serverId: "srv", iconWorkingDir: "/repo", canCreateWorktree: projectKind === "git" },
+  ];
   return {
     projectKey: "project-1",
     projectName: "paseo",
     projectKind,
     iconWorkingDir: "/repo",
-    hosts: overrides.hosts ?? [
-      { serverId: "srv", iconWorkingDir: "/repo", canCreateWorktree: projectKind === "git" },
-    ],
+    hosts,
     workspaces: [workspace()],
     ...overrides,
+    canCreateWorktree: overrides.canCreateWorktree ?? hosts.some((host) => host.canCreateWorktree),
   };
 }
 

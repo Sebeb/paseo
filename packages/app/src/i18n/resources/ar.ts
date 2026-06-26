@@ -826,7 +826,7 @@ export const ar: TranslationResources = {
         expand: "توسيع مساحة العمل",
         title: "Tabs",
         noWorkspaceSelected: "No workspace selected",
-        showAll: "إظهار الكل",
+        showAll: "إظهار الكل {{count}}",
         showAllLabel: "إظهار كل علامات التبويب",
         showLess: "إظهار أقل",
         showLessLabel: "إظهار عدد أقل من علامات التبويب",

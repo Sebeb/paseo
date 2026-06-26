@@ -26,6 +26,7 @@ import { useWorkspaceArchive } from "@/workspace/use-workspace-archive";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import { useClearWorkspaceAttention } from "@/hooks/use-clear-workspace-attention";
+import { useAppSettings, type WorkspaceTitleSource } from "@/hooks/use-settings";
 import { redirectIfArchivingActiveWorkspace } from "@/utils/sidebar-workspace-archive-redirect";
 import { requireWorkspaceDirectory, resolveWorkspaceDirectory } from "@/utils/workspace-directory";
 import { isWeb as platformIsWeb, isNative as platformIsNative } from "@/constants/platform";
@@ -101,6 +102,7 @@ export function SidebarWorkspaceRow({
 }: SidebarWorkspaceRowProps) {
   const { t } = useTranslation();
   const toast = useToast();
+  const { settings: appSettings } = useAppSettings();
   const [isHidingWorkspace, setIsHidingWorkspace] = useState(false);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const workspaceDirectory = resolveWorkspaceDirectory({
@@ -235,6 +237,7 @@ export function SidebarWorkspaceRow({
     <>
       <WorkspaceRowBody
         workspace={workspace}
+        workspaceTitleSource={appSettings.workspaceTitleSource}
         selected={selected}
         shortcutNumber={shortcutNumber}
         showShortcutBadge={showShortcutBadge}
@@ -272,6 +275,7 @@ export function SidebarWorkspaceRow({
 
 interface WorkspaceRowBodyProps {
   workspace: SidebarWorkspaceEntry;
+  workspaceTitleSource: WorkspaceTitleSource;
   selected: boolean;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
@@ -296,6 +300,7 @@ interface WorkspaceRowBodyProps {
 
 function WorkspaceRowBody({
   workspace,
+  workspaceTitleSource,
   selected,
   shortcutNumber,
   showShortcutBadge,
@@ -377,6 +382,7 @@ function WorkspaceRowBody({
             >
               <SidebarWorkspaceRowContent
                 workspace={workspace}
+                workspaceTitleSource={workspaceTitleSource}
                 subtitle={subtitle}
                 scriptIconKind={scriptIconKind}
                 isHovered={isHovered}
