@@ -77,6 +77,24 @@ export function setOnlyWorkspaceExpanded(
   return { ...state, collapsedWorkspaceKeys: next };
 }
 
+export function setOnlyProjectExpanded(
+  state: CollapsedProjectsState,
+  projectKey: string,
+  projectKeys: readonly string[],
+): CollapsedProjectsState {
+  const next = new Set(state.collapsedProjectKeys);
+  const scopedProjectKeys = new Set(projectKeys);
+  scopedProjectKeys.add(projectKey);
+  for (const scopedProjectKey of scopedProjectKeys) {
+    if (scopedProjectKey === projectKey) {
+      next.delete(scopedProjectKey);
+    } else {
+      next.add(scopedProjectKey);
+    }
+  }
+  return { ...state, collapsedProjectKeys: next };
+}
+
 export function setWorkspacesCollapsed(
   state: CollapsedProjectsState,
   workspaceKeys: readonly string[],

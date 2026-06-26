@@ -472,6 +472,8 @@ export const en = {
         rename: "Rename",
         closeAbove: "Close tabs above",
         closeBelow: "Close tabs below",
+        closeVerticalAbove: "Close above",
+        closeVerticalBelow: "Close below",
         closeLeft: "Close to the left",
         closeRight: "Close to the right",
         closeOthers: "Close other tabs",

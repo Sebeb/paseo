@@ -75,13 +75,16 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
   const workspaceSortMode = useSidebarViewStore((state) =>
     serverId ? state.getWorkspaceSortMode(serverId) : "manual",
   );
+  const autoCollapseProjects = useSidebarViewStore((state) => state.autoCollapseProjects);
   const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
   const setGroupMode = useSidebarViewStore((state) => state.setGroupMode);
   const setWorkspaceSortMode = useSidebarViewStore((state) => state.setWorkspaceSortMode);
+  const setAutoCollapseProjects = useSidebarViewStore((state) => state.setAutoCollapseProjects);
   const setAutoCollapseWorkspaces = useSidebarViewStore((state) => state.setAutoCollapseWorkspaces);
   const showSidebarSpecificControls = settings.tabLayoutMode !== "horizontal";
   const showTabControls = settings.tabLayoutMode === "sidebar";
   const showSidebarBadge = settings.tabLayoutMode !== "horizontal";
+  const showWorkspaceAutoCollapse = settings.tabLayoutMode === "sidebar";
   const closeOnSelect = !showSidebarSpecificControls;
 
   const handleSelect = useCallback(
@@ -99,7 +102,11 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
     },
     [serverId, setWorkspaceSortMode],
   );
-  const handleAutoCollapseSelect = useCallback(() => {
+  const handleAutoCollapseProjectsSelect = useCallback(() => {
+    setAutoCollapseProjects(!autoCollapseProjects);
+  }, [autoCollapseProjects, setAutoCollapseProjects]);
+
+  const handleAutoCollapseWorkspacesSelect = useCallback(() => {
     setAutoCollapseWorkspaces(!autoCollapseWorkspaces);
   }, [autoCollapseWorkspaces, setAutoCollapseWorkspaces]);
 
@@ -128,7 +135,26 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
       >
         <ThemedSettings2 size={14} uniProps={filterColorMapping} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" width={180} testID="sidebar-grouping-menu">
+      <DropdownMenuContent align="start" width={220} testID="sidebar-grouping-menu">
+        <DropdownMenuItem
+          testID="sidebar-auto-collapse-projects"
+          selected={autoCollapseProjects}
+          closeOnSelect={false}
+          onSelect={handleAutoCollapseProjectsSelect}
+        >
+          Auto collapse projects
+        </DropdownMenuItem>
+        {showWorkspaceAutoCollapse ? (
+          <DropdownMenuItem
+            testID="sidebar-auto-collapse-workspaces"
+            selected={autoCollapseWorkspaces}
+            closeOnSelect={false}
+            onSelect={handleAutoCollapseWorkspacesSelect}
+          >
+            Auto collapse workspaces
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
         <View style={styles.menuHeader}>
           <Text style={styles.menuHeaderLabel}>Group by</Text>
         </View>
@@ -156,15 +182,6 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
                 onSelect={handleWorkspaceTitleSourceSelect}
               />
             ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              testID="sidebar-auto-collapse-workspaces"
-              selected={autoCollapseWorkspaces}
-              closeOnSelect={false}
-              onSelect={handleAutoCollapseSelect}
-            >
-              Auto collapse workspaces
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <View style={styles.menuHeader}>
               <Text style={styles.menuHeaderLabel}>Workspaces sort</Text>

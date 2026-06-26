@@ -476,6 +476,8 @@ export const ja: TranslationResources = {
         rename: "名前を変更",
         closeAbove: "上のタブを閉じる",
         closeBelow: "下のタブを閉じる",
+        closeVerticalAbove: "上を閉じる",
+        closeVerticalBelow: "下を閉じる",
         closeLeft: "左のタブを閉じる",
         closeRight: "右のタブを閉じる",
         closeOthers: "他のタブを閉じる",

@@ -142,7 +142,12 @@ describe("sidebar tab status summary", () => {
             { id: "permission-1", provider: "codex", name: "edit", kind: "tool" },
           ],
         }),
-        agent({ id: "failed", status: "error" }),
+        agent({
+          id: "failed",
+          status: "error",
+          requiresAttention: true,
+          attentionReason: "error",
+        }),
       ],
       pendingCreatesByDraftId: {
         "draft-1": pendingCreate({ draftId: "draft-1", lifecycle: "active" }),
@@ -338,6 +343,41 @@ describe("sidebar tab status summary", () => {
     expect(getVisibleSidebarEntryStatusKinds(result)).toEqual(["queued_messages", "in_progress"]);
     expect(getSidebarEntryStatusCount(result, "queued_messages")).toBe(2);
     expect(combineSidebarTabStatusSummaries([result]).entryCounts.queued_messages).toBe(2);
+  });
+
+  it("keeps seen failed agent badges local without propagating them upward", () => {
+    const unreadFailed = summarize({
+      tabs: [
+        tab({ tabId: "agent-unread-failed", target: { kind: "agent", agentId: "unread-failed" } }),
+      ],
+      agents: [
+        agent({
+          id: "unread-failed",
+          status: "error",
+          requiresAttention: true,
+          attentionReason: "error",
+        }),
+      ],
+    });
+    const seenFailed = summarize({
+      tabs: [
+        tab({ tabId: "agent-seen-failed", target: { kind: "agent", agentId: "seen-failed" } }),
+      ],
+      agents: [
+        agent({
+          id: "seen-failed",
+          status: "error",
+          requiresAttention: false,
+          attentionReason: null,
+        }),
+      ],
+    });
+
+    expect(getSidebarEntryStatusCount(unreadFailed, "failed")).toBe(1);
+    expect(unreadFailed.propagatedEntryCounts.failed).toBe(1);
+    expect(getSidebarEntryStatusCount(seenFailed, "failed")).toBe(1);
+    expect(seenFailed.propagatedEntryCounts.failed).toBe(0);
+    expect(combineSidebarTabStatusSummaries([seenFailed]).entryCounts.failed).toBe(0);
   });
 
   it("reports status sort rank without prioritizing draft-only or queued-only tabs", () => {

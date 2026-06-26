@@ -3,6 +3,7 @@ import {
   type CollapsedProjectsState,
   mergePersistedCollapsedProjects,
   serializeCollapsedProjects,
+  setOnlyProjectExpanded,
   setOnlyWorkspaceExpanded,
   setProjectCollapsed,
   setWorkspaceCollapsed,
@@ -118,6 +119,21 @@ describe("sidebar collapsed projects transitions", () => {
       "workspace-b",
       "workspace-c",
     ]);
+  });
+
+  it("expands one scoped project and collapses the others", () => {
+    const state: CollapsedProjectsState = {
+      ...emptyState(),
+      collapsedProjectKeys: new Set(["project-a", "project-z"]),
+    };
+
+    const next = setOnlyProjectExpanded(state, "project-a", [
+      "project-a",
+      "project-b",
+      "project-c",
+    ]);
+
+    expect(Array.from(next.collapsedProjectKeys)).toEqual(["project-z", "project-b", "project-c"]);
   });
 
   it("keeps the existing state object when persisted preferences do not change collapsed keys", () => {

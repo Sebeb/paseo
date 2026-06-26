@@ -4,6 +4,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import {
   type CollapsedProjectsState,
   mergePersistedCollapsedProjects,
+  setOnlyProjectExpanded,
   serializeCollapsedProjects,
   setOnlyWorkspaceExpanded,
   setProjectCollapsed,
@@ -18,6 +19,7 @@ import {
 interface SidebarCollapsedSectionsState extends CollapsedProjectsState {
   toggleProjectCollapsed: (projectKey: string) => void;
   setProjectCollapsed: (projectKey: string, collapsed: boolean) => void;
+  setOnlyProjectExpanded: (projectKey: string, projectKeys: readonly string[]) => void;
   toggleStatusGroupCollapsed: (statusGroupKey: string) => void;
   toggleWorkspaceCollapsed: (workspaceKey: string) => void;
   setOnlyWorkspaceExpanded: (workspaceKey: string, workspaceKeys: readonly string[]) => void;
@@ -37,6 +39,8 @@ export const useSidebarCollapsedSectionsStore = create<SidebarCollapsedSectionsS
         set((state) => toggleProjectCollapsed(state, projectKey)),
       setProjectCollapsed: (projectKey, collapsed) =>
         set((state) => setProjectCollapsed(state, projectKey, collapsed)),
+      setOnlyProjectExpanded: (projectKey, projectKeys) =>
+        set((state) => setOnlyProjectExpanded(state, projectKey, projectKeys)),
       toggleStatusGroupCollapsed: (statusGroupKey) =>
         set((state) => toggleStatusGroupCollapsed(state, statusGroupKey)),
       toggleWorkspaceCollapsed: (workspaceKey) =>

@@ -1,4 +1,5 @@
 import { Buffer } from "buffer";
+import type { Href } from "expo-router";
 
 type NullableString = string | null | undefined;
 const BASE64_WORKSPACE_ID_PREFIX = "b64_";
@@ -426,10 +427,10 @@ export function buildHostNewWorkspaceRoute(
   });
 }
 
-export function mapPathnameToServer(pathname: string, serverId: string) {
+export function mapPathnameToServer(pathname: string, serverId: string): Href {
   const normalizedServerId = trimNonEmpty(serverId);
   if (!normalizedServerId) {
-    return pathname as "/";
+    return pathname as Href;
   }
 
   const pathOnly = stripSearchAndHash(pathname);
@@ -442,7 +443,7 @@ export function mapPathnameToServer(pathname: string, serverId: string) {
   }
 
   const rest = match.groups?.rest ?? "";
-  return `${buildHostRootRoute(normalizedServerId)}${rest}${suffix}` as const;
+  return `${buildHostRootRoute(normalizedServerId)}${rest}${suffix}` as Href;
 }
 
 interface NewWorkspaceRouteOptions {

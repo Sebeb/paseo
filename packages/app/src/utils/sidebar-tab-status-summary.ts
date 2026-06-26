@@ -129,10 +129,11 @@ export function summarizeSidebarTabs(input: {
   const summary = createEmptySidebarTabStatusSummary();
   for (const tab of input.tabs) {
     const bucket = resolveSidebarTabStatusBucket({ ...input, tab });
+    const bucketPropagates = resolveSidebarTabStatusPropagation({ ...input, tab, bucket });
     summary.total += 1;
     summary.counts[bucket] += 1;
     for (const kind of sidebarEntryStatusesFromBucket(bucket)) {
-      addEntryStatus(summary, kind, true);
+      addEntryStatus(summary, kind, bucketPropagates);
     }
     const queuedCount = resolveQueuedMessageCount({
       tab,
@@ -343,6 +344,18 @@ function resolveSidebarTabStatusBucket(input: {
     case "file":
       return "done";
   }
+}
+
+function resolveSidebarTabStatusPropagation(input: {
+  tab: WorkspaceTab;
+  bucket: SidebarTabStatusBucket;
+  agents: ReadonlyMap<string, Agent> | null;
+}): boolean {
+  if (input.bucket !== "failed" || input.tab.target.kind !== "agent") {
+    return true;
+  }
+  const agent = input.agents?.get(input.tab.target.agentId) ?? null;
+  return agent?.requiresAttention === true && agent.attentionReason === "error";
 }
 
 function resolveAgentTabStatus(agent: Agent | null): SidebarTabStatusBucket {

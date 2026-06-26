@@ -476,6 +476,8 @@ export const es: TranslationResources = {
         rename: "Rebautizar",
         closeAbove: "Cerrar pestañas arriba",
         closeBelow: "Cerrar pestañas a continuación",
+        closeVerticalAbove: "Cerrar arriba",
+        closeVerticalBelow: "Cerrar abajo",
         closeLeft: "Cerca de la izquierda",
         closeRight: "Cerca de la derecha",
         closeOthers: "Cerrar otras pestañas",

@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState, type Ref } from "react";
 import { useTranslation } from "react-i18next";
-import { View, Text, Pressable, type PressableStateCallbackType } from "react-native";
+import { View, Text, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { Archive, CircleCheck, Copy, MoreVertical, Pencil } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
@@ -16,6 +16,13 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  useContextMenu,
+} from "@/components/ui/context-menu";
 import { Shortcut } from "@/components/ui/shortcut";
 import { AdaptiveRenameModal } from "@/components/rename-modal";
 import { useToast } from "@/contexts/toast-context";
@@ -234,7 +241,7 @@ export function SidebarWorkspaceRow({
   }
 
   return (
-    <>
+    <ContextMenu>
       <WorkspaceRowBody
         workspace={workspace}
         workspaceTitleSource={appSettings.workspaceTitleSource}
@@ -259,6 +266,18 @@ export function SidebarWorkspaceRow({
         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
         pendingBranchActionIds={pendingBranchActionIds}
       />
+      <WorkspaceContextMenuContent
+        workspaceKey={workspace.workspaceKey}
+        onCopyPath={handleCopyPath}
+        onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
+        onRename={handleOpenRename}
+        onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
+        onArchive={handleArchive}
+        archiveLabel={t("sidebar.workspace.actions.archive")}
+        archiveStatus={archiveStatus}
+        archivePendingLabel={t("sidebar.workspace.actions.archiving")}
+        archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+      />
       <AdaptiveRenameModal
         visible={isRenameOpen}
         title={t("sidebar.workspace.rename.title")}
@@ -269,7 +288,7 @@ export function SidebarWorkspaceRow({
         onSubmit={handleSubmitRename}
         testID={`sidebar-workspace-rename-modal-${workspace.workspaceKey}`}
       />
-    </>
+    </ContextMenu>
   );
 }
 
@@ -324,9 +343,10 @@ function WorkspaceRowBody({
 }: WorkspaceRowBodyProps) {
   const isTouchPlatform = platformIsNative;
   const draggable = Boolean(drag);
+  const menuController = useContextMenu();
   const interaction = useLongPressDragInteraction({
     drag: drag ?? noop,
-    menuController: null,
+    menuController,
   });
   const {
     role: _dragRole,
@@ -368,7 +388,7 @@ function WorkspaceRowBody({
             style={styles.workspaceRowContainer}
             {...hoverHandlers}
           >
-            <Pressable
+            <ContextMenuTrigger
               disabled={isArchiving}
               aria-selected={selected}
               accessibilityRole="button"
@@ -410,11 +430,92 @@ function WorkspaceRowBody({
                   pendingBranchActionIds={pendingBranchActionIds}
                 />
               </SidebarWorkspaceRowContent>
-            </Pressable>
+            </ContextMenuTrigger>
           </View>
         );
       }}
     </SidebarWorkspaceRowFrame>
+  );
+}
+
+function WorkspaceContextMenuContent({
+  workspaceKey,
+  onCopyPath,
+  onCopyBranchName,
+  onRename,
+  onMarkAsRead,
+  onArchive,
+  archiveLabel,
+  archiveStatus,
+  archivePendingLabel,
+  archiveShortcutKeys,
+}: {
+  workspaceKey: string;
+  onCopyPath?: () => void;
+  onCopyBranchName?: () => void;
+  onRename?: () => void;
+  onMarkAsRead?: () => void;
+  onArchive: () => void;
+  archiveLabel?: string;
+  archiveStatus?: "idle" | "pending" | "success";
+  archivePendingLabel?: string;
+  archiveShortcutKeys?: ShortcutKey[][] | null;
+}) {
+  const { t } = useTranslation();
+  const archiveTrailing = useMemo(
+    () => (archiveShortcutKeys ? <Shortcut chord={archiveShortcutKeys} /> : null),
+    [archiveShortcutKeys],
+  );
+
+  return (
+    <ContextMenuContent align="end" width={260}>
+      {onCopyPath ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-copy-path-${workspaceKey}`}
+          leading={copyLeadingIcon}
+          onSelect={onCopyPath}
+        >
+          {t("sidebar.workspace.actions.copyPath")}
+        </ContextMenuItem>
+      ) : null}
+      {onCopyBranchName ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-copy-branch-name-${workspaceKey}`}
+          leading={copyLeadingIcon}
+          onSelect={onCopyBranchName}
+        >
+          {t("sidebar.workspace.actions.copyBranchName")}
+        </ContextMenuItem>
+      ) : null}
+      {onRename ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-rename-${workspaceKey}`}
+          leading={renameLeadingIcon}
+          onSelect={onRename}
+        >
+          {t("sidebar.workspace.actions.rename")}
+        </ContextMenuItem>
+      ) : null}
+      {onMarkAsRead ? (
+        <ContextMenuItem
+          testID={`sidebar-workspace-menu-mark-as-read-${workspaceKey}`}
+          leading={markAsReadLeadingIcon}
+          onSelect={onMarkAsRead}
+        >
+          Mark as read
+        </ContextMenuItem>
+      ) : null}
+      <ContextMenuItem
+        testID={`sidebar-workspace-menu-archive-${workspaceKey}`}
+        leading={archiveLeadingIcon}
+        trailing={archiveTrailing}
+        status={archiveStatus}
+        pendingLabel={archivePendingLabel}
+        onSelect={onArchive}
+      >
+        {archiveLabel ?? t("sidebar.workspace.actions.archive")}
+      </ContextMenuItem>
+    </ContextMenuContent>
   );
 }
 

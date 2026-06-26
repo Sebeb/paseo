@@ -22,6 +22,7 @@ interface SidebarViewStoreState {
   embeddedRecentTabCountByServerId: Record<string, SidebarEmbeddedRecentTabCount>;
   badgeModeByServerId: Record<string, SidebarBadgeMode>;
   tabBarBadgeModeByServerId: Record<string, SidebarTabBarBadgeMode>;
+  autoCollapseProjects: boolean;
   autoCollapseWorkspaces: boolean;
   setGroupMode: (serverIdOrMode: string, mode?: SidebarGroupMode) => void;
   setHostFilter: (serverId: string | null) => void;
@@ -37,6 +38,7 @@ interface SidebarViewStoreState {
   setBadgeMode: (serverId: string, mode: SidebarBadgeMode) => void;
   getTabBarBadgeMode: (serverId: string) => SidebarTabBarBadgeMode;
   setTabBarBadgeMode: (serverId: string, mode: SidebarTabBarBadgeMode) => void;
+  setAutoCollapseProjects: (enabled: boolean) => void;
   setAutoCollapseWorkspaces: (enabled: boolean) => void;
 }
 
@@ -49,6 +51,7 @@ interface SidebarViewPersistedState {
   embeddedRecentTabCountByServerId: Record<string, SidebarEmbeddedRecentTabCount>;
   badgeModeByServerId: Record<string, SidebarBadgeMode>;
   tabBarBadgeModeByServerId: Record<string, SidebarTabBarBadgeMode>;
+  autoCollapseProjects: boolean;
   autoCollapseWorkspaces: boolean;
 }
 
@@ -135,6 +138,7 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
       persistedState.tabBarBadgeModeByServerId,
       normalizeTabBarBadgeMode,
     ),
+    autoCollapseProjects: persistedState.autoCollapseProjects === true,
     autoCollapseWorkspaces: persistedState.autoCollapseWorkspaces === true,
   };
 }
@@ -149,6 +153,7 @@ function createDefaultPersistedState(): SidebarViewPersistedState {
     embeddedRecentTabCountByServerId: {},
     badgeModeByServerId: {},
     tabBarBadgeModeByServerId: {},
+    autoCollapseProjects: false,
     autoCollapseWorkspaces: false,
   };
 }
@@ -178,6 +183,7 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
       embeddedRecentTabCountByServerId: {},
       badgeModeByServerId: {},
       tabBarBadgeModeByServerId: {},
+      autoCollapseProjects: false,
       autoCollapseWorkspaces: false,
       setGroupMode: (serverIdOrMode, maybeMode) => {
         if (maybeMode === undefined) {
@@ -280,6 +286,9 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
           },
         }));
       },
+      setAutoCollapseProjects: (enabled) => {
+        set({ autoCollapseProjects: enabled });
+      },
       setAutoCollapseWorkspaces: (enabled) => {
         set({ autoCollapseWorkspaces: enabled });
       },
@@ -297,6 +306,7 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
         embeddedRecentTabCountByServerId: state.embeddedRecentTabCountByServerId,
         badgeModeByServerId: state.badgeModeByServerId,
         tabBarBadgeModeByServerId: state.tabBarBadgeModeByServerId,
+        autoCollapseProjects: state.autoCollapseProjects,
         autoCollapseWorkspaces: state.autoCollapseWorkspaces,
       }),
       migrate: migrateSidebarViewState,

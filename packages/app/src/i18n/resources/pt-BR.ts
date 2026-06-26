@@ -476,6 +476,8 @@ export const ptBR: TranslationResources = {
         rename: "Renomear",
         closeAbove: "Fechar abas acima",
         closeBelow: "Fechar abas abaixo",
+        closeVerticalAbove: "Fechar acima",
+        closeVerticalBelow: "Fechar abaixo",
         closeLeft: "Fechar à esquerda",
         closeRight: "Fechar à direita",
         closeOthers: "Fechar outras abas",

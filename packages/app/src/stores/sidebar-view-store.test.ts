@@ -46,6 +46,7 @@ describe("sidebar view store", () => {
       embeddedRecentTabCountByServerId: {},
       badgeModeByServerId: {},
       tabBarBadgeModeByServerId: {},
+      autoCollapseProjects: false,
       autoCollapseWorkspaces: false,
     });
   });
@@ -119,6 +120,12 @@ describe("sidebar view store", () => {
     useSidebarViewStore.getState().setAutoCollapseWorkspaces(true);
 
     expect(useSidebarViewStore.getState().autoCollapseWorkspaces).toBe(true);
+  });
+
+  it("stores the auto-collapse project display preference", () => {
+    useSidebarViewStore.getState().setAutoCollapseProjects(true);
+
+    expect(useSidebarViewStore.getState().autoCollapseProjects).toBe(true);
   });
 
   it("migrates legacy per-host group modes to the global and per-host modes", () => {
