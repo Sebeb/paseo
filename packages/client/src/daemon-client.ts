@@ -25,6 +25,7 @@ import type {
   FileUploadResponse,
   FileExplorerResponse,
   FetchAgentTimelineResponseMessage,
+  AgentTimelinePromptIndexResponseMessage,
   GitSetupOptions,
   CheckoutStatusResponse,
   CheckoutCommitResponse,
@@ -451,6 +452,7 @@ type ScheduleUpdatePayload = Extract<
   { type: "schedule/update/response" }
 >["payload"];
 export type FetchAgentTimelinePayload = FetchAgentTimelineResponseMessage["payload"];
+export type AgentTimelinePromptIndexPayload = AgentTimelinePromptIndexResponseMessage["payload"];
 
 export type FetchAgentTimelineDirection = FetchAgentTimelinePayload["direction"];
 export type FetchAgentTimelineProjection = FetchAgentTimelinePayload["projection"];
@@ -2343,6 +2345,40 @@ export class DaemonClient {
       options: { skipQueue: true },
       select: (msg) => {
         if (msg.type !== "fetch_agent_timeline_response") {
+          return null;
+        }
+        if (msg.payload.requestId !== resolvedRequestId) {
+          return null;
+        }
+        return msg.payload;
+      },
+    });
+
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
+
+    return payload;
+  }
+
+  async fetchAgentTimelinePromptIndex(
+    agentId: string,
+    options: { requestId?: string } = {},
+  ): Promise<AgentTimelinePromptIndexPayload> {
+    const resolvedRequestId = this.createRequestId(options.requestId);
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.timeline.prompt_index.request",
+      agentId,
+      requestId: resolvedRequestId,
+    });
+
+    const payload = await this.sendRequest({
+      requestId: resolvedRequestId,
+      message,
+      timeout: 15000,
+      options: { skipQueue: true },
+      select: (msg) => {
+        if (msg.type !== "agent.timeline.prompt_index.response") {
           return null;
         }
         if (msg.payload.requestId !== resolvedRequestId) {

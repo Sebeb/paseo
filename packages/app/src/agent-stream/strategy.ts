@@ -1,6 +1,7 @@
 import type { ComponentType, ReactElement, ReactNode, RefObject } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
 import type { StreamItem } from "@/types/stream";
+import type { AgentTimelinePromptIndex } from "@/stores/session-store";
 import type { StreamHistoryBoundary, StreamRenderSegments } from "./model";
 import type {
   BottomAnchorLocalRequest,
@@ -54,6 +55,9 @@ export interface StreamSegmentRenderers {
 export interface StreamRenderInput {
   agentId: string;
   segments: StreamRenderSegments;
+  promptIndex: AgentTimelinePromptIndex | null;
+  loadedHistoryStartSeq: number | null;
+  expectsFullHistoryPromptIndex: boolean;
   boundary: StreamHistoryBoundary;
   renderers: StreamSegmentRenderers;
   listEmptyComponent: ReactNode;

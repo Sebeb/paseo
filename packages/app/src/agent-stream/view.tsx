@@ -48,7 +48,7 @@ import type {
   AgentPermissionResponse,
 } from "@getpaseo/protocol/agent-types";
 import type { AgentScreenAgent } from "@/hooks/use-agent-screen-state-machine";
-import { useSessionStore } from "@/stores/session-store";
+import { useSessionStore, type AgentTimelinePromptIndex } from "@/stores/session-store";
 import { useFileExplorerActions } from "@/hooks/use-file-explorer-actions";
 import { useLoadOlderAgentHistory } from "@/hooks/use-load-older-agent-history";
 import type { ToastApi } from "@/components/toast-host";
@@ -178,6 +178,26 @@ function renderListEmptyComponent(input: {
   );
 }
 
+function setPromptIndexForAgent(input: {
+  previous: Map<string, AgentTimelinePromptIndex>;
+  agentId: string;
+  payload: AgentTimelinePromptIndex;
+}): Map<string, AgentTimelinePromptIndex> {
+  const current = input.previous.get(input.agentId);
+  if (
+    current &&
+    current.epoch === input.payload.epoch &&
+    current.rows.length === input.payload.rows.length &&
+    current.window.minSeq === input.payload.window.minSeq &&
+    current.window.maxSeq === input.payload.window.maxSeq
+  ) {
+    return input.previous;
+  }
+  const next = new Map(input.previous);
+  next.set(input.agentId, input.payload);
+  return next;
+}
+
 function renderHistoryStreamItem(input: {
   item: StreamItem;
   layoutItemById: Map<string, StreamLayoutItem>;
@@ -270,8 +290,21 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const resolvedServerId = serverId ?? agent.serverId ?? "";
 
     const client = useSessionStore((state) => state.sessions[resolvedServerId]?.client ?? null);
+    const serverSupportsPromptIndex = useSessionStore(
+      (state) =>
+        state.sessions[resolvedServerId]?.serverInfo?.features?.timelinePromptIndex === true,
+    );
     const streamHead = useSessionStore((state) =>
       state.sessions[resolvedServerId]?.agentStreamHead?.get(agentId),
+    );
+    const promptIndex = useSessionStore(
+      (state) => state.sessions[resolvedServerId]?.agentTimelinePromptIndex.get(agentId) ?? null,
+    );
+    const timelineCursor = useSessionStore(
+      (state) => state.sessions[resolvedServerId]?.agentTimelineCursor.get(agentId) ?? null,
+    );
+    const setAgentTimelinePromptIndex = useSessionStore(
+      (state) => state.setAgentTimelinePromptIndex,
     );
 
     const workspaceRoot = agent.cwd?.trim() || "";
@@ -299,6 +332,38 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       setIsNearBottom(true);
       setExpandedInlineToolCallIds(new Set());
     }, [agentId]);
+
+    useEffect(() => {
+      if (!serverSupportsPromptIndex || !client || promptIndex) {
+        return;
+      }
+      const promptIndexClient = client;
+      let canceled = false;
+      async function loadPromptIndex() {
+        try {
+          const payload = await promptIndexClient.fetchAgentTimelinePromptIndex(agentId);
+          if (canceled) {
+            return;
+          }
+          setAgentTimelinePromptIndex(resolvedServerId, (previous) =>
+            setPromptIndexForAgent({ previous, agentId, payload }),
+          );
+        } catch (error) {
+          console.warn("[AgentStream] Failed to load timeline prompt index", agentId, error);
+        }
+      }
+      void loadPromptIndex();
+      return () => {
+        canceled = true;
+      };
+    }, [
+      agentId,
+      client,
+      promptIndex,
+      resolvedServerId,
+      serverSupportsPromptIndex,
+      setAgentTimelinePromptIndex,
+    ]);
 
     const handleInlinePathPress = useStableEvent(
       (target: InlinePathTarget, disposition: OpenFileDisposition) => {
@@ -740,6 +805,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             {streamRenderStrategy.render({
               agentId,
               segments: renderModel.segments,
+              promptIndex,
+              loadedHistoryStartSeq: timelineCursor?.startSeq ?? null,
+              expectsFullHistoryPromptIndex: serverSupportsPromptIndex,
               boundary,
               renderers,
               listEmptyComponent,

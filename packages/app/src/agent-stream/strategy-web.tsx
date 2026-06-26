@@ -19,6 +19,7 @@ import {
   PROMPT_MARKER_RAIL_RIGHT,
   PROMPT_MARKER_SIZE,
 } from "./prompt-scroll-marker-layout";
+import { buildPromptIndexGeometry } from "./prompt-index-geometry";
 import type { StreamItem } from "@/types/stream";
 
 interface CreateWebStreamStrategyInput {
@@ -39,7 +40,7 @@ const PROMPT_PREVIEW_TEXT_MAX_LENGTH = 140;
 const PROMPT_SCROLL_TARGET_TOP_PADDING = 15;
 const PROMPT_PREVIEW_LAYER_Z_INDEX = 1000;
 
-type PromptMarkerSegment = "virtualizedHistory" | "mountedHistory" | "liveHead";
+type PromptMarkerSegment = "unloadedHistory" | "virtualizedHistory" | "mountedHistory" | "liveHead";
 
 interface PromptMarkerDescriptor {
   id: string;
@@ -262,8 +263,23 @@ function getPromptPreviewBounds(scrollContainer: HTMLElement): PromptPreviewBoun
 
 function collectPromptMarkerDescriptors(
   segments: StreamRenderInput["segments"],
+  promptIndex: StreamRenderInput["promptIndex"],
+  loadedHistoryStartSeq: StreamRenderInput["loadedHistoryStartSeq"],
 ): PromptMarkerDescriptor[] {
   const markers: PromptMarkerDescriptor[] = [];
+  if (promptIndex && loadedHistoryStartSeq !== null) {
+    promptIndex.rows.forEach((row, index) => {
+      if (row.seqEnd >= loadedHistoryStartSeq || row.kind !== "user_message") {
+        return;
+      }
+      markers.push({
+        id: row.id,
+        text: row.textPreview ?? "",
+        index,
+        segment: "unloadedHistory",
+      });
+    });
+  }
   const visit = (items: StreamItem[], segment: PromptMarkerSegment) => {
     items.forEach((item, index) => {
       if (item.kind !== "user_message") {
@@ -539,6 +555,9 @@ function PromptMarkerRail({
 function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: boolean }) {
   const {
     segments,
+    promptIndex,
+    loadedHistoryStartSeq,
+    expectsFullHistoryPromptIndex,
     boundary,
     renderers,
     listEmptyComponent,
@@ -574,6 +593,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const pendingAutoScrollFrameRef = useRef<number | null>(null);
   const pendingAutoScrollTimeoutRef = useRef<number | null>(null);
   const pendingVirtualRowMeasureFramesRef = useRef(new Map<Element, number>());
+  const pendingUnloadedPromptTargetIdRef = useRef<string | null>(null);
   const historyStartReadyRef = useRef(false);
   const { settings: appSettings } = useAppSettings();
   const [promptRailMetrics, setPromptRailMetrics] = useState<PromptRailMetrics>({
@@ -585,16 +605,30 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     offsetsById: new Map(),
   });
   const showDesktopWebScrollbar = !isMobileBreakpoint;
-  const showPromptMarkers = showDesktopWebScrollbar && appSettings.promptScrollMarkers;
+  const isPromptIndexPending =
+    expectsFullHistoryPromptIndex && hasOlderHistory && promptIndex === null;
+  const showPromptMarkers =
+    showDesktopWebScrollbar && appSettings.promptScrollMarkers && !isPromptIndexPending;
   const promptMarkerDescriptors = useMemo(
-    () => collectPromptMarkerDescriptors(segments),
-    [segments],
+    () => collectPromptMarkerDescriptors(segments, promptIndex, loadedHistoryStartSeq),
+    [loadedHistoryStartSeq, promptIndex, segments],
+  );
+  const promptIndexGeometry = useMemo(
+    () =>
+      promptIndex
+        ? buildPromptIndexGeometry({
+            rows: promptIndex.rows,
+            loadedStartSeq: loadedHistoryStartSeq,
+          })
+        : buildPromptIndexGeometry({ rows: [], loadedStartSeq: null }),
+    [loadedHistoryStartSeq, promptIndex],
   );
   const scrollbarOverlay = useWebElementScrollbar(scrollContainerRef, {
     enabled: showDesktopWebScrollbar,
     contentRef,
   });
-  const shouldUseVirtualizer = segments.historyVirtualized.length > 0;
+  const hasUnloadedHistorySpacer = promptIndexGeometry.unloadedSpacerHeight > 0;
+  const shouldUseVirtualizer = segments.historyVirtualized.length > 0 && !hasUnloadedHistorySpacer;
   const {
     renderHistoryVirtualizedRow,
     renderHistoryMountedRow,
@@ -647,13 +681,20 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
 
   const resolvePromptOffset = useCallback(
     (marker: PromptMarkerDescriptor): number | null => {
+      if (marker.segment === "unloadedHistory") {
+        return promptIndexGeometry.unloadedPromptOffsetsById.get(marker.id) ?? null;
+      }
       if (marker.segment === "virtualizedHistory") {
+        if (!shouldUseVirtualizer) {
+          const anchor = findStreamItemAnchor(contentRef.current, marker.id);
+          return anchor?.offsetTop ?? null;
+        }
         return getVirtualPromptOffset(marker.index);
       }
       const anchor = findStreamItemAnchor(contentRef.current, marker.id);
       return anchor?.offsetTop ?? null;
     },
-    [getVirtualPromptOffset],
+    [getVirtualPromptOffset, promptIndexGeometry.unloadedPromptOffsetsById, shouldUseVirtualizer],
   );
 
   const updatePromptRailMetrics = useCallback(() => {
@@ -838,7 +879,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     if (
       historyStartReadyRef.current &&
       hasOlderHistory &&
-      currentScrollTop <= HISTORY_START_THRESHOLD_PX
+      currentScrollTop <= promptIndexGeometry.unloadedSpacerHeight + HISTORY_START_THRESHOLD_PX
     ) {
       onNearHistoryStart();
     }
@@ -846,6 +887,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     cancelPendingStickToBottom,
     hasOlderHistory,
     onNearHistoryStart,
+    promptIndexGeometry.unloadedSpacerHeight,
     promptRailMetrics.contentSize,
     promptRailMetrics.viewportSize,
     showPromptMarkers,
@@ -1081,6 +1123,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       height: virtualTotalSize,
     };
   }, [virtualTotalSize]);
+  const unloadedHistorySpacerStyle = useMemo((): CSSProperties | null => {
+    if (promptIndexGeometry.unloadedSpacerHeight <= 0) {
+      return null;
+    }
+    return {
+      height: promptIndexGeometry.unloadedSpacerHeight,
+      flexShrink: 0,
+    };
+  }, [promptIndexGeometry.unloadedSpacerHeight]);
   const renderVirtualRowStyle = useCallback(
     (start: number): CSSProperties => ({
       position: "absolute",
@@ -1105,6 +1156,21 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       </div>
     ));
   }, [renderHistoryMountedRow, segments.historyMounted]);
+  const mountedVirtualHistoryRows = useMemo(() => {
+    if (shouldUseVirtualizer) {
+      return null;
+    }
+    return segments.historyVirtualized.map((item, index) => (
+      <div
+        key={item.id}
+        data-stream-item-id={item.id}
+        data-stream-item-kind={item.kind}
+        style={streamItemAnchorStyle}
+      >
+        {renderHistoryVirtualizedRow(item, index, segments.historyVirtualized)}
+      </div>
+    ));
+  }, [renderHistoryVirtualizedRow, segments.historyVirtualized, shouldUseVirtualizer]);
   const liveHeadRows = useMemo(() => {
     return segments.liveHead.map((item, index) => (
       <div
@@ -1147,6 +1213,12 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       if (!scrollContainer) {
         return;
       }
+      if (marker.segment === "unloadedHistory") {
+        pendingUnloadedPromptTargetIdRef.current = marker.id;
+        if (hasOlderHistory && !isLoadingOlderHistory) {
+          onNearHistoryStart();
+        }
+      }
       const resolvedOffset = resolvePromptOffset(marker) ?? marker.targetOffset;
       const maxScrollOffset = Math.max(
         0,
@@ -1157,8 +1229,30 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         behavior: "auto",
       });
     },
-    [resolvePromptOffset],
+    [hasOlderHistory, isLoadingOlderHistory, onNearHistoryStart, resolvePromptOffset],
   );
+
+  useEffect(() => {
+    const targetId = pendingUnloadedPromptTargetIdRef.current;
+    if (!targetId) {
+      return;
+    }
+    if (!promptIndexGeometry.unloadedPromptOffsetsById.has(targetId)) {
+      pendingUnloadedPromptTargetIdRef.current = null;
+      updatePromptRailMetrics();
+      return;
+    }
+    if (!hasOlderHistory || isLoadingOlderHistory) {
+      return;
+    }
+    onNearHistoryStart();
+  }, [
+    hasOlderHistory,
+    isLoadingOlderHistory,
+    onNearHistoryStart,
+    promptIndexGeometry.unloadedPromptOffsetsById,
+    updatePromptRailMetrics,
+  ]);
 
   return (
     <div style={viewportChromeStyle}>
@@ -1170,6 +1264,12 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       >
         <div ref={handleContentRef} style={contentContainerStyle}>
           {historyStartSlot}
+          {unloadedHistorySpacerStyle ? (
+            <div
+              data-testid="agent-chat-unloaded-history-spacer"
+              style={unloadedHistorySpacerStyle}
+            />
+          ) : null}
           {shouldUseVirtualizer ? (
             <div ref={virtualRowsContainerRef} style={virtualRowsContainerStyle}>
               {virtualRows.map((virtualRow) => {
@@ -1196,6 +1296,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
               })}
             </div>
           ) : null}
+          {mountedVirtualHistoryRows}
           {mountedHistoryRows}
           {liveHeadRows}
           {liveAuxiliary}
