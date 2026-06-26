@@ -826,7 +826,7 @@ export const fr: TranslationResources = {
         expand: "Développer l’espace de travail",
         title: "Tabs",
         noWorkspaceSelected: "No workspace selected",
-        showAll: "Tout afficher",
+        showAll: "Tout afficher {{count}}",
         showAllLabel: "Afficher tous les onglets",
         showLess: "Afficher moins",
         showLessLabel: "Afficher moins d’onglets",

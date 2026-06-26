@@ -16,6 +16,8 @@ const baseWorkspace: WorkspaceDescriptor = {
   projectKind: "git",
   workspaceKind: "worktree",
   name: "feature",
+  createdAt: null,
+  activityAt: null,
   status: "done",
   archivingAt: "2026-04-30T00:00:00.000Z",
   statusEnteredAt: null,

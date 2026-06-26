@@ -43,6 +43,8 @@ function workspace(input: Partial<WorkspaceDescriptor>): WorkspaceDescriptor {
     projectKind: input.projectKind ?? "git",
     workspaceKind: input.workspaceKind ?? "local_checkout",
     name: input.name ?? "main",
+    createdAt: input.createdAt ?? null,
+    activityAt: input.activityAt ?? null,
     status: input.status ?? "done",
     statusEnteredAt: input.statusEnteredAt ?? null,
     archivingAt: input.archivingAt ?? null,

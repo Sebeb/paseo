@@ -13,6 +13,14 @@ import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useSidebarViewStore } from "@/stores/sidebar-view-store";
 import { WorkspaceShortcutTargetsSubscriber } from "./workspace-shortcut-targets-subscriber";
 
+vi.mock("@react-native-async-storage/async-storage", () => ({
+  default: {
+    getItem: vi.fn().mockResolvedValue(null),
+    setItem: vi.fn().mockResolvedValue(undefined),
+    removeItem: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 vi.hoisted(() => {
   (globalThis as unknown as { __DEV__: boolean }).__DEV__ = false;
 });
@@ -34,6 +42,8 @@ function workspaceDescriptor(input: {
     projectKind: "git",
     workspaceKind: "worktree",
     name: input.name ?? input.id,
+    createdAt: null,
+    activityAt: null,
     status: input.status ?? "done",
     archivingAt: null,
     statusEnteredAt: input.statusEnteredAt ?? null,

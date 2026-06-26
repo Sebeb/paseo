@@ -118,7 +118,7 @@ describe("SidebarEntryStatusBadges", () => {
     expect(unreadBadge.getAttribute("style")).toContain("background-color: rgb(34, 197, 94)");
   });
 
-  it("renders multi in-progress counts as centered blue text", () => {
+  it("renders multi in-progress counts inside the loader", () => {
     const summary = createEmptySidebarTabStatusSummary();
     summary.entryCounts.in_progress = 2;
 
@@ -127,8 +127,24 @@ describe("SidebarEntryStatusBadges", () => {
     const inProgressBadge = getByTestId("sidebar-entry-status-badge-in_progress");
     const count = getByText("2");
 
-    expect(inProgressBadge.querySelector("[data-icon='SyncedLoader']")).toBeNull();
-    expect(inProgressBadge.getAttribute("style")).toContain("width: 14px");
+    expect(inProgressBadge.querySelector("[data-icon='SyncedLoader']")).not.toBeNull();
+    expect(inProgressBadge.getAttribute("style")).toContain("width: 16px");
     expect(count.getAttribute("style")).toContain("color: rgb(59, 130, 246)");
+  });
+
+  it("caps displayed status badge counts at plus", () => {
+    const summary = createEmptySidebarTabStatusSummary();
+    summary.entryCounts.queued_messages = 10;
+    summary.entryCounts.input_required = 11;
+    summary.entryCounts.in_progress = 12;
+    summary.entryCounts.failed = 13;
+
+    const { getAllByText, queryByText } = render(<SidebarEntryStatusBadges summary={summary} />);
+
+    expect(getAllByText("+")).toHaveLength(4);
+    expect(queryByText("10")).toBeNull();
+    expect(queryByText("11")).toBeNull();
+    expect(queryByText("12")).toBeNull();
+    expect(queryByText("13")).toBeNull();
   });
 });

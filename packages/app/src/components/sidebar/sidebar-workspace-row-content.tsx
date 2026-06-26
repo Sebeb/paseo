@@ -24,6 +24,8 @@ import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
 import { isNative as platformIsNative } from "@/constants/platform";
 import { useTranslation } from "react-i18next";
 import type { SidebarEntryStatusKind } from "@/utils/sidebar-tab-status-summary";
+import { resolveSidebarWorkspacePrimaryLabel } from "@/components/sidebar/sidebar-workspace-title";
+import type { WorkspaceTitleSource } from "@/hooks/use-settings";
 
 const WORKSPACE_STATUS_DOT_WIDTH = 14;
 const DEFAULT_STATUS_DOT_SIZE = 7;
@@ -85,6 +87,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   isLoading,
   suppressStatusLoader = false,
   suppressStatusVisual = false,
+  workspaceTitleSource = "title",
   shortcutNumber = null,
   showShortcutBadge = false,
   hasTrailingContent,
@@ -102,6 +105,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   isCreating?: boolean;
   suppressStatusLoader?: boolean;
   suppressStatusVisual?: boolean;
+  workspaceTitleSource?: WorkspaceTitleSource;
   shortcutNumber?: number | null;
   showShortcutBadge?: boolean;
   hasTrailingContent?: boolean;
@@ -111,6 +115,10 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   onToggleExpanded?: (event: GestureResponderEvent) => void;
   children?: ReactNode;
 }) {
+  const primaryLabel = resolveSidebarWorkspacePrimaryLabel({
+    workspace,
+    workspaceTitleSource,
+  });
   const shouldRenderTrailingContent = hasTrailingContent ?? children != null;
   const shouldRenderRightContext = shouldRenderTrailingContent || scriptIconKind != null;
 
@@ -126,7 +134,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
         expanded,
         onToggleExpanded,
       })}
-      label={workspace.name}
+      label={primaryLabel}
       subtitle={subtitle}
       leadingStatus={leadingStatusKind}
       rightContext={

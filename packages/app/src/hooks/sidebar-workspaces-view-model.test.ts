@@ -6,7 +6,9 @@ import {
   buildSidebarProjectsFromStructure,
   computeSidebarOrderUpdates,
   deriveSidebarLoadingState,
+  sortSidebarWorkspaceProjects,
   type SidebarProjectEntry,
+  type SidebarWorkspaceEntry,
 } from "./sidebar-workspaces-view-model";
 
 interface OrderedItem {
@@ -47,6 +49,39 @@ function sidebarProject(input: {
     throw new Error("expected a project entry");
   }
   return result;
+}
+
+function workspace(input: {
+  key: string;
+  name: string;
+  createdAt?: string | null;
+  activityAt?: string | null;
+  statusBucket?: SidebarWorkspaceEntry["statusBucket"];
+}): SidebarWorkspaceEntry {
+  return {
+    workspaceKey: `srv:${input.key}`,
+    serverId: "srv",
+    workspaceId: input.key,
+    projectKey: "project-1",
+    projectRootPath: "/repo",
+    workspaceDirectory: `/repo/${input.key}`,
+    projectKind: "git",
+    workspaceKind: "checkout",
+    name: input.name,
+    title: null,
+    currentBranch: null,
+    createdAt: input.createdAt ? new Date(input.createdAt) : null,
+    activityAt: input.activityAt ? new Date(input.activityAt) : null,
+    statusBucket: input.statusBucket ?? "done",
+    statusEnteredAt: null,
+    archivingAt: null,
+    diffStat: null,
+    prHint: null,
+    archiveHasUncommittedChanges: null,
+    archiveUnpushedCommitCount: null,
+    scripts: [],
+    hasRunningScripts: false,
+  };
 }
 
 describe("applyStoredOrdering", () => {
@@ -147,10 +182,7 @@ describe("buildSidebarProjectsFromStructure", () => {
       projects: [project({ projectKey: "project-1", workspaceKeys: ["feature", "main"] })],
     });
 
-    expect(projects[0]?.workspaces.map((workspace) => workspace.workspaceId)).toEqual([
-      "feature",
-      "main",
-    ]);
+    expect(projects[0]?.workspaces.map((entry) => entry.workspaceId)).toEqual(["feature", "main"]);
   });
 });
 
@@ -198,6 +230,89 @@ describe("computeSidebarOrderUpdates", () => {
 
     expect(updates.projectOrder).toBeNull();
     expect(updates.workspaceOrders).toEqual([]);
+  });
+});
+
+describe("sortSidebarWorkspaceProjects", () => {
+  it("preserves manual order and project identity", () => {
+    const projects = [
+      {
+        ...sidebarProject({ projectKey: "project-1", workspaceKeys: [] }),
+        workspaces: [
+          workspace({ key: "old", name: "old" }),
+          workspace({ key: "new", name: "new" }),
+        ],
+      },
+    ];
+
+    expect(sortSidebarWorkspaceProjects({ projects, sortMode: "manual" })).toBe(projects);
+  });
+
+  it("sorts workspaces by created time", () => {
+    const [sortedProject] = sortSidebarWorkspaceProjects({
+      projects: [
+        {
+          ...sidebarProject({ projectKey: "project-1", workspaceKeys: [] }),
+          workspaces: [
+            workspace({ key: "old", name: "old", createdAt: "2026-01-01T00:00:00.000Z" }),
+            workspace({ key: "new", name: "new", createdAt: "2026-02-01T00:00:00.000Z" }),
+          ],
+        },
+      ],
+      sortMode: "created",
+    });
+
+    expect(sortedProject?.workspaces.map((entry) => entry.workspaceId)).toEqual(["new", "old"]);
+  });
+
+  it("sorts workspaces by last updated activity", () => {
+    const [sortedProject] = sortSidebarWorkspaceProjects({
+      projects: [
+        {
+          ...sidebarProject({ projectKey: "project-1", workspaceKeys: [] }),
+          workspaces: [
+            workspace({ key: "quiet", name: "quiet", activityAt: "2026-01-01T00:00:00.000Z" }),
+            workspace({ key: "active", name: "active", activityAt: "2026-02-01T00:00:00.000Z" }),
+          ],
+        },
+      ],
+      sortMode: "lastUpdated",
+    });
+
+    expect(sortedProject?.workspaces.map((entry) => entry.workspaceId)).toEqual([
+      "active",
+      "quiet",
+    ]);
+  });
+
+  it("sorts status rank before activity", () => {
+    const [sortedProject] = sortSidebarWorkspaceProjects({
+      projects: [
+        {
+          ...sidebarProject({ projectKey: "project-1", workspaceKeys: [] }),
+          workspaces: [
+            workspace({
+              key: "running",
+              name: "running",
+              statusBucket: "running",
+              activityAt: "2026-03-01T00:00:00.000Z",
+            }),
+            workspace({
+              key: "needs-input",
+              name: "needs input",
+              statusBucket: "needs_input",
+              activityAt: "2026-01-01T00:00:00.000Z",
+            }),
+          ],
+        },
+      ],
+      sortMode: "status",
+    });
+
+    expect(sortedProject?.workspaces.map((entry) => entry.workspaceId)).toEqual([
+      "needs-input",
+      "running",
+    ]);
   });
 });
 

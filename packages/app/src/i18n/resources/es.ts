@@ -827,7 +827,7 @@ export const es: TranslationResources = {
         expand: "Expandir espacio de trabajo",
         title: "Tabs",
         noWorkspaceSelected: "No workspace selected",
-        showAll: "Mostrar todo",
+        showAll: "Mostrar todo {{count}}",
         showAllLabel: "Mostrar todas las pestañas",
         showLess: "Mostrar menos",
         showLessLabel: "Mostrar menos pestañas",

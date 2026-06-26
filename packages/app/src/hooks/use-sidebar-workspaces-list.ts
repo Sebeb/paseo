@@ -10,11 +10,13 @@ import { useHostProjects } from "@/projects/host-projects";
 import { fetchAllWorkspaceDescriptors } from "@/projects/workspace-fetching";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
+import { useSidebarViewStore } from "@/stores/sidebar-view-store";
 import { shouldSuppressWorkspaceForLocalArchive } from "@/contexts/session-workspace-upserts";
 import {
   buildSidebarProjectsFromHostProjects,
   computeSidebarOrderUpdates,
   deriveSidebarLoadingState,
+  sortSidebarWorkspaceProjects,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
 } from "./sidebar-workspaces-view-model";
@@ -60,6 +62,8 @@ export function createSidebarWorkspaceEntry(input: {
     name: input.workspace.name,
     title: input.workspace.title ?? null,
     currentBranch: normalizeCurrentBranch(input.workspace.gitRuntime?.currentBranch),
+    createdAt: input.workspace.createdAt,
+    activityAt: input.workspace.activityAt,
     statusBucket: effectiveStatus.status,
     statusEnteredAt: effectiveStatus.enteredAt,
     archivingAt: input.workspace.archivingAt,
@@ -209,6 +213,22 @@ export function useSidebarWorkspacesList(options?: {
     isActive && serverId ? (state.sessions[serverId]?.hasHydratedWorkspaces ?? false) : false,
   );
   const hostProjects = useHostProjects(isActive ? serverId : null);
+  const workspaceSortMode = useSidebarViewStore((state) =>
+    isActive && serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
+  const workspaceMap = useSessionStore((state) =>
+    workspaceSortMode !== "manual" && isActive && serverId
+      ? state.sessions[serverId]?.workspaces
+      : undefined,
+  );
+  const agents = useSessionStore((state) =>
+    workspaceSortMode === "status" && isActive && serverId
+      ? state.sessions[serverId]?.agents
+      : undefined,
+  );
+  const pendingCreateAttempts = useCreateFlowStore((state) =>
+    workspaceSortMode === "status" && isActive ? state.pendingByDraftId : undefined,
+  );
 
   const connectionStatus = useSyncExternalStore(
     (onStoreChange) =>
@@ -229,7 +249,7 @@ export function useSidebarWorkspacesList(options?: {
     },
   );
 
-  const projects = useMemo(() => {
+  const baseProjects = useMemo(() => {
     if (!serverId || hostProjects.length === 0) {
       return EMPTY_PROJECTS;
     }
@@ -237,6 +257,30 @@ export function useSidebarWorkspacesList(options?: {
       projects: hostProjects,
     });
   }, [hostProjects, serverId]);
+
+  const projects = useMemo(() => {
+    if (!serverId || workspaceSortMode === "manual" || baseProjects.length === 0) {
+      return baseProjects;
+    }
+
+    return sortSidebarWorkspaceProjects({
+      projects: baseProjects.map((project) => ({
+        ...project,
+        workspaces: project.workspaces.map((placedWorkspace) => {
+          const workspace = workspaceMap?.get(placedWorkspace.workspaceId);
+          return workspace
+            ? createSidebarWorkspaceEntry({
+                serverId,
+                workspace,
+                pendingCreateAttempts,
+                agents,
+              })
+            : placedWorkspace;
+        }),
+      })),
+      sortMode: workspaceSortMode,
+    });
+  }, [agents, baseProjects, pendingCreateAttempts, serverId, workspaceMap, workspaceSortMode]);
 
   useEffect(() => {
     if (!serverId) {
@@ -251,7 +295,7 @@ export function useSidebarWorkspacesList(options?: {
 
     const orderStore = useSidebarOrderStore.getState();
     const updates = computeSidebarOrderUpdates({
-      projects,
+      projects: baseProjects,
       persistedProjectOrder,
       getWorkspaceOrder: (projectKey) => orderStore.getWorkspaceOrder(serverId, projectKey),
     });
@@ -262,7 +306,7 @@ export function useSidebarWorkspacesList(options?: {
     for (const { projectKey, order } of updates.workspaceOrders) {
       orderStore.setWorkspaceOrder(serverId, projectKey, order);
     }
-  }, [persistedProjectOrder, projects, serverId]);
+  }, [baseProjects, persistedProjectOrder, serverId]);
 
   const refreshAll = useCallback(() => {
     if (!isActive || !serverId || connectionStatus !== "online") {
@@ -275,15 +319,17 @@ export function useSidebarWorkspacesList(options?: {
     void (async () => {
       const next = new Map<string, WorkspaceDescriptor>();
       try {
-        const workspaces = await fetchAllWorkspaceDescriptors({
+        const fetchedWorkspaces = await fetchAllWorkspaceDescriptors({
           client,
           sort: [{ key: "activity_at", direction: "desc" }],
         });
-        for (const workspace of workspaces) {
-          if (shouldSuppressWorkspaceForLocalArchive({ serverId, workspace })) {
+        for (const workspaceDescriptor of fetchedWorkspaces) {
+          if (
+            shouldSuppressWorkspaceForLocalArchive({ serverId, workspace: workspaceDescriptor })
+          ) {
             continue;
           }
-          next.set(workspace.id, workspace);
+          next.set(workspaceDescriptor.id, workspaceDescriptor);
         }
         const store = useSessionStore.getState();
         store.setWorkspaces(serverId, next);

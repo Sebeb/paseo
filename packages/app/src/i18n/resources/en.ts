@@ -807,7 +807,7 @@ export const en = {
         expand: "Expand workspace",
         title: "Tabs",
         noWorkspaceSelected: "No workspace selected",
-        showAll: "Show all",
+        showAll: "Show all {{count}}",
         showAllLabel: "Show all tabs",
         showLess: "Show less",
         showLessLabel: "Show fewer tabs",

@@ -89,6 +89,8 @@ function workspace(input: {
     projectKind: "git",
     workspaceKind: input.name === "main" ? "local_checkout" : "worktree",
     name: input.name,
+    createdAt: null,
+    activityAt: null,
     status: input.status ?? "done",
     statusEnteredAt: null,
     archivingAt: null,

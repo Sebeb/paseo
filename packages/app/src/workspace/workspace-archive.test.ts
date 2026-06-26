@@ -37,6 +37,8 @@ function workspace(input?: Partial<WorkspaceDescriptor>): WorkspaceDescriptor {
     projectKind: "git",
     workspaceKind: "worktree",
     name: "workspace-1",
+    createdAt: input?.createdAt ?? null,
+    activityAt: input?.activityAt ?? null,
     status: "done",
     archivingAt: null,
     statusEnteredAt: null,

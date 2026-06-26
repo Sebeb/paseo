@@ -166,6 +166,8 @@ describe("restoreArchivedWorkspace via navigateToAgent", () => {
         projectKind: "git",
         workspaceKind: "local_checkout",
         name: "main",
+        createdAt: null,
+        activityAt: null,
         status: "done",
         statusEnteredAt: null,
         archivingAt: null,
