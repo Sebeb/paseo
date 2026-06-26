@@ -4,7 +4,7 @@ Branch: `feat/thread-auto-title`
 
 Base: `origin/main`
 
-Anchor commit: d1d7efbfc8c315139fb83fbe37c26bc6fad13d47 — feat(agent): split thread and workspace title generation
+Anchor commit: 3cfc0b6386a4e5eabd2e8e77f37687ebe260730b — docs(patch): refresh PATCH.md for feat/thread-auto-title
 
 ## Agent Title Generation
 
