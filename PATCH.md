@@ -1,10 +1,10 @@
 # Patch Summary: Prompt Scroll Markers
 
-Branch: `split/scroll-prompt-indicators`
+Branch: `feat/scroll-prompt-indicators`
 
 Base: `origin/main`
 
-Primary commit before this writeup: `86630258b feat(app): add prompt scroll markers`
+Anchor commit: 5f4a178aa3028f53c25b0ee432a95a3fc2bdae67 — feat(app): index prompts across unloaded history
 
 ## Purpose
 
@@ -22,6 +22,8 @@ The feature is enabled by default through a new Appearance setting.
 - Clicking a marker scrolls the stream to that prompt with a small top offset.
 - Clicking a marker preserves the existing follow-output state; unlike pinned-input navigation, prompt-marker navigation should not force `followOutput` off.
 - The marker associated with the prompt at or before the current scroll context is visually highlighted.
+- Prompt markers can include prompts from unloaded older history when the daemon advertises the timeline prompt-index capability.
+- Clicking an unloaded-history marker scrolls to its estimated position and requests older history until the real row is loaded.
 - The branch also updates the stream loading indicator color in `turn-footer.tsx` to use the simplified blue treatment from the original aggregate branch.
 
 ## Restored Main Polish
@@ -35,6 +37,33 @@ These details were previously implemented on `main`, then became easy to lose wh
 - Prompt marker clicks scroll to the prompt but do not call `setFollowOutput(false)`.
 
 ## Layout Constants
+
+### `packages/app/src/agent-stream/prompt-index-geometry.ts`
+
+This module converts daemon-provided timeline prompt-index rows into estimated geometry for older history that is not loaded in the stream yet.
+
+Public surface:
+
+```ts
+export interface PromptIndexGeometry {
+  unloadedSpacerHeight: number;
+  unloadedPromptOffsetsById: Map<string, number>;
+}
+
+export function estimatePromptIndexRowHeight(row: AgentTimelinePromptIndexRow): number;
+export function buildPromptIndexGeometry(input: {
+  rows: readonly AgentTimelinePromptIndexRow[];
+  loadedStartSeq: number | null;
+}): PromptIndexGeometry;
+```
+
+Behavior:
+
+- Returns an empty geometry when the loaded history start sequence is unknown.
+- Iterates prompt-index rows until a row reaches the loaded history window.
+- Estimates row heights by row kind, using larger estimates for image prompts and long assistant text.
+- Records offsets only for `user_message` rows before loaded history.
+- Returns the total estimated height as `unloadedSpacerHeight` so web rendering can reserve scroll space for not-yet-loaded history.
 
 ### `packages/app/src/agent-stream/prompt-scroll-marker-layout.ts`
 
@@ -61,9 +90,9 @@ Represents a user-message item before its scroll offset is resolved:
 - `id`: stream item id.
 - `text`: user prompt text.
 - `index`: index within its segment.
-- `segment`: one of `virtualizedHistory`, `mountedHistory`, or `liveHead`.
+- `segment`: one of `unloadedHistory`, `virtualizedHistory`, `mountedHistory`, or `liveHead`.
 
-The segment is needed because virtualized history offsets come from the virtualizer, while mounted/live offsets come from DOM anchors.
+The segment is needed because unloaded history offsets come from prompt-index geometry, virtualized history offsets come from the virtualizer, and mounted/live offsets come from DOM anchors.
 
 #### `PromptMarker`
 
@@ -123,12 +152,13 @@ Implementation details:
 - Converts bounds to scroll-container-relative `top` and `bottom`.
 - Falls back to `{ top: 0, bottom: scrollContainer.clientHeight }` when measurements are invalid or inverted.
 
-#### `collectPromptMarkerDescriptors(segments)`
+#### `collectPromptMarkerDescriptors(segments, promptIndex, loadedHistoryStartSeq)`
 
-Collects every `user_message` from all stream segments.
+Collects every `user_message` from unloaded prompt-index rows and all loaded stream segments.
 
 Implementation details:
 
+- When prompt index data and a loaded-history start sequence are available, visits prompt-index rows before the loaded window and adds `user_message` rows as `unloadedHistory` markers.
 - Visits `segments.historyVirtualized` with segment `virtualizedHistory`.
 - Visits `segments.historyMounted` with segment `mountedHistory`.
 - Visits `segments.liveHead` with segment `liveHead`.
@@ -229,12 +259,63 @@ Implementation details:
 
 - Reads `settings.promptScrollMarkers` from `useAppSettings`.
 - Enables markers only on non-mobile web where the custom scrollbar is shown.
+- Suppresses markers while a full-history prompt index is expected but still loading.
+- Builds prompt-index geometry and renders a fixed-height unloaded-history spacer above loaded rows.
+- Disables the virtualizer when the unloaded spacer is present so loaded virtual-history rows can be mounted beneath the estimated unloaded area.
 - Keeps `promptRailMetrics` in state.
+- Resolves unloaded prompt offsets through `promptIndexGeometry.unloadedPromptOffsetsById`.
 - Resolves virtualized prompt offsets through `rowVirtualizer.getOffsetForIndex`.
 - Resolves mounted/live prompt offsets through `findStreamItemAnchor`.
 - Updates metrics on scroll, resize, virtualizer measurement, and stream changes.
 - Tracks `scrollOffset` separately during scroll so active-marker highlighting updates without recalculating all prompt offsets.
 - Scrolls to a prompt on marker click using `targetOffset - PROMPT_SCROLL_TARGET_TOP_PADDING`.
+- For unloaded-history markers, records the pending target id and calls `onNearHistoryStart()` until older history loads enough for that marker to leave the unloaded range.
+
+## Timeline Prompt Index Protocol
+
+### `packages/protocol/src/messages.ts`
+
+Adds a dotted, capability-gated timeline prompt-index RPC:
+
+```ts
+agent.timeline.prompt_index.request;
+agent.timeline.prompt_index.response;
+```
+
+The response payload includes:
+
+- `requestId`
+- `agentId`
+- `epoch`
+- `window`
+- `rows`
+- nullable `error`
+
+`AgentTimelinePromptIndexRow` includes stable row identity, row kind, sequence bounds, optional text preview, image/attachment hints, and text length. The server advertises support through `server_info.features.timelinePromptIndex`.
+
+### `packages/server/src/server/agent/timeline-prompt-index.ts`
+
+Adds prompt-index row construction for projected timeline entries.
+
+Behavior:
+
+- Generates deterministic fallback ids from item type, timestamp, and item JSON when a timeline item lacks a message id.
+- Preserves user/assistant message ids where available.
+- Truncates user-message preview text to 180 characters.
+- Maps internal timeline item types to protocol row kinds: user message, assistant message, thought, tool call, todo list, activity log, and compaction.
+- Carries sequence bounds through to the client so it can distinguish unloaded rows from loaded rows.
+
+### `packages/server/src/server/session.ts`
+
+Handles `agent.timeline.prompt_index.request` by loading the agent if needed, fetching the full projected timeline with a zero-row tail page, converting projected entries to prompt-index rows, and emitting the response. Errors are reported in-band on the response payload and logged server-side.
+
+### `packages/client/src/daemon-client.ts`
+
+Adds `fetchAgentTimelinePromptIndex(agentId)` to the daemon client. The method sends the dotted request, waits for the matching response, throws on an in-band response error, and returns the typed prompt-index payload.
+
+### `packages/app/src/stores/session-store.ts`
+
+Adds `agentTimelinePromptIndex`, keyed by agent id, plus `setAgentTimelinePromptIndex` for storing fetched indexes per session.
 
 ## Settings And Persistence
 
