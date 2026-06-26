@@ -128,6 +128,9 @@ describe("SidebarEntryStatusBadges", () => {
     const count = getByText("2");
 
     expect(inProgressBadge.querySelector("[data-icon='SyncedLoader']")).not.toBeNull();
+    expect(inProgressBadge.querySelector("[data-icon='SyncedLoader']")?.getAttribute("size")).toBe(
+      "14",
+    );
     expect(inProgressBadge.getAttribute("style")).toContain("width: 16px");
     expect(count.getAttribute("style")).toContain("color: rgb(59, 130, 246)");
   });

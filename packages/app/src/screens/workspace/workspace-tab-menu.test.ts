@@ -82,6 +82,54 @@ describe("buildWorkspaceTabMenuEntries", () => {
     ]);
   });
 
+  it("uses vertical ordering labels and rotated icons for vertical menus", () => {
+    const entries = buildWorkspaceTabMenuEntries({
+      surface: "vertical",
+      tab: createAgentTab(),
+      index: 1,
+      tabCount: 3,
+      menuTestIDBase: "workspace-tab-context-agent_123",
+      onCopyResumeCommand: vi.fn(),
+      onCopyAgentId: vi.fn(),
+      onCopyFilePath: vi.fn(),
+      onReloadAgent: vi.fn(),
+      onRenameTab: vi.fn(),
+      onCloseTab: vi.fn(),
+      onCloseTabsBefore: vi.fn(),
+      onCloseTabsAfter: vi.fn(),
+      onCloseOtherTabs: vi.fn(),
+    });
+
+    expect(entries.filter((entry) => entry.kind === "item").map((entry) => entry.label)).toEqual([
+      "Copy resume command",
+      "Copy agent id",
+      "Rename",
+      "Close above",
+      "Close below",
+      "Close other tabs",
+      "Reload agent",
+      "Close",
+    ]);
+    expect(entries).toContainEqual(
+      expect.objectContaining({
+        kind: "item",
+        key: "close-before",
+        icon: "arrow-left-to-line",
+        iconRotation: "clockwise-90",
+        testID: "workspace-tab-context-agent_123-close-above",
+      }),
+    );
+    expect(entries).toContainEqual(
+      expect.objectContaining({
+        kind: "item",
+        key: "close-after",
+        icon: "arrow-right-to-line",
+        iconRotation: "clockwise-90",
+        testID: "workspace-tab-context-agent_123-close-below",
+      }),
+    );
+  });
+
   it("omits agent copy actions and rename for draft tabs", () => {
     const entries = buildWorkspaceTabMenuEntries({
       surface: "mobile",

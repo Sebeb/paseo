@@ -29,6 +29,7 @@ const blueColorMapping = (theme: Theme) => ({ color: theme.colors.palette.blue[5
 const redColorMapping = (theme: Theme) => ({ color: theme.colors.palette.red[500] });
 
 export const SIDEBAR_ENTRY_ROW_HEIGHT = 36;
+const STATUS_BADGE_IN_PROGRESS_LOADER_SIZE = 14;
 
 export const SidebarEntryRowContent = memo(function SidebarEntryRowContent({
   leading,
@@ -135,7 +136,10 @@ function SidebarEntryStatusBadge({ kind, count }: { kind: SidebarEntryStatusKind
   if (kind === "in_progress") {
     return (
       <View style={styles.statusBadgePlain} testID={`sidebar-entry-status-badge-${kind}`}>
-        <ThemedSyncedLoader size={12} uniProps={blueColorMapping} />
+        <ThemedSyncedLoader
+          size={STATUS_BADGE_IN_PROGRESS_LOADER_SIZE}
+          uniProps={blueColorMapping}
+        />
         {shouldShowStatusCount(kind, count) ? (
           <View style={styles.statusBadgeInProgressCountOverlay} pointerEvents="none">
             <Text style={styles.statusBadgeInProgressCountText}>{countLabel}</Text>

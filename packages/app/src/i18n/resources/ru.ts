@@ -458,6 +458,8 @@ export const ru: TranslationResources = {
         rename: "Переименовать",
         closeAbove: "Закрыть вкладки выше",
         closeBelow: "Закройте вкладки ниже",
+        closeVerticalAbove: "Закрыть выше",
+        closeVerticalBelow: "Закрыть ниже",
         closeLeft: "Ближе к левому краю",
         closeRight: "Ближе к правому",
         closeOthers: "Закрыть другие вкладки",

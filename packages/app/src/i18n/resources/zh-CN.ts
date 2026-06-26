@@ -454,6 +454,8 @@ export const zhCN: TranslationResources = {
         rename: "重命名",
         closeAbove: "关闭上方标签",
         closeBelow: "关闭下方标签",
+        closeVerticalAbove: "关闭上方",
+        closeVerticalBelow: "关闭下方",
         closeLeft: "关闭左侧标签",
         closeRight: "关闭右侧标签",
         closeOthers: "关闭其他标签",

@@ -458,6 +458,8 @@ export const fr: TranslationResources = {
         rename: "Rebaptiser",
         closeAbove: "Fermer les onglets ci-dessus",
         closeBelow: "Fermer les onglets ci-dessous",
+        closeVerticalAbove: "Fermer ci-dessus",
+        closeVerticalBelow: "Fermer ci-dessous",
         closeLeft: "Près de la gauche",
         closeRight: "Près de la droite",
         closeOthers: "Fermer les autres onglets",

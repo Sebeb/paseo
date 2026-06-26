@@ -2815,6 +2815,7 @@ function EmbeddedTabMenuItem({
 }: {
   entry: Extract<WorkspaceTabMenuEntry, { kind: "item" }>;
 }) {
+  const iconStyle = entry.iconRotation === "clockwise-90" ? styles.rotatedMenuIcon : undefined;
   const leading = useMemo(() => {
     switch (entry.icon) {
       case "copy":
@@ -2822,9 +2823,21 @@ function EmbeddedTabMenuItem({
       case "rotate-cw":
         return <ThemedRotateCw size={16} uniProps={foregroundMutedColorMapping} />;
       case "arrow-left-to-line":
-        return <ThemedArrowLeftToLine size={16} uniProps={foregroundMutedColorMapping} />;
+        return (
+          <ThemedArrowLeftToLine
+            size={16}
+            style={iconStyle}
+            uniProps={foregroundMutedColorMapping}
+          />
+        );
       case "arrow-right-to-line":
-        return <ThemedArrowRightToLine size={16} uniProps={foregroundMutedColorMapping} />;
+        return (
+          <ThemedArrowRightToLine
+            size={16}
+            style={iconStyle}
+            uniProps={foregroundMutedColorMapping}
+          />
+        );
       case "copy-x":
         return <ThemedCopyX size={16} uniProps={foregroundMutedColorMapping} />;
       case "pencil":
@@ -2834,7 +2847,7 @@ function EmbeddedTabMenuItem({
       default:
         return undefined;
     }
-  }, [entry.icon]);
+  }, [entry.icon, iconStyle]);
   const trailing = useMemo(
     () => (entry.hint ? <Text style={styles.embeddedTabMenuItemHint}>{entry.hint}</Text> : null),
     [entry.hint],
@@ -3658,7 +3671,7 @@ function EmbeddedWorkspaceTabs({
       );
       const menuTestIDBase = `workspace-tab-context-${item.tab.tabId}`;
       return buildWorkspaceTabMenuEntries({
-        surface: "desktop",
+        surface: "vertical",
         tab: item.descriptor,
         index,
         tabCount: paneTabs.length,
@@ -4530,12 +4543,16 @@ function ProjectModeList({
   const workspaceSortMode = useSidebarViewStore((state) =>
     serverId ? state.getWorkspaceSortMode(serverId) : "manual",
   );
+  const autoCollapseProjects = useSidebarViewStore((state) => state.autoCollapseProjects);
   const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
   const collapsedWorkspaceKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedWorkspaceKeys,
   );
   const setOnlyWorkspaceExpanded = useSidebarCollapsedSectionsStore(
     (state) => state.setOnlyWorkspaceExpanded,
+  );
+  const setOnlyProjectExpanded = useSidebarCollapsedSectionsStore(
+    (state) => state.setOnlyProjectExpanded,
   );
   const setWorkspaceCollapsed = useSidebarCollapsedSectionsStore(
     (state) => state.setWorkspaceCollapsed,
@@ -4553,9 +4570,18 @@ function ProjectModeList({
   );
   const selectionEnabled = isWorkspaceRoute;
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const lastRevealedWorkspaceKeyRef = useRef<string | null>(null);
+  const collapsedProjectKeysRef = useRef(collapsedProjectKeys);
+  const collapsedWorkspaceKeysRef = useRef(collapsedWorkspaceKeys);
+  collapsedProjectKeysRef.current = collapsedProjectKeys;
+  collapsedWorkspaceKeysRef.current = collapsedWorkspaceKeys;
   const workspaceKeysForAutoCollapse = useMemo(
     () =>
       projects.flatMap((project) => project.workspaces.map((workspace) => workspace.workspaceKey)),
+    [projects],
+  );
+  const projectKeysForAutoCollapse = useMemo(
+    () => projects.map((project) => project.projectKey),
     [projects],
   );
   const nativeScrollGestureProps = useMemo(
@@ -4631,24 +4657,36 @@ function ProjectModeList({
       selectionEnabled,
     });
     if (!revealTarget) {
+      lastRevealedWorkspaceKeyRef.current = null;
       return;
     }
+    if (lastRevealedWorkspaceKeyRef.current === revealTarget.workspaceKey) {
+      return;
+    }
+    lastRevealedWorkspaceKeyRef.current = revealTarget.workspaceKey;
 
-    if (collapsedProjectKeys.has(revealTarget.projectKey)) {
+    const currentCollapsedProjectKeys = collapsedProjectKeysRef.current;
+    const currentCollapsedWorkspaceKeys = collapsedWorkspaceKeysRef.current;
+
+    if (currentCollapsedProjectKeys.has(revealTarget.projectKey) && autoCollapseProjects) {
+      setOnlyProjectExpanded(revealTarget.projectKey, projectKeysForAutoCollapse);
+    } else if (currentCollapsedProjectKeys.has(revealTarget.projectKey)) {
       setProjectCollapsed(revealTarget.projectKey, false);
     }
 
     if (!autoCollapseWorkspaces) {
-      if (collapsedWorkspaceKeys.has(revealTarget.workspaceKey)) {
+      if (currentCollapsedWorkspaceKeys.has(revealTarget.workspaceKey)) {
         setWorkspaceCollapsed(revealTarget.workspaceKey, false);
       }
       return;
     }
 
     const expandedWorkspaceKeys = workspaceKeysForAutoCollapse.filter(
-      (workspaceKey) => !collapsedWorkspaceKeys.has(workspaceKey),
+      (workspaceKey) => !currentCollapsedWorkspaceKeys.has(workspaceKey),
     );
-    const needsActiveWorkspaceExpanded = collapsedWorkspaceKeys.has(revealTarget.workspaceKey);
+    const needsActiveWorkspaceExpanded = currentCollapsedWorkspaceKeys.has(
+      revealTarget.workspaceKey,
+    );
     const needsInactiveWorkspacesCollapsed =
       expandedWorkspaceKeys.some((workspaceKey) => workspaceKey !== revealTarget.workspaceKey) ||
       expandedWorkspaceKeys.length === 0;
@@ -4658,17 +4696,35 @@ function ProjectModeList({
     setOnlyWorkspaceExpanded(revealTarget.workspaceKey, workspaceKeysForAutoCollapse);
   }, [
     activeWorkspaceSelection,
+    autoCollapseProjects,
     autoCollapseWorkspaces,
-    collapsedProjectKeys,
-    collapsedWorkspaceKeys,
+    projectKeysForAutoCollapse,
     projects,
     selectionEnabled,
     serverId,
+    setOnlyProjectExpanded,
     setProjectCollapsed,
     setOnlyWorkspaceExpanded,
     setWorkspaceCollapsed,
     workspaceKeysForAutoCollapse,
   ]);
+
+  const handleToggleProjectCollapsed = useCallback(
+    (projectKey: string) => {
+      if (autoCollapseProjects && collapsedProjectKeys.has(projectKey)) {
+        setOnlyProjectExpanded(projectKey, projectKeysForAutoCollapse);
+        return;
+      }
+      onToggleProjectCollapsed(projectKey);
+    },
+    [
+      autoCollapseProjects,
+      collapsedProjectKeys,
+      onToggleProjectCollapsed,
+      projectKeysForAutoCollapse,
+      setOnlyProjectExpanded,
+    ],
+  );
 
   const handleProjectDragEnd = useCallback(
     (reorderedProjects: SidebarProjectEntry[]) => {
@@ -4768,7 +4824,7 @@ function ProjectModeList({
           showShortcutBadges={showShortcutBadges}
           shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
           parentGestureRef={parentGestureRef}
-          onToggleCollapsed={onToggleProjectCollapsed}
+          onToggleCollapsed={handleToggleProjectCollapsed}
           onWorkspacePress={onWorkspacePress}
           onWorkspaceReorder={handleWorkspaceReorder}
           onWorktreeCreated={handleWorktreeCreated}
@@ -4789,8 +4845,8 @@ function ProjectModeList({
       workspaceSortMode,
       handleWorktreeCreated,
       handleWorkspaceReorder,
+      handleToggleProjectCollapsed,
       onWorkspacePress,
-      onToggleProjectCollapsed,
       parentGestureRef,
       projectIconByProjectKey,
       badgeMode,
@@ -5202,6 +5258,9 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
+  },
+  rotatedMenuIcon: {
+    transform: [{ rotate: "90deg" }],
   },
   embeddedTabRow: {
     position: "relative",

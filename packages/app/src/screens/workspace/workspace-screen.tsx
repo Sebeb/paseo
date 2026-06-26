@@ -545,6 +545,7 @@ function MobileTabDropdownMenuItem({
 }: {
   entry: Extract<WorkspaceTabMenuEntry, { kind: "item" }>;
 }) {
+  const iconStyle = entry.iconRotation === "clockwise-90" ? styles.rotatedMenuIcon : undefined;
   const leading = useMemo(() => {
     switch (entry.icon) {
       case "copy":
@@ -552,9 +553,9 @@ function MobileTabDropdownMenuItem({
       case "rotate-cw":
         return <ThemedRotateCw size={16} uniProps={mutedColorMapping} />;
       case "arrow-left-to-line":
-        return <ThemedArrowLeftToLine size={16} uniProps={mutedColorMapping} />;
+        return <ThemedArrowLeftToLine size={16} style={iconStyle} uniProps={mutedColorMapping} />;
       case "arrow-right-to-line":
-        return <ThemedArrowRightToLine size={16} uniProps={mutedColorMapping} />;
+        return <ThemedArrowRightToLine size={16} style={iconStyle} uniProps={mutedColorMapping} />;
       case "copy-x":
         return <ThemedCopyX size={16} uniProps={mutedColorMapping} />;
       case "pencil":
@@ -564,7 +565,7 @@ function MobileTabDropdownMenuItem({
       default:
         return undefined;
     }
-  }, [entry.icon]);
+  }, [entry.icon, iconStyle]);
   const trailing = useMemo(
     () => (entry.hint ? <Text style={styles.menuItemHint}>{entry.hint}</Text> : undefined),
     [entry.hint],
@@ -4315,6 +4316,9 @@ const styles = StyleSheet.create((theme) => ({
   menuItemHint: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
+  },
+  rotatedMenuIcon: {
+    transform: [{ rotate: "90deg" }],
   },
   headerMenuProfileIconWrapper: {
     width: 16,

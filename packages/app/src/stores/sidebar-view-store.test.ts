@@ -18,6 +18,7 @@ describe("sidebar-view-store", () => {
       embeddedTabSortModeByServerId: {},
       embeddedRecentTabCountByServerId: {},
       badgeModeByServerId: {},
+      autoCollapseProjects: false,
       autoCollapseWorkspaces: false,
     });
   });
@@ -64,5 +65,11 @@ describe("sidebar-view-store", () => {
     useSidebarViewStore.getState().setAutoCollapseWorkspaces(true);
 
     expect(useSidebarViewStore.getState().autoCollapseWorkspaces).toBe(true);
+  });
+
+  it("stores the auto-collapse project display preference", () => {
+    useSidebarViewStore.getState().setAutoCollapseProjects(true);
+
+    expect(useSidebarViewStore.getState().autoCollapseProjects).toBe(true);
   });
 });

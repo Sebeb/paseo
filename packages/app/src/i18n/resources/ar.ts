@@ -454,6 +454,8 @@ export const ar: TranslationResources = {
         rename: "إعادة تسمية",
         closeAbove: "إغلاق علامات التبويب أعلاه",
         closeBelow: "إغلاق علامات التبويب أدناه",
+        closeVerticalAbove: "إغلاق أعلاه",
+        closeVerticalBelow: "إغلاق أدناه",
         closeLeft: "بالقرب من اليسار",
         closeRight: "قريب من اليمين",
         closeOthers: "أغلق علامات التبويب الأخرى",
