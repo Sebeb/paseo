@@ -446,6 +446,11 @@ export const zhCN: TranslationResources = {
         title: "切换标签",
         searchPlaceholder: "搜索标签",
       },
+      info: {
+        created: "创建于 {{value}}",
+        updated: "更新于 {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "打开 {{label}} 的菜单",
         copyResumeCommand: "复制恢复命令",

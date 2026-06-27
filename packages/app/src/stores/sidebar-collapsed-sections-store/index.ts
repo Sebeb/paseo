@@ -4,6 +4,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import {
   type CollapsedProjectsState,
   mergePersistedCollapsedProjects,
+  rememberProjectWorkspaceSelection,
   setOnlyProjectExpanded,
   serializeCollapsedProjects,
   setOnlyWorkspaceExpanded,
@@ -26,6 +27,7 @@ interface SidebarCollapsedSectionsState extends CollapsedProjectsState {
   setWorkspaceCollapsed: (workspaceKey: string, collapsed: boolean) => void;
   setWorkspacesCollapsed: (workspaceKeys: readonly string[], collapsed: boolean) => void;
   toggleParentTabExpanded: (parentTabKey: string) => void;
+  rememberProjectWorkspaceSelection: (projectKey: string, workspaceId: string) => void;
 }
 
 export const useSidebarCollapsedSectionsStore = create<SidebarCollapsedSectionsState>()(
@@ -35,6 +37,7 @@ export const useSidebarCollapsedSectionsStore = create<SidebarCollapsedSectionsS
       collapsedStatusGroupKeys: new Set(),
       collapsedWorkspaceKeys: new Set(),
       expandedParentTabKeys: new Set(),
+      lastSelectedWorkspaceIdByProjectKey: {},
       toggleProjectCollapsed: (projectKey) =>
         set((state) => toggleProjectCollapsed(state, projectKey)),
       setProjectCollapsed: (projectKey, collapsed) =>
@@ -53,6 +56,8 @@ export const useSidebarCollapsedSectionsStore = create<SidebarCollapsedSectionsS
         set((state) => setWorkspacesCollapsed(state, workspaceKeys, collapsed)),
       toggleParentTabExpanded: (parentTabKey) =>
         set((state) => toggleParentTabExpanded(state, parentTabKey)),
+      rememberProjectWorkspaceSelection: (projectKey, workspaceId) =>
+        set((state) => rememberProjectWorkspaceSelection(state, projectKey, workspaceId)),
     }),
     {
       name: "sidebar-collapsed-sections",
@@ -66,6 +71,7 @@ export const useSidebarCollapsedSectionsStore = create<SidebarCollapsedSectionsS
                 collapsedStatusGroupKeys?: unknown;
                 collapsedWorkspaceKeys?: unknown;
                 expandedParentTabKeys?: unknown;
+                lastSelectedWorkspaceIdByProjectKey?: unknown;
               }
             | undefined,
           currentState,

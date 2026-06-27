@@ -4108,7 +4108,7 @@ function ProjectBlock({
   showShortcutBadges: boolean;
   shortcutIndexByWorkspaceKey: Map<string, number>;
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
-  onToggleCollapsed: (projectKey: string) => void;
+  onToggleCollapsed: (project: SidebarProjectEntry) => void;
   onWorkspacePress?: () => void;
   onWorkspaceReorder: (projectKey: string, workspaces: SidebarWorkspaceEntry[]) => void;
   onWorktreeCreated?: (workspaceId: string) => void;
@@ -4278,9 +4278,9 @@ function ProjectBlock({
           !collapsed,
         );
       }
-      onToggleCollapsed(project.projectKey);
+      onToggleCollapsed(project);
     },
-    [collapsed, onToggleCollapsed, project.projectKey, project.workspaces, setWorkspacesCollapsed],
+    [collapsed, onToggleCollapsed, project, setWorkspacesCollapsed],
   );
 
   let workspaceRows: ReactNode = null;
@@ -4560,6 +4560,12 @@ function ProjectModeList({
   const setProjectCollapsed = useSidebarCollapsedSectionsStore(
     (state) => state.setProjectCollapsed,
   );
+  const lastSelectedWorkspaceIdByProjectKey = useSidebarCollapsedSectionsStore(
+    (state) => state.lastSelectedWorkspaceIdByProjectKey,
+  );
+  const rememberProjectWorkspaceSelection = useSidebarCollapsedSectionsStore(
+    (state) => state.rememberProjectWorkspaceSelection,
+  );
   const canRemoveProject = useSessionStore((state) =>
     serverId ? state.sessions[serverId]?.serverInfo?.features?.projectRemove === true : false,
   );
@@ -4660,10 +4666,18 @@ function ProjectModeList({
       lastRevealedWorkspaceKeyRef.current = null;
       return;
     }
+    if (!activeWorkspaceSelection) {
+      lastRevealedWorkspaceKeyRef.current = null;
+      return;
+    }
     if (lastRevealedWorkspaceKeyRef.current === revealTarget.workspaceKey) {
       return;
     }
     lastRevealedWorkspaceKeyRef.current = revealTarget.workspaceKey;
+    rememberProjectWorkspaceSelection(
+      revealTarget.projectKey,
+      activeWorkspaceSelection.workspaceId,
+    );
 
     const currentCollapsedProjectKeys = collapsedProjectKeysRef.current;
     const currentCollapsedWorkspaceKeys = collapsedWorkspaceKeysRef.current;
@@ -4700,6 +4714,7 @@ function ProjectModeList({
     autoCollapseWorkspaces,
     projectKeysForAutoCollapse,
     projects,
+    rememberProjectWorkspaceSelection,
     selectionEnabled,
     serverId,
     setOnlyProjectExpanded,
@@ -4710,9 +4725,20 @@ function ProjectModeList({
   ]);
 
   const handleToggleProjectCollapsed = useCallback(
-    (projectKey: string) => {
+    (project: SidebarProjectEntry) => {
+      const projectKey = project.projectKey;
       if (autoCollapseProjects && collapsedProjectKeys.has(projectKey)) {
         setOnlyProjectExpanded(projectKey, projectKeysForAutoCollapse);
+        const rememberedWorkspaceId = lastSelectedWorkspaceIdByProjectKey[projectKey];
+        const rememberedWorkspace = rememberedWorkspaceId
+          ? (project.workspaces.find(
+              (workspace) => workspace.workspaceId === rememberedWorkspaceId,
+            ) ?? null)
+          : null;
+        if (rememberedWorkspace) {
+          onWorkspacePress?.();
+          navigateToWorkspace(rememberedWorkspace.serverId, rememberedWorkspace.workspaceId);
+        }
         return;
       }
       onToggleProjectCollapsed(projectKey);
@@ -4720,7 +4746,9 @@ function ProjectModeList({
     [
       autoCollapseProjects,
       collapsedProjectKeys,
+      lastSelectedWorkspaceIdByProjectKey,
       onToggleProjectCollapsed,
+      onWorkspacePress,
       projectKeysForAutoCollapse,
       setOnlyProjectExpanded,
     ],

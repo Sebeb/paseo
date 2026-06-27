@@ -23,6 +23,7 @@ import {
   ChevronDown,
   Columns2,
   Copy,
+  MessageCircle,
   Pencil,
   RotateCw,
   Rows2,
@@ -35,6 +36,8 @@ import {
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { useRouter, type Href } from "expo-router";
+import equal from "fast-deep-equal";
+import { useStoreWithEqualityFn } from "zustand/traditional";
 import { SortableInlineList } from "@/components/sortable-inline-list";
 import type {
   DraggableListDragHandleProps,
@@ -89,6 +92,9 @@ import { runPinnedTabTarget, type TabTargetHandlers } from "@/workspace-pins/run
 import type { PinnedTabTarget } from "@/workspace-pins/target";
 import { PinnedTargetsRow } from "@/workspace-pins/pinned-targets-row";
 import { PinnableMenuItem } from "@/workspace-pins/pinnable-menu-item";
+import { useSessionStore } from "@/stores/session-store";
+import { formatTimeAgo } from "@/utils/time";
+import type { StreamItem } from "@/types/stream";
 
 const DROPDOWN_WIDTH = 220;
 const LOADING_TAB_LABEL_SKELETON_WIDTH = 80;
@@ -104,6 +110,7 @@ const ThemedCopyX = withUnistyles(CopyX);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
+const ThemedMessageCircle = withUnistyles(MessageCircle);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedGlobe = withUnistyles(Globe);
 const ThemedColumns2 = withUnistyles(Columns2);
@@ -119,6 +126,8 @@ const BROWSER_ICON = <ThemedGlobe size={14} uniProps={mutedColorMapping} />;
 const DRAFT_TARGET: PinnedTabTarget = { kind: "draft" };
 const TERMINAL_TARGET: PinnedTabTarget = { kind: "terminal" };
 const BROWSER_TARGET: PinnedTabTarget = { kind: "browser" };
+const EMPTY_STREAM_ITEMS: StreamItem[] = [];
+const RECENT_RELATIVE_TIME_MS = 7 * 24 * 60 * 60 * 1000;
 
 function newTabActionButtonStyle({ hovered, pressed }: PressableStateCallbackType) {
   return [styles.newTabActionButton, (hovered || pressed) && styles.newTabActionButtonHovered];
@@ -517,6 +526,135 @@ function TabHandleContent({
   );
 }
 
+interface AgentTabInfo {
+  createdAt: Date | null;
+  updatedAt: Date | null;
+  initialPrompt: string | null;
+  userPromptCount: number;
+}
+
+function getUserPromptSummary(items: readonly StreamItem[]): {
+  initialPrompt: string | null;
+  userPromptCount: number;
+} {
+  let initialPrompt: string | null = null;
+  let userPromptCount = 0;
+
+  for (const item of items) {
+    if (item.kind !== "user_message") {
+      continue;
+    }
+    userPromptCount += 1;
+    if (!initialPrompt) {
+      const text = item.text.trim();
+      if (text) {
+        initialPrompt = text;
+      }
+    }
+  }
+
+  return { initialPrompt, userPromptCount };
+}
+
+function useAgentTabInfo(serverId: string, tab: WorkspaceTabDescriptor): AgentTabInfo | null {
+  const agentId = tab.target.kind === "agent" ? tab.target.agentId : null;
+
+  return useStoreWithEqualityFn(
+    useSessionStore,
+    useCallback(
+      (state) => {
+        if (!agentId) {
+          return null;
+        }
+        const session = state.sessions[serverId];
+        const agent = session?.agents.get(agentId) ?? session?.agentDetails.get(agentId) ?? null;
+        const head = session?.agentStreamHead.get(agentId) ?? EMPTY_STREAM_ITEMS;
+        const tail = session?.agentStreamTail.get(agentId) ?? EMPTY_STREAM_ITEMS;
+        const { initialPrompt, userPromptCount } = getUserPromptSummary([...head, ...tail]);
+
+        return {
+          createdAt: agent?.createdAt ?? (tab.createdAt ? new Date(tab.createdAt) : null),
+          updatedAt: agent?.updatedAt ?? null,
+          initialPrompt,
+          userPromptCount,
+        };
+      },
+      [agentId, serverId, tab.createdAt],
+    ),
+    equal,
+  );
+}
+
+function formatAbsoluteDateTime(date: Date): string {
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatUpdatedDateTime(date: Date): string {
+  const ageMs = Date.now() - date.getTime();
+  if (ageMs >= 0 && ageMs < RECENT_RELATIVE_TIME_MS) {
+    return formatTimeAgo(date);
+  }
+  return formatAbsoluteDateTime(date);
+}
+
+function AgentTabTooltipContent({
+  label,
+  agentId,
+  info,
+}: {
+  label: string;
+  agentId: string;
+  info: AgentTabInfo | null;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <View style={styles.tabInfoCard}>
+      <View style={styles.tabInfoHeader}>
+        <Text style={tabInfoTitleStyle} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text style={styles.tooltipAgentId}>{agentId.slice(0, 7)}</Text>
+      </View>
+      {info?.initialPrompt ? (
+        <Text style={styles.tabInfoPrompt} numberOfLines={3} ellipsizeMode="tail">
+          {info.initialPrompt}
+        </Text>
+      ) : null}
+      <View style={styles.tabInfoMeta}>
+        {info?.createdAt ? (
+          <Text style={styles.tabInfoMetaText}>
+            {t("workspace.tabs.info.created", {
+              value: formatAbsoluteDateTime(info.createdAt),
+            })}
+          </Text>
+        ) : null}
+        {info?.updatedAt ? (
+          <Text style={styles.tabInfoMetaText}>
+            {t("workspace.tabs.info.updated", {
+              value: formatUpdatedDateTime(info.updatedAt),
+            })}
+          </Text>
+        ) : null}
+      </View>
+      <View style={styles.tabInfoPromptCountRow}>
+        <ThemedMessageCircle size={13} uniProps={mutedColorMapping} />
+        <Text style={styles.tabInfoPromptCountText}>
+          {t("workspace.tabs.info.promptCount", {
+            count: info?.userPromptCount ?? 0,
+          })}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function TabChip({
   tab,
   isActive,
@@ -530,6 +668,7 @@ function TabChip({
   presentation,
   tooltipLabel,
   resolvedTab,
+  normalizedServerId,
   setHoveredCloseTabKey,
   onNavigateTab,
   onCloseTab,
@@ -547,12 +686,14 @@ function TabChip({
   presentation: WorkspaceTabPresentation;
   tooltipLabel: string;
   resolvedTab: WorkspaceDesktopTabActions;
+  normalizedServerId: string;
   setHoveredCloseTabKey: Dispatch<SetStateAction<string | null>>;
   onNavigateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
   dragHandleProps: DraggableListDragHandleProps | undefined;
 }) {
   const { closeButtonTestId, contextMenuTestId, menuEntries } = resolvedTab;
+  const agentTabInfo = useAgentTabInfo(normalizedServerId, tab);
   const middleClickRef = useMiddleClickClose(
     useCallback(() => void onCloseTab(tab.tabId), [onCloseTab, tab.tabId]),
   );
@@ -644,7 +785,7 @@ function TabChip({
   return (
     <View ref={middleClickRef}>
       <ContextMenu key={tab.key}>
-        <Tooltip delayDuration={400} enabledOnDesktop enabledOnMobile={false}>
+        <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
           <TooltipTrigger asChild triggerRefProp="triggerRef">
             <ContextMenuTrigger
               {...(dragHandleProps?.attributes as object | undefined)}
@@ -705,10 +846,11 @@ function TabChip({
           </TooltipTrigger>
           <TooltipContent side="bottom" align="center" offset={8}>
             {tab.target.kind === "agent" ? (
-              <View style={styles.tooltipAgentRow}>
-                <Text style={styles.newTabTooltipText}>{tooltipLabel}</Text>
-                <Text style={styles.tooltipAgentId}>{tab.target.agentId.slice(0, 7)}</Text>
-              </View>
+              <AgentTabTooltipContent
+                label={tooltipLabel}
+                agentId={tab.target.agentId}
+                info={agentTabInfo}
+              />
             ) : (
               <Text style={styles.newTabTooltipText}>{tooltipLabel}</Text>
             )}
@@ -1143,6 +1285,7 @@ function ResolvedDesktopTabChip({
               presentation={presentation}
               tooltipLabel={tooltipLabel}
               resolvedTab={resolvedTab}
+              normalizedServerId={normalizedServerId}
               setHoveredCloseTabKey={setHoveredCloseTabKey}
               onNavigateTab={onNavigateTab}
               onCloseTab={onCloseTab}
@@ -1322,6 +1465,41 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
   },
+  tabInfoCard: {
+    width: 260,
+    gap: theme.spacing[2],
+  },
+  tabInfoHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    minWidth: 0,
+  },
+  tabInfoTitle: {
+    flex: 1,
+    minWidth: 0,
+  },
+  tabInfoPrompt: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.xs,
+    lineHeight: 18,
+  },
+  tabInfoMeta: {
+    gap: 2,
+  },
+  tabInfoMetaText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  tabInfoPromptCountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  tabInfoPromptCountText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
   menuItemHint: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
@@ -1337,3 +1515,4 @@ const styles = StyleSheet.create((theme) => ({
 
 const TAB_DROP_INDICATOR_BEFORE_STYLE = [styles.tabDropIndicator, styles.tabDropIndicatorBefore];
 const TAB_DROP_INDICATOR_AFTER_STYLE = [styles.tabDropIndicator, styles.tabDropIndicatorAfter];
+const tabInfoTitleStyle = [styles.newTabTooltipText, styles.tabInfoTitle];

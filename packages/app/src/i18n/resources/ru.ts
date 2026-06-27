@@ -450,6 +450,11 @@ export const ru: TranslationResources = {
         title: "Переключить вкладку",
         searchPlaceholder: "Вкладки поиска",
       },
+      info: {
+        created: "Создано {{value}}",
+        updated: "Обновлено {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "Открыть меню для{{label}}",
         copyResumeCommand: "Копировать команду возобновления",

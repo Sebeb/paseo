@@ -446,6 +446,11 @@ export const ar: TranslationResources = {
         title: "علامة التبويب التبديل",
         searchPlaceholder: "علامات تبويب البحث",
       },
+      info: {
+        created: "تم الإنشاء {{value}}",
+        updated: "تم التحديث {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "فتح القائمة لـ{{label}}",
         copyResumeCommand: "نسخ أمر السيرة الذاتية",
