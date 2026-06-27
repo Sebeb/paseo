@@ -1675,6 +1675,7 @@ function getLocalFindHighlightRanges(input: {
       continue;
     }
     localRanges.push({
+      id: range.id,
       start: start - input.startOffset,
       end: end - input.startOffset,
       active: range.active,

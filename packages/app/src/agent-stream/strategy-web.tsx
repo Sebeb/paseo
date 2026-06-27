@@ -12,8 +12,14 @@ import { measureElement as measureVirtualElement, useVirtualizer } from "@tansta
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useWebElementScrollbar } from "@/components/use-web-scrollbar";
 import { useAppSettings } from "@/hooks/use-settings";
+import { baseColors } from "@/styles/theme";
 import { estimateStreamItemHeight } from "./web-virtualization";
-import type { StreamRenderInput, StreamStrategy, StreamViewportHandle } from "./strategy";
+import type {
+  StreamFindMarker,
+  StreamRenderInput,
+  StreamStrategy,
+  StreamViewportHandle,
+} from "./strategy";
 import { createStreamStrategy, PINNED_USER_INPUT_SCROLL_TOP_OFFSET } from "./strategy";
 import {
   collectPinnedUserInputCandidatesFromGeometries,
@@ -50,6 +56,9 @@ const PROMPT_PREVIEW_LAYER_Z_INDEX = 1000;
 
 type PromptMarkerSegment = "unloadedHistory" | "virtualizedHistory" | "mountedHistory" | "liveHead";
 
+type ScrollMarkerKind = "prompt" | "find";
+type MarkerRailMode = "none" | "prompt" | "find";
+
 interface PromptMarkerDescriptor {
   id: string;
   text: string;
@@ -57,8 +66,14 @@ interface PromptMarkerDescriptor {
   segment: PromptMarkerSegment;
 }
 
-interface PromptMarker extends PromptMarkerDescriptor {
+interface ScrollMarker {
+  id: string;
+  itemId: string;
+  kind: ScrollMarkerKind;
   targetOffset: number;
+  preview?: string;
+  segment?: PromptMarkerSegment;
+  index?: number;
 }
 
 interface PromptRailMetrics {
@@ -125,6 +140,20 @@ function VirtualStreamItemElement({
   );
 }
 
+interface MarkerRailPresentation {
+  railTestId: string;
+  itemTestIdPrefix: string;
+  ariaLabel: string;
+}
+
+interface MarkerRailModeInput {
+  showDesktopWebScrollbar: boolean;
+  promptScrollMarkers: boolean;
+  findIndicator: StreamRenderInput["findIndicator"];
+}
+
+const EMPTY_FIND_MARKERS: readonly StreamFindMarker[] = [];
+
 const historyStartSlotStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -182,6 +211,22 @@ const promptMarkerDotActiveStyle: CSSProperties = {
   opacity: 1,
 };
 
+const findMarkerDotBaseStyle: CSSProperties = {
+  width: PROMPT_MARKER_SIZE,
+  height: PROMPT_MARKER_SIZE,
+  borderRadius: 999,
+  backgroundColor: baseColors.blue[500],
+  border: "1px solid rgba(0, 0, 0, 0.16)",
+  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.28)",
+  opacity: 0.35,
+  transition: "opacity 160ms ease-out, box-shadow 160ms ease-out",
+};
+
+const findMarkerDotActiveStyle: CSSProperties = {
+  opacity: 1,
+  boxShadow: "0 2px 8px rgba(59, 130, 246, 0.45)",
+};
+
 const promptPreviewBaseStyle: CSSProperties = {
   position: "absolute",
   right: PROMPT_MARKER_HIT_SIZE,
@@ -216,6 +261,34 @@ const promptPreviewVisibleStyle: CSSProperties = {
 };
 
 const PROMPT_PREVIEW_BOUNDS_SELECTOR = '[data-testid="agent-chat-space"]';
+
+function getMarkerRailMode(input: MarkerRailModeInput): MarkerRailMode {
+  if (!input.showDesktopWebScrollbar) {
+    return "none";
+  }
+  if (input.findIndicator?.isActive === true && input.findIndicator.markers.length > 0) {
+    return "find";
+  }
+  if (input.promptScrollMarkers) {
+    return "prompt";
+  }
+  return "none";
+}
+
+function getMarkerRailPresentation(mode: MarkerRailMode): MarkerRailPresentation {
+  if (mode === "find") {
+    return {
+      railTestId: "find-marker-rail",
+      itemTestIdPrefix: "find-scroll",
+      ariaLabel: "Jump to find match",
+    };
+  }
+  return {
+    railTestId: "prompt-marker-rail",
+    itemTestIdPrefix: "prompt-scroll",
+    ariaLabel: "Jump to prompt",
+  };
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -374,6 +447,42 @@ function findStreamItemAnchor(
   return null;
 }
 
+function findFindMatchAnchor(
+  contentElement: HTMLElement | null,
+  matchId: string,
+): HTMLElement | null {
+  if (!contentElement) {
+    return null;
+  }
+  const anchors = contentElement.querySelectorAll<HTMLElement>("[data-find-match-id]");
+  for (const anchor of anchors) {
+    if (anchor.dataset.findMatchId === matchId) {
+      return anchor;
+    }
+  }
+  return null;
+}
+
+function getElementTopWithinContent(
+  contentElement: HTMLElement,
+  targetElement: HTMLElement,
+): number {
+  const contentRect = contentElement.getBoundingClientRect();
+  const targetRect = targetElement.getBoundingClientRect();
+  const rectOffset = targetRect.top - contentRect.top;
+  const hasMeasuredRect =
+    contentRect.top !== 0 ||
+    contentRect.bottom !== 0 ||
+    targetRect.top !== 0 ||
+    targetRect.bottom !== 0;
+
+  if (hasMeasuredRect && Number.isFinite(rectOffset)) {
+    return rectOffset;
+  }
+
+  return targetElement.offsetTop;
+}
+
 function getPromptMarkerTop(input: {
   targetOffset: number;
   viewportSize: number;
@@ -410,8 +519,8 @@ function getPromptPreviewText(text: string): string {
   return `${trimmed.slice(0, PROMPT_PREVIEW_TEXT_MAX_LENGTH - 3).trimEnd()}...`;
 }
 
-function getActivePromptMarkerId(input: {
-  markers: readonly PromptMarker[];
+function getActiveScrollMarkerId(input: {
+  markers: readonly ScrollMarker[];
   scrollOffset: number;
 }): string | null {
   if (input.markers.length === 0) {
@@ -428,46 +537,61 @@ function getActivePromptMarkerId(input: {
   return activeMarker?.id ?? null;
 }
 
-interface PromptMarkerRailProps {
-  markers: PromptMarker[];
+interface ScrollMarkerRailProps {
+  markers: readonly ScrollMarker[];
   viewportSize: number;
   contentSize: number;
   previewBoundsTop: number;
   previewBoundsBottom: number;
-  scrollOffset: number;
-  onMarkerPress: (marker: PromptMarker) => void;
+  activeMarkerId: string | null;
+  railTestId: string;
+  itemTestIdPrefix: string;
+  ariaLabel: string;
+  onMarkerPress: (marker: ScrollMarker) => void;
 }
 
-interface PromptMarkerRailItemProps {
-  marker: PromptMarker;
+interface ScrollMarkerRailItemProps {
+  marker: ScrollMarker;
   markerTop: number;
   previewTop: number;
   isHovered: boolean;
   isActive: boolean;
-  onMarkerPress: (marker: PromptMarker) => void;
-  onHoveredPromptChange: (promptId: string | null) => void;
-  onPreviewHeightChange: (promptId: string, height: number) => void;
+  itemTestIdPrefix: string;
+  ariaLabel: string;
+  onMarkerPress: (marker: ScrollMarker) => void;
+  onHoveredMarkerChange: (markerId: string | null) => void;
+  onPreviewHeightChange: (markerId: string, height: number) => void;
 }
 
-function PromptMarkerRailItem({
+function ScrollMarkerRailItem({
   marker,
   markerTop,
   previewTop,
   isHovered,
   isActive,
+  itemTestIdPrefix,
+  ariaLabel,
   onMarkerPress,
-  onHoveredPromptChange,
+  onHoveredMarkerChange,
   onPreviewHeightChange,
-}: PromptMarkerRailItemProps) {
+}: ScrollMarkerRailItemProps) {
   const previewRef = useRef<HTMLSpanElement | null>(null);
-  const previewText = useMemo(() => getPromptPreviewText(marker.text), [marker.text]);
-  const dotStyle = useMemo(
-    (): CSSProperties => ({
+  const previewText = useMemo(
+    () => (marker.preview === undefined ? null : getPromptPreviewText(marker.preview)),
+    [marker.preview],
+  );
+  const dotStyle = useMemo((): CSSProperties => {
+    if (marker.kind === "find") {
+      return {
+        ...findMarkerDotBaseStyle,
+        ...(isActive ? findMarkerDotActiveStyle : {}),
+      };
+    }
+    return {
       ...promptMarkerDotBaseStyle,
       ...(isActive ? promptMarkerDotActiveStyle : {}),
-    }),
-    [isActive],
-  );
+    };
+  }, [isActive, marker.kind]);
   const reportPreviewHeight = useCallback(() => {
     const previewElement = previewRef.current;
     if (!previewElement) {
@@ -501,13 +625,20 @@ function PromptMarkerRailItem({
     onMarkerPress(marker);
   }, [marker, onMarkerPress]);
   const handleMouseEnter = useCallback(() => {
-    reportPreviewHeight();
-    onHoveredPromptChange(marker.id);
-  }, [marker.id, onHoveredPromptChange, reportPreviewHeight]);
+    if (previewText !== null) {
+      reportPreviewHeight();
+      onHoveredMarkerChange(marker.id);
+    }
+  }, [marker.id, onHoveredMarkerChange, previewText, reportPreviewHeight]);
   const handleMouseLeave = useCallback(() => {
-    onHoveredPromptChange(null);
-  }, [onHoveredPromptChange]);
+    if (previewText !== null) {
+      onHoveredMarkerChange(null);
+    }
+  }, [onHoveredMarkerChange, previewText]);
   useLayoutEffect(() => {
+    if (previewText === null) {
+      return;
+    }
     reportPreviewHeight();
     const previewElement = previewRef.current;
     if (!previewElement || typeof ResizeObserver === "undefined") {
@@ -520,51 +651,56 @@ function PromptMarkerRailItem({
     return () => {
       observer.disconnect();
     };
-  }, [reportPreviewHeight]);
+  }, [previewText, reportPreviewHeight]);
 
   return (
     <button
       type="button"
-      data-testid={`prompt-scroll-marker-${marker.id}`}
-      aria-label="Jump to prompt"
+      data-testid={`${itemTestIdPrefix}-marker-${marker.id}`}
+      aria-label={ariaLabel}
       style={targetStyle}
       onClick={handleClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       <span style={dotStyle} />
-      <span
-        ref={previewRef}
-        data-testid={`prompt-scroll-preview-${marker.id}`}
-        style={previewStyle}
-      >
-        {previewText}
-      </span>
+      {previewText !== null ? (
+        <span
+          ref={previewRef}
+          data-testid={`${itemTestIdPrefix}-preview-${marker.id}`}
+          style={previewStyle}
+        >
+          {previewText}
+        </span>
+      ) : null}
     </button>
   );
 }
 
-function PromptMarkerRail({
+function ScrollMarkerRail({
   markers,
   viewportSize,
   contentSize,
   previewBoundsTop,
   previewBoundsBottom,
-  scrollOffset,
+  activeMarkerId,
+  railTestId,
+  itemTestIdPrefix,
+  ariaLabel,
   onMarkerPress,
-}: PromptMarkerRailProps) {
-  const [hoveredPromptId, setHoveredPromptId] = useState<string | null>(null);
+}: ScrollMarkerRailProps) {
+  const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
   const [previewHeightsById, setPreviewHeightsById] = useState(() => new Map<string, number>());
-  const handleHoveredPromptChange = useCallback((promptId: string | null) => {
-    setHoveredPromptId(promptId);
+  const handleHoveredMarkerChange = useCallback((markerId: string | null) => {
+    setHoveredMarkerId(markerId);
   }, []);
-  const handlePreviewHeightChange = useCallback((promptId: string, height: number) => {
+  const handlePreviewHeightChange = useCallback((markerId: string, height: number) => {
     setPreviewHeightsById((previous) => {
-      if (previous.get(promptId) === height) {
+      if (previous.get(markerId) === height) {
         return previous;
       }
       const next = new Map(previous);
-      next.set(promptId, height);
+      next.set(markerId, height);
       return next;
     });
   }, []);
@@ -573,10 +709,8 @@ function PromptMarkerRail({
     return null;
   }
 
-  const activePromptId = getActivePromptMarkerId({ markers, scrollOffset });
-
   return (
-    <div style={promptMarkerOverlayStyle} data-testid="prompt-marker-rail">
+    <div style={promptMarkerOverlayStyle} data-testid={railTestId}>
       {markers.map((marker) => {
         const markerTop = getPromptMarkerTop({
           targetOffset: marker.targetOffset,
@@ -590,18 +724,20 @@ function PromptMarkerRail({
           previewBoundsTop,
           previewBoundsBottom,
         });
-        const isHovered = hoveredPromptId === marker.id;
-        const isActive = activePromptId === marker.id;
+        const isHovered = hoveredMarkerId === marker.id;
+        const isActive = activeMarkerId === marker.id;
         return (
-          <PromptMarkerRailItem
+          <ScrollMarkerRailItem
             key={marker.id}
             marker={marker}
             markerTop={markerTop}
             previewTop={previewTop}
             isHovered={isHovered}
             isActive={isActive}
+            itemTestIdPrefix={itemTestIdPrefix}
+            ariaLabel={ariaLabel}
             onMarkerPress={onMarkerPress}
-            onHoveredPromptChange={handleHoveredPromptChange}
+            onHoveredMarkerChange={handleHoveredMarkerChange}
             onPreviewHeightChange={handlePreviewHeightChange}
           />
         );
@@ -632,6 +768,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     hasOlderHistory,
     scrollEnabled,
     isMobileBreakpoint,
+    findIndicator,
   } = props;
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
@@ -678,8 +815,17 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const showDesktopWebScrollbar = !isMobileBreakpoint;
   const isPromptIndexPending =
     expectsFullHistoryPromptIndex && hasOlderHistory && promptIndex === null;
-  const showPromptMarkers =
-    showDesktopWebScrollbar && appSettings.promptScrollMarkers && !isPromptIndexPending;
+  const markerRailMode = getMarkerRailMode({
+    showDesktopWebScrollbar,
+    promptScrollMarkers: appSettings.promptScrollMarkers && !isPromptIndexPending,
+    findIndicator,
+  });
+  const markerRailPresentation = getMarkerRailPresentation(markerRailMode);
+  const findMarkers = findIndicator?.markers ?? EMPTY_FIND_MARKERS;
+  const findActiveMarkerId = findIndicator?.activeMarkerId ?? null;
+  const showFindMarkers = markerRailMode === "find";
+  const showPromptMarkers = markerRailMode === "prompt";
+  const showMarkerRail = markerRailMode !== "none";
   const promptMarkerDescriptors = useMemo(
     () => collectPromptMarkerDescriptors(segments, promptIndex, loadedHistoryStartSeq),
     [loadedHistoryStartSeq, promptIndex, segments],
@@ -773,9 +919,33 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     [getVirtualPromptOffset, promptIndexGeometry.unloadedPromptOffsetsById, shouldUseVirtualizer],
   );
 
+  const resolveItemOffsetById = useCallback(
+    (itemId: string): number | null => {
+      const virtualIndex = segments.historyVirtualized.findIndex((item) => item.id === itemId);
+      if (virtualIndex >= 0) {
+        return getVirtualPromptOffset(virtualIndex);
+      }
+      const anchor = findStreamItemAnchor(contentRef.current, itemId);
+      return anchor?.offsetTop ?? null;
+    },
+    [getVirtualPromptOffset, segments.historyVirtualized],
+  );
+
+  const resolveFindMarkerOffset = useCallback(
+    (marker: StreamFindMarker): number | null => {
+      const contentElement = contentRef.current;
+      const matchAnchor = findFindMatchAnchor(contentElement, marker.id);
+      if (contentElement && matchAnchor) {
+        return getElementTopWithinContent(contentElement, matchAnchor);
+      }
+      return resolveItemOffsetById(marker.itemId);
+    },
+    [resolveItemOffsetById],
+  );
+
   const updatePromptRailMetrics = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer || !showPromptMarkers) {
+    if (!scrollContainer || !showMarkerRail) {
       setPromptRailMetrics((previous) => {
         const next: PromptRailMetrics = {
           viewportSize: 0,
@@ -791,10 +961,19 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
 
     const offsetsById = new Map<string, number>();
-    for (const marker of promptMarkerDescriptors) {
-      const offset = resolvePromptOffset(marker);
-      if (offset !== null) {
-        offsetsById.set(marker.id, offset);
+    if (showFindMarkers) {
+      for (const marker of findMarkers) {
+        const offset = resolveFindMarkerOffset(marker);
+        if (offset !== null) {
+          offsetsById.set(marker.id, offset);
+        }
+      }
+    } else if (showPromptMarkers) {
+      for (const marker of promptMarkerDescriptors) {
+        const offset = resolvePromptOffset(marker);
+        if (offset !== null) {
+          offsetsById.set(marker.id, offset);
+        }
       }
     }
 
@@ -810,7 +989,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     setPromptRailMetrics((previous) =>
       arePromptRailMetricsEqual(previous, next) ? previous : next,
     );
-  }, [promptMarkerDescriptors, resolvePromptOffset, showPromptMarkers]);
+  }, [
+    findMarkers,
+    promptMarkerDescriptors,
+    resolveFindMarkerOffset,
+    resolvePromptOffset,
+    showFindMarkers,
+    showMarkerRail,
+    showPromptMarkers,
+  ]);
 
   const updatePromptRailScrollOffset = useCallback((scrollOffset: number) => {
     setPromptRailMetrics((previous) => {
@@ -1028,11 +1215,11 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     lastKnownScrollTopRef.current = currentScrollTop;
     updateScrollMetrics();
     updatePinnedUserInput();
-    if (showPromptMarkers) {
+    if (showMarkerRail) {
       updatePromptRailScrollOffset(currentScrollTop);
     }
     if (
-      showPromptMarkers &&
+      showMarkerRail &&
       (scrollContainer.clientHeight !== promptRailMetrics.viewportSize ||
         scrollContainer.scrollHeight !== promptRailMetrics.contentSize)
     ) {
@@ -1052,8 +1239,8 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     promptIndexGeometry.unloadedSpacerHeight,
     promptRailMetrics.contentSize,
     promptRailMetrics.viewportSize,
-    showPromptMarkers,
     setFollowOutput,
+    showMarkerRail,
     updatePromptRailMetrics,
     updatePromptRailScrollOffset,
     updatePinnedUserInput,
@@ -1380,25 +1567,80 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     !boundary.hasVirtualizedHistory &&
     !boundary.hasLiveHead &&
     !liveAuxiliary;
-  const promptMarkers = useMemo((): PromptMarker[] => {
-    return promptMarkerDescriptors.flatMap((marker) => {
-      const targetOffset = promptRailMetrics.offsetsById.get(marker.id);
-      return targetOffset === undefined ? [] : [{ ...marker, targetOffset }];
+  const scrollMarkers = useMemo((): ScrollMarker[] => {
+    if (showFindMarkers) {
+      return findMarkers.flatMap((marker) => {
+        const targetOffset = promptRailMetrics.offsetsById.get(marker.id);
+        return targetOffset === undefined
+          ? []
+          : [
+              {
+                id: marker.id,
+                itemId: marker.itemId,
+                kind: "find" as const,
+                targetOffset,
+              },
+            ];
+      });
+    }
+    if (showPromptMarkers) {
+      return promptMarkerDescriptors.flatMap((descriptor) => {
+        const targetOffset = promptRailMetrics.offsetsById.get(descriptor.id);
+        return targetOffset === undefined
+          ? []
+          : [
+              {
+                id: descriptor.id,
+                itemId: descriptor.id,
+                kind: "prompt" as const,
+                targetOffset,
+                preview: descriptor.text,
+                segment: descriptor.segment,
+                index: descriptor.index,
+              },
+            ];
+      });
+    }
+    return [];
+  }, [
+    findMarkers,
+    promptMarkerDescriptors,
+    promptRailMetrics.offsetsById,
+    showFindMarkers,
+    showPromptMarkers,
+  ]);
+  const activeScrollMarkerId = useMemo(() => {
+    if (showFindMarkers) {
+      return findActiveMarkerId;
+    }
+    return getActiveScrollMarkerId({
+      markers: scrollMarkers,
+      scrollOffset: promptRailMetrics.scrollOffset,
     });
-  }, [promptMarkerDescriptors, promptRailMetrics.offsetsById]);
-  const handlePromptMarkerPress = useCallback(
-    (marker: PromptMarker) => {
+  }, [findActiveMarkerId, promptRailMetrics.scrollOffset, scrollMarkers, showFindMarkers]);
+  const handleScrollMarkerPress = useCallback(
+    (marker: ScrollMarker) => {
       const scrollContainer = scrollContainerRef.current;
       if (!scrollContainer) {
         return;
       }
-      if (marker.segment === "unloadedHistory") {
+      if (marker.kind === "find") {
+        findIndicator?.onMarkerPress(marker.id);
+      } else if (marker.segment === "unloadedHistory") {
         pendingUnloadedPromptTargetIdRef.current = marker.id;
         if (hasOlderHistory && !isLoadingOlderHistory) {
           onNearHistoryStart();
         }
       }
-      const resolvedOffset = resolvePromptOffset(marker) ?? marker.targetOffset;
+      const resolvedOffset =
+        marker.kind === "find"
+          ? (resolveFindMarkerOffset(marker) ?? marker.targetOffset)
+          : (resolvePromptOffset({
+              id: marker.id,
+              text: marker.preview ?? "",
+              index: marker.index ?? 0,
+              segment: marker.segment ?? "mountedHistory",
+            }) ?? marker.targetOffset);
       const maxScrollOffset = Math.max(
         0,
         scrollContainer.scrollHeight - scrollContainer.clientHeight,
@@ -1408,7 +1650,14 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         behavior: "auto",
       });
     },
-    [hasOlderHistory, isLoadingOlderHistory, onNearHistoryStart, resolvePromptOffset],
+    [
+      findIndicator,
+      hasOlderHistory,
+      isLoadingOlderHistory,
+      onNearHistoryStart,
+      resolveFindMarkerOffset,
+      resolvePromptOffset,
+    ],
   );
 
   useEffect(() => {
@@ -1482,14 +1731,17 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
           {shouldRenderEmpty ? listEmptyComponent : null}
         </div>
       </div>
-      <PromptMarkerRail
-        markers={promptMarkers}
+      <ScrollMarkerRail
+        markers={scrollMarkers}
         viewportSize={promptRailMetrics.viewportSize}
         contentSize={promptRailMetrics.contentSize}
         previewBoundsTop={promptRailMetrics.previewBoundsTop}
         previewBoundsBottom={promptRailMetrics.previewBoundsBottom}
-        scrollOffset={promptRailMetrics.scrollOffset}
-        onMarkerPress={handlePromptMarkerPress}
+        activeMarkerId={activeScrollMarkerId}
+        railTestId={markerRailPresentation.railTestId}
+        itemTestIdPrefix={markerRailPresentation.itemTestIdPrefix}
+        ariaLabel={markerRailPresentation.ariaLabel}
+        onMarkerPress={handleScrollMarkerPress}
       />
       {pinnedUserInputOverlay}
       {scrollbarOverlay}

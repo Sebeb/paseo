@@ -56,6 +56,18 @@ export interface StreamSegmentRenderers {
   renderLiveAuxiliary: () => ReactNode;
 }
 
+export interface StreamFindMarker {
+  id: string;
+  itemId: string;
+}
+
+export interface StreamFindIndicator {
+  isActive: boolean;
+  markers: readonly StreamFindMarker[];
+  activeMarkerId: string | null;
+  onMarkerPress: (markerId: string) => void;
+}
+
 export interface StreamRenderInput {
   agentId: string;
   segments: StreamRenderSegments;
@@ -80,6 +92,7 @@ export interface StreamRenderInput {
   listStyle: StyleProp<ViewStyle>;
   baseListContentContainerStyle: StyleProp<ViewStyle>;
   forwardListContentContainerStyle: StyleProp<ViewStyle>;
+  findIndicator?: StreamFindIndicator;
 }
 
 export interface ResolveStreamRenderStrategyInput {
