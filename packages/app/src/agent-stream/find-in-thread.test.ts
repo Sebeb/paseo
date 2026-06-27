@@ -149,8 +149,8 @@ describe("find in thread policy", () => {
     const highlights = buildFindHighlights({ matches, activeMatchId: matches[1]?.id ?? null });
 
     expect(getFindHighlightRanges(highlights, "u1", FIND_PART_MESSAGE)).toEqual([
-      { start: 0, end: 4, active: false },
-      { start: 5, end: 9, active: true },
+      { id: matches[0]?.id, start: 0, end: 4, active: false },
+      { id: matches[1]?.id, start: 5, end: 9, active: true },
     ]);
   });
 });

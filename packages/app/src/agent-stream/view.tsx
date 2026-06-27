@@ -566,6 +566,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         activeFindMatchId ? findMatches.findIndex((match) => match.id === activeFindMatchId) : -1,
       [activeFindMatchId, findMatches],
     );
+    const findIndicator = useMemo(
+      () => ({
+        isActive: isFindOpen,
+        markers: findMatches.map((match) => ({ id: match.id, itemId: match.itemId })),
+        activeMarkerId: activeFindMatchId,
+        onMarkerPress: setActiveFindMatchId,
+      }),
+      [activeFindMatchId, findMatches, isFindOpen],
+    );
 
     const baseRenderModel = useMemo(() => {
       return buildAgentStreamRenderModel({
@@ -1213,6 +1222,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               listStyle: stylesheet.list,
               baseListContentContainerStyle: stylesheet.listContentContainer,
               forwardListContentContainerStyle: stylesheet.forwardListContentContainer,
+              findIndicator,
             })}
           </MessageOuterSpacingProvider>
           {findOverlay}

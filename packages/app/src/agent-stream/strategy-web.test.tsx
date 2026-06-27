@@ -6,7 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StreamItem } from "@/types/stream";
-import type { StreamSegmentRenderers, StreamViewportHandle } from "./strategy";
+import type { StreamFindIndicator, StreamSegmentRenderers, StreamViewportHandle } from "./strategy";
 import { createWebStreamStrategy } from "./strategy-web";
 
 const mockSettingsState = vi.hoisted(() => ({
@@ -80,6 +80,7 @@ function renderViewport(input: {
   liveHead?: StreamItem[];
   onNearHistoryStart?: () => void;
   wrapInChatSpace?: boolean;
+  findIndicator?: StreamFindIndicator;
 }) {
   const strategy = createWebStreamStrategy({
     isMobileBreakpoint: input.isMobileBreakpoint ?? false,
@@ -116,6 +117,7 @@ function renderViewport(input: {
       listStyle: null,
       baseListContentContainerStyle: null,
       forwardListContentContainerStyle: null,
+      findIndicator: input.findIndicator,
     });
     input.root.render(
       input.wrapInChatSpace ? <div data-testid="agent-chat-space">{viewport}</div> : viewport,
@@ -400,6 +402,122 @@ describe("createWebStreamStrategy", () => {
     refreshScrollMetrics(scrollContainer);
 
     expect(container.querySelector("[data-testid='prompt-marker-rail']")).toBeNull();
+  });
+
+  it("renders active find dots instead of prompt markers while find is open", () => {
+    const onMarkerPress = vi.fn();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    renderViewport({
+      root,
+      historyMounted: [userMessage(1), userMessage(2)],
+      findIndicator: {
+        isActive: true,
+        markers: [
+          { id: "message-1:message:0", itemId: "message-1" },
+          { id: "message-2:message:0", itemId: "message-2" },
+        ],
+        activeMarkerId: "message-2:message:0",
+        onMarkerPress,
+      },
+    });
+
+    const scrollContainer = getRequiredElement(container, '[data-testid="agent-chat-scroll"]');
+    setScrollableMetrics({ scrollContainer, viewportHeight: 400, contentHeight: 1200 });
+    const firstAnchor = getRequiredElement(container, "[data-stream-item-id='message-1']");
+    const secondAnchor = getRequiredElement(container, "[data-stream-item-id='message-2']");
+    setElementOffsetTop(firstAnchor, 160);
+    setElementOffsetTop(secondAnchor, 320);
+    refreshScrollMetrics(scrollContainer);
+
+    expect(container.querySelector("[data-testid='prompt-marker-rail']")).toBeNull();
+    expect(container.querySelector("[data-testid='find-marker-rail']")).not.toBeNull();
+    expect(container.querySelectorAll("[data-testid^='prompt-scroll-marker-']")).toHaveLength(0);
+    expect(container.querySelectorAll("[data-testid^='find-scroll-marker-']")).toHaveLength(2);
+    expect(container.querySelector("[data-testid^='find-scroll-preview-']")).toBeNull();
+
+    const inactiveMarker = getRequiredElement(
+      container,
+      "[data-testid='find-scroll-marker-message-1:message:0']",
+    );
+    const activeMarker = getRequiredElement(
+      container,
+      "[data-testid='find-scroll-marker-message-2:message:0']",
+    );
+    const inactiveDot = inactiveMarker.querySelector("span");
+    const activeDot = activeMarker.querySelector("span");
+    expect(inactiveDot).toBeInstanceOf(HTMLElement);
+    expect(activeDot).toBeInstanceOf(HTMLElement);
+    expect((inactiveDot as HTMLElement).style.backgroundColor).toBe("rgb(59, 130, 246)");
+    expect((inactiveDot as HTMLElement).style.opacity).toBe("0.35");
+    expect((activeDot as HTMLElement).style.opacity).toBe("1");
+
+    act(() => {
+      inactiveMarker.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onMarkerPress).toHaveBeenCalledWith("message-1:message:0");
+  });
+
+  it("positions find dots from rendered match anchors when available", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    renderViewport({
+      root,
+      historyMounted: [userMessage(1)],
+      findIndicator: {
+        isActive: true,
+        markers: [{ id: "message-1:message:8", itemId: "message-1" }],
+        activeMarkerId: "message-1:message:8",
+        onMarkerPress: vi.fn(),
+      },
+    });
+
+    const scrollContainer = getRequiredElement(container, '[data-testid="agent-chat-scroll"]');
+    const contentElement = getRequiredElement(scrollContainer, "div");
+    const anchor = getRequiredElement(container, "[data-stream-item-id='message-1']");
+    const matchAnchor = document.createElement("span");
+    matchAnchor.dataset.findMatchId = "message-1:message:8";
+    anchor.appendChild(matchAnchor);
+    setElementRect(contentElement, { top: 100, bottom: 1300 });
+    setElementRect(matchAnchor, { top: 340, bottom: 360 });
+    setScrollableMetrics({ scrollContainer, viewportHeight: 400, contentHeight: 1200 });
+    setElementOffsetTop(anchor, 16);
+    refreshScrollMetrics(scrollContainer);
+
+    const marker = getRequiredElement(
+      container,
+      "[data-testid='find-scroll-marker-message-1:message:8']",
+    );
+    expect(Number.parseFloat(marker.style.top)).toBeCloseTo(74.4);
+  });
+
+  it("falls back to prompt markers when find markers are present but find is closed", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    renderViewport({
+      root,
+      historyMounted: [userMessage(1)],
+      findIndicator: {
+        isActive: false,
+        markers: [{ id: "message-1:message:0", itemId: "message-1" }],
+        activeMarkerId: "message-1:message:0",
+        onMarkerPress: vi.fn(),
+      },
+    });
+
+    const scrollContainer = getRequiredElement(container, '[data-testid="agent-chat-scroll"]');
+    setScrollableMetrics({ scrollContainer, viewportHeight: 400, contentHeight: 1200 });
+    const anchor = getRequiredElement(container, "[data-stream-item-id='message-1']");
+    setElementOffsetTop(anchor, 160);
+    refreshScrollMetrics(scrollContainer);
+
+    expect(container.querySelector("[data-testid='find-marker-rail']")).toBeNull();
+    expect(container.querySelector("[data-testid='prompt-marker-rail']")).not.toBeNull();
+    expect(container.querySelectorAll("[data-testid^='prompt-scroll-marker-']")).toHaveLength(1);
   });
 
   it("reveals a user prompt preview while hovering a marker", () => {

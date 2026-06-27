@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import { Text, type TextProps } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { FindHighlightRange } from "@/agent-stream/find-in-thread";
@@ -11,6 +12,11 @@ interface FindHighlightedTextProps extends TextProps {
 interface FindHighlightedTextSegmentsProps {
   text: string;
   ranges?: readonly FindHighlightRange[];
+}
+
+interface FindHighlightedTextMatchProps {
+  range: FindHighlightRange;
+  text: string;
 }
 
 export function FindHighlightedText({
@@ -42,16 +48,11 @@ export function FindHighlightedTextSegments({ text, ranges }: FindHighlightedTex
       );
     }
     nodes.push(
-      <Text
+      <FindHighlightedTextMatch
         key={`highlight-${range.start}-${range.end}`}
-        style={
-          range.active
-            ? findHighlightedTextStylesheet.activeHighlight
-            : findHighlightedTextStylesheet.highlight
-        }
-      >
-        {text.slice(range.start, range.end)}
-      </Text>,
+        range={range}
+        text={text.slice(range.start, range.end)}
+      />,
     );
     cursor = range.end;
   });
@@ -60,6 +61,25 @@ export function FindHighlightedTextSegments({ text, ranges }: FindHighlightedTex
   }
   return nodes;
 }
+
+const FindHighlightedTextMatch = memo(function FindHighlightedTextMatch({
+  range,
+  text,
+}: FindHighlightedTextMatchProps) {
+  const dataSet = useMemo(() => ({ findMatchId: range.id }), [range.id]);
+  return (
+    <Text
+      dataSet={dataSet}
+      style={
+        range.active
+          ? findHighlightedTextStylesheet.activeHighlight
+          : findHighlightedTextStylesheet.highlight
+      }
+    >
+      {text}
+    </Text>
+  );
+});
 
 function normalizeRanges(
   textLength: number,
@@ -76,7 +96,7 @@ function normalizeRanges(
     if (end <= start) {
       continue;
     }
-    normalized.push({ start, end, active: range.active });
+    normalized.push({ id: range.id, start, end, active: range.active });
     previousEnd = end;
   }
   return normalized;

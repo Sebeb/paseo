@@ -31,6 +31,7 @@ export interface FindInThreadMatch {
 }
 
 export interface FindHighlightRange {
+  id: string;
   start: number;
   end: number;
   active: boolean;
@@ -114,6 +115,7 @@ export function buildFindHighlights(input: {
     }
     const ranges = parts.get(match.part) ?? [];
     ranges.push({
+      id: match.id,
       start: match.start,
       end: match.end,
       active: match.id === input.activeMatchId,
