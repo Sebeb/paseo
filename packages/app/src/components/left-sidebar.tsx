@@ -1,4 +1,4 @@
-import { router, usePathname } from "expo-router";
+import { router, usePathname, type Href } from "expo-router";
 import { FolderPlus, History, Home, Search, Settings, X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import {
@@ -303,7 +303,7 @@ export const LeftSidebar = memo(function LeftSidebar({
       }
       const nextPath = mapPathnameToServer(pathname, nextServerId);
       setIsHostPickerOpen(false);
-      router.push(nextPath);
+      router.push(nextPath as Href);
     },
     [pathname],
   );

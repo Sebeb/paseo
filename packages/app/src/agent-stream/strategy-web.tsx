@@ -654,11 +654,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
     elements.delete(itemId);
   }, []);
-  const [followOutput, setFollowOutputr] = useState(true);
-  const setFollowOutput = (value: boolean) => {
-    setFollowOutputr(value);
-    return value;
-  };
+  const [followOutput, setFollowOutputState] = useState(true);
   const followOutputRef = useRef(followOutput);
   const lastKnownScrollTopRef = useRef(0);
   const pendingUserScrollUpIntentRef = useRef(false);
@@ -711,6 +707,12 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     renderLiveAuxiliary,
   } = renderers;
 
+  const setFollowOutput = useCallback((value: boolean) => {
+    followOutputRef.current = value;
+    setFollowOutputState((previous) => (previous === value ? previous : value));
+    return value;
+  }, []);
+
   followOutputRef.current = followOutput;
 
   const activationKey = routeBottomAnchorRequest?.requestKey ?? props.agentId;
@@ -742,17 +744,16 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const virtualRows = rowVirtualizer.getVirtualItems();
   const virtualTotalSize = rowVirtualizer.getTotalSize();
 
-  const getVirtualPromptOffset = useCallback(
-    (index: number): number | null => {
-      const offsetInfo = rowVirtualizer.getOffsetForIndex(index, "start");
-      if (!offsetInfo) {
-        return null;
-      }
-      const virtualRowsContainerOffset = virtualRowsContainerRef.current?.offsetTop ?? 0;
-      return virtualRowsContainerOffset + offsetInfo[0];
-    },
-    [rowVirtualizer],
-  );
+  const rowVirtualizerRef = useRef(rowVirtualizer);
+  rowVirtualizerRef.current = rowVirtualizer;
+  const getVirtualPromptOffset = useCallback((index: number): number | null => {
+    const offsetInfo = rowVirtualizerRef.current.getOffsetForIndex(index, "start");
+    if (!offsetInfo) {
+      return null;
+    }
+    const virtualRowsContainerOffset = virtualRowsContainerRef.current?.offsetTop ?? 0;
+    return virtualRowsContainerOffset + offsetInfo[0];
+  }, []);
 
   const resolvePromptOffset = useCallback(
     (marker: PromptMarkerDescriptor): number | null => {
@@ -934,7 +935,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         behavior: "smooth",
       });
     },
-    [segments.historyVirtualized],
+    [segments.historyVirtualized, setFollowOutput],
   );
 
   const updateScrollMetrics = useCallback(() => {
@@ -1052,6 +1053,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     promptRailMetrics.contentSize,
     promptRailMetrics.viewportSize,
     showPromptMarkers,
+    setFollowOutput,
     updatePromptRailMetrics,
     updatePromptRailScrollOffset,
     updatePinnedUserInput,
@@ -1090,7 +1092,13 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [activationKey, forceStickToBottom, isActivationReady, scheduleStickToBottom]);
+  }, [
+    activationKey,
+    forceStickToBottom,
+    isActivationReady,
+    scheduleStickToBottom,
+    setFollowOutput,
+  ]);
 
   useEffect(() => {
     if (!followOutputRef.current) {
@@ -1123,7 +1131,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     virtualTotalSize,
   ]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     updatePromptRailMetrics();
   }, [
     segments.historyMounted,
@@ -1262,6 +1270,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     cancelPendingStickToBottom,
     forceStickToBottom,
     scheduleStickToBottom,
+    setFollowOutput,
     scrollToStreamItemTop,
     viewportRef,
   ]);

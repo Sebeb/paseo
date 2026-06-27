@@ -1786,6 +1786,10 @@ function attachParentTabInLayout(input: {
   childTabId: string;
   parentTabId: string;
 }): WorkspaceLayout {
+  if (input.layout.parentTabIdByTabId?.[input.childTabId] === input.parentTabId) {
+    return input.layout;
+  }
+
   return withNormalizedParentTabMap({
     ...input.layout,
     parentTabIdByTabId: {
@@ -1927,8 +1931,8 @@ function addMissingEntityTabs(input: {
   } = input;
   let nextLayout = input.layout;
   const currentEntityTabs = collectAllTabs(nextLayout.root);
-  const currentAgentIds = new Set(
-    currentEntityTabs.filter(isAgentTab).map((tab) => tab.target.agentId),
+  const currentAgentTabIdByAgentId = new Map(
+    currentEntityTabs.filter(isAgentTab).map((tab) => [tab.target.agentId, tab.tabId]),
   );
   const currentTerminalIds = new Set(
     currentEntityTabs.filter(isTerminalTab).map((tab) => tab.target.terminalId),
@@ -1948,7 +1952,7 @@ function addMissingEntityTabs(input: {
       ensureAgentTab(parentAgentId);
     }
 
-    const alreadyOpen = currentAgentIds.has(agentId);
+    const alreadyOpen = currentAgentTabIdByAgentId.has(agentId);
     if (!alreadyOpen && hasActivePendingDraftCreate && !representedAgentIds.has(agentId)) {
       return;
     }
@@ -1957,19 +1961,23 @@ function addMissingEntityTabs(input: {
         kind: "agent",
         agentId,
       });
-      currentAgentIds.add(agentId);
+      currentAgentTabIdByAgentId.set(
+        agentId,
+        buildDeterministicWorkspaceTabId({ kind: "agent", agentId }),
+      );
     }
 
-    if (!parentAgentId || !currentAgentIds.has(parentAgentId)) {
+    const childTabId = currentAgentTabIdByAgentId.get(agentId) ?? null;
+    const parentTabId = parentAgentId
+      ? (currentAgentTabIdByAgentId.get(parentAgentId) ?? null)
+      : null;
+    if (!childTabId || !parentTabId) {
       return;
     }
     nextLayout = attachParentTabInLayout({
       layout: nextLayout,
-      childTabId: buildDeterministicWorkspaceTabId({ kind: "agent", agentId }),
-      parentTabId: buildDeterministicWorkspaceTabId({
-        kind: "agent",
-        agentId: parentAgentId,
-      }),
+      childTabId,
+      parentTabId,
     });
   }
 

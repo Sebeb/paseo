@@ -184,6 +184,15 @@ frames non-stop, pinning ProMotion displays at 120Hz forever and draining the
 battery while the app is idle — so do not re-add it. The probe's visibility
 guards already prevent throttling from causing a false stall.
 
+### Local macOS desktop signing
+
+Local mac desktop packages may fall back to ad-hoc signing when a Developer ID
+certificate is unavailable. Keep `com.apple.security.cs.disable-library-validation`
+in both desktop entitlement plists while hardened runtime is enabled. Without it,
+macOS can reject Electron Framework at launch with a dyld "Library not loaded"
+crash because the app executable and framework mapping do not have matching Team
+IDs under ad-hoc signing.
+
 ### Daemon logs
 
 Check `$PASEO_HOME/daemon.log` for daemon logs. The default level is `info`; set

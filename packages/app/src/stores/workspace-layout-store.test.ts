@@ -1750,6 +1750,63 @@ describe("workspace-layout-store actions", () => {
     expect(findPaneById(layout.root, "main")?.focusedTabId).toBe("draft-agent");
   });
 
+  it("reconcileTabs is idempotent for draft-origin parent and child agent tabs", () => {
+    const workspaceKey = createWorkspaceKey();
+
+    workspaceLayoutStore.setState((state) => ({
+      ...state,
+      layoutByWorkspace: {
+        ...state.layoutByWorkspace,
+        [workspaceKey]: {
+          root: {
+            kind: "pane",
+            pane: {
+              id: "main",
+              tabIds: ["draft-parent", "draft-child"],
+              focusedTabId: "draft-child",
+              tabBarOrientation: "horizontal",
+              tabs: [
+                {
+                  tabId: "draft-parent",
+                  target: { kind: "agent", agentId: "parent-agent" },
+                  createdAt: 1,
+                },
+                {
+                  tabId: "draft-child",
+                  target: { kind: "agent", agentId: "child-agent" },
+                  createdAt: 2,
+                },
+              ],
+            } as SplitPane,
+          },
+          focusedPaneId: "main",
+        },
+      },
+    }));
+
+    const snapshot = {
+      agentsHydrated: true,
+      terminalsHydrated: true,
+      activeAgentIds: ["parent-agent", "child-agent"],
+      autoOpenAgentIds: ["parent-agent", "child-agent"],
+      knownAgentIds: ["parent-agent", "child-agent"],
+      parentAgentIdByAgentId: new Map([["child-agent", "parent-agent"]]),
+      standaloneTerminalIds: [],
+      hasActivePendingDraftCreate: false,
+    };
+
+    workspaceLayoutStore.getState().reconcileTabs(workspaceKey, snapshot);
+    const reconciledLayout = workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey];
+
+    expect(reconciledLayout.parentTabIdByTabId).toEqual({
+      "draft-child": "draft-parent",
+    });
+
+    workspaceLayoutStore.getState().reconcileTabs(workspaceKey, snapshot);
+
+    expect(workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey]).toBe(reconciledLayout);
+  });
+
   it("reconcileTabs does not re-add locally hidden agent tabs", () => {
     const workspaceKey = createWorkspaceKey();
 

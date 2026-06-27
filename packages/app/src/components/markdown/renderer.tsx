@@ -9,6 +9,7 @@ import React, {
 import {
   Image,
   Pressable,
+  ScrollView,
   Text,
   View,
   type TextProps,
@@ -64,6 +65,7 @@ function compactMarkdownStyleMapping(theme: Theme): Partial<MarkdownWithStableRe
 const defaultMarkdownParser = MarkdownIt({ typographer: true, linkify: true });
 const EMPTY_TEXT_STYLE: TextStyle = {};
 const MARKDOWN_LIST_ITEM_CONTENT_FLEX: ViewStyle = { flex: 1, flexShrink: 1, minWidth: 0 };
+const MARKDOWN_TABLE_CELL_MIN_WIDTH = 160;
 export interface MarkdownRendererProps {
   text: string;
   compact?: boolean;
@@ -499,8 +501,68 @@ function getMarkdownLinkHref(node: ASTNode): string {
   return typeof href === "string" ? href : "";
 }
 
+function MarkdownTableCell({
+  node,
+  children,
+  style,
+}: {
+  node: ASTNode;
+  children: ReactNode[];
+  style: MarkdownStyles[string];
+}) {
+  const cellStyle = useMemo(() => [style, markdownTableStyles.cell], [style]);
+  const textStyle = useMemo(() => [style, markdownTableStyles.cellText], [style]);
+  return (
+    <View key={node.key} style={cellStyle}>
+      <Text style={textStyle}>{children}</Text>
+    </View>
+  );
+}
+
+export function createMarkdownTableRules(): RenderRules {
+  return {
+    table: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
+      <ScrollView
+        key={node.key}
+        horizontal
+        nestedScrollEnabled
+        style={styles.table}
+        contentContainerStyle={markdownTableStyles.tableContent}
+      >
+        <View>{children}</View>
+      </ScrollView>
+    ),
+    thead: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
+      <View key={node.key} style={styles.thead}>
+        {children}
+      </View>
+    ),
+    tbody: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
+      <View key={node.key} style={styles.tbody}>
+        {children}
+      </View>
+    ),
+    tr: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
+      <View key={node.key} style={styles.tr}>
+        {children}
+      </View>
+    ),
+    th: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
+      <MarkdownTableCell key={node.key} node={node} style={styles.th}>
+        {children}
+      </MarkdownTableCell>
+    ),
+    td: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
+      <MarkdownTableCell key={node.key} node={node} style={styles.td}>
+        {children}
+      </MarkdownTableCell>
+    ),
+  };
+}
+
 export function createSharedMarkdownRules(): RenderRules {
   return {
+    ...createMarkdownTableRules(),
     text: (
       node: ASTNode,
       _children: ReactNode[],
@@ -694,6 +756,19 @@ export function createSharedMarkdownRules(): RenderRules {
     ),
   };
 }
+
+const markdownTableStyles = StyleSheet.create(() => ({
+  tableContent: {
+    minWidth: "100%",
+  },
+  cell: {
+    minWidth: MARKDOWN_TABLE_CELL_MIN_WIDTH,
+    flex: 1,
+  },
+  cellText: {
+    flexShrink: 1,
+  },
+}));
 
 const detailsStyles = StyleSheet.create((theme) => ({
   container: {

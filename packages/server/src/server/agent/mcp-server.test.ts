@@ -1884,6 +1884,13 @@ describe("create_agent MCP tool", () => {
         WorkspaceGitService,
         "getSnapshot" | "listWorktrees"
       >,
+      listActiveWorkspaces: async () => [
+        {
+          workspaceId: "ws-feature",
+          cwd: "/tmp/paseo/worktrees/repo/feature",
+          kind: "worktree",
+        },
+      ],
       logger,
     });
     const tool = registeredTool(server, "list_worktrees");
@@ -1898,6 +1905,7 @@ describe("create_agent MCP tool", () => {
         path: "/tmp/paseo/worktrees/repo/feature",
         branchName: "feature",
         createdAt: "2026-04-12T00:00:00.000Z",
+        workspaceIds: ["ws-feature"],
       },
     ]);
   });
