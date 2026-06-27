@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: 4467d5e3522e86cfca540b4de3b593460b06e2c2 — feat(sidebar): refine workspace tab collapse controls
+Anchor commit: 8f20de9554837b6725610c6b1007380fac04c564 — feat(workspace): add tab info tooltips and remember workspace selection
 
 ## Purpose
 
@@ -41,6 +41,8 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Uses the current sidebar sort order for close-successor selection and keyboard tab cycling, instead of falling back to pane insertion order.
 - Adds non-manual workspace sorting by creation time, last activity, or status urgency; manual workspace drag/drop remains available only in manual sort mode.
 - Auto-reveals the active workspace row by expanding its project, respecting project auto-collapse, and either expanding only the active workspace in workspace auto-collapse mode or uncollapsing that workspace in normal mode.
+- Remembers the last selected workspace inside each project and navigates back to it when reopening an auto-collapsed project.
+- Replaces agent tab tooltips with a detail card showing the tab label, short agent id, initial prompt, created/updated timestamps, and prompt count.
 
 ## Restored Main Polish
 
@@ -811,6 +813,8 @@ Added `ProjectContextMenuContent` — a `ContextMenuContent` panel mirroring the
 
 `ProjectModeList` also routes project disclosure clicks through `handleToggleProjectCollapsed`. When `autoCollapseProjects` is enabled and the clicked project is currently collapsed, it calls `setOnlyProjectExpanded(projectKey, allProjectKeys)` so opening one project collapses all other visible projects. Otherwise it falls back to the normal toggle handler.
 
+The active-workspace reveal effect also calls `rememberProjectWorkspaceSelection(projectKey, workspaceId)` whenever a project/workspace reveal target is available. When a collapsed project is reopened while `autoCollapseProjects` is enabled, `handleToggleProjectCollapsed(project)` looks up the remembered workspace id for that project, verifies it still exists in the current `project.workspaces`, calls `onWorkspacePress?.()`, and navigates to the remembered workspace before returning. The handler receives the whole `SidebarProjectEntry` so it can perform that lookup without re-deriving project contents from global state.
+
 #### `WorkspaceRowRightGroup` / `WorkspaceRowActionSlot`
 
 - Workspace rows now query `usePendingCheckoutBranchActionIds` using the workspace directory.
@@ -938,11 +942,24 @@ Tests verify the active workspace store behavior.
 
 ### `packages/app/src/stores/sidebar-collapsed-sections-store/state.ts`
 
-Adds persisted parent-tab expansion state:
+Adds persisted parent-tab expansion state and remembered per-project workspace selection:
 
 - `expandedParentTabKeys: Set<string>` on in-memory state.
+- `lastSelectedWorkspaceIdByProjectKey: Record<string, string>` on in-memory state.
 - `toggleParentTabExpanded(state, parentTabKey)` to expand/collapse one parent row.
-- serialization/deserialization of `expandedParentTabKeys` beside the existing project/status/workspace collapsed key sets.
+- `rememberProjectWorkspaceSelection(state, projectKey, workspaceId)` trims both ids, ignores empty ids, returns the same state when the stored selection is unchanged, and otherwise writes the latest workspace id for the project.
+- serialization/deserialization of `expandedParentTabKeys` and `lastSelectedWorkspaceIdByProjectKey` beside the existing project/status/workspace collapsed key sets.
+- persisted workspace selections accept only object values whose workspace ids are strings; invalid values are dropped during hydration.
+- `mergePersistedCollapsedProjects` compares both sets and selection records so hydration preserves referential identity when nothing changed.
+
+### `packages/app/src/stores/sidebar-collapsed-sections-store/index.ts`
+
+The zustand store now exposes:
+
+- `lastSelectedWorkspaceIdByProjectKey`.
+- `rememberProjectWorkspaceSelection(projectKey, workspaceId)`, which delegates to the pure state transition and updates the persisted store.
+
+The initial store state seeds `lastSelectedWorkspaceIdByProjectKey` to `{}`.
 
 ### `packages/app/src/workspace-tabs/agent-visibility.ts`
 
@@ -977,6 +994,25 @@ Shared navigation helpers used by layout close-successor logic and workspace key
 ### `packages/app/src/screens/workspace/workspace-screen.tsx`
 
 The workspace screen now uses the shared sort/navigation helpers so the main workspace view and embedded sidebar tree agree on ordering, close-successor behavior, and keyboard traversal. It also adds split-pane creation controls to the workspace header.
+
+### `packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx`
+
+The desktop tab row now gives agent tabs a richer tooltip instead of the previous label-plus-agent-id row.
+
+#### Agent tab info
+
+- `AgentTabInfo` carries `createdAt: Date | null`, `updatedAt: Date | null`, `initialPrompt: string | null`, and `userPromptCount: number`.
+- `getUserPromptSummary(items)` scans stream head/tail items, counts `user_message` entries, and captures the first non-empty trimmed user message as the initial prompt.
+- `useAgentTabInfo(serverId, tab)` returns `null` for non-agent tabs. For agent tabs it reads the session store with `useStoreWithEqualityFn` and `fast-deep-equal`, resolves agent metadata from `agents` or `agentDetails`, combines `agentStreamHead` and `agentStreamTail`, and falls back to the tab's `createdAt` timestamp when agent metadata does not include a creation date.
+- Empty stream arrays are stable module constants so missing stream state does not allocate during selector runs.
+
+#### Tooltip formatting
+
+- `formatAbsoluteDateTime(date)` renders month/day/year/hour/minute with the current locale.
+- `formatUpdatedDateTime(date)` uses `formatTimeAgo` for timestamps newer than seven days and absolute formatting for older updates.
+- `AgentTabTooltipContent` renders a 260 px detail card with the tab label, seven-character agent id, initial prompt capped at three lines, created/updated rows when present, and a `MessageCircle` prompt-count row.
+- `TabChip` passes `normalizedServerId` into the tooltip path so the hook can read the right session. Agent tab tooltips use `AgentTabTooltipContent`; terminal/browser/draft tabs still use the simple label tooltip.
+- The tooltip delay is set to `0` for immediate desktop disclosure.
 
 #### `useDesktopEmbeddedTabsEnabled(isMobile)`
 
