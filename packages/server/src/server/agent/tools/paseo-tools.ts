@@ -41,7 +41,7 @@ import {
   type ScheduleCadence,
   type UpdateScheduleInput,
 } from "@getpaseo/protocol/schedule/types";
-import { resolveSnapshotCwd, type ProviderSnapshotManager } from "../provider-snapshot-manager.js";
+import type { ProviderSnapshotManager } from "../provider-snapshot-manager.js";
 import {
   AgentModelSchema,
   AgentProviderEnum,
@@ -2321,7 +2321,6 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     },
     async ({ provider }) => {
       const models = await providerSnapshotManager.listModels({
-        cwd: resolveSnapshotCwd(),
         provider,
         wait: true,
       });

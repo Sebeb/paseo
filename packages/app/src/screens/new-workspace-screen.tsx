@@ -13,7 +13,6 @@ import { Check, ChevronDown, Folder, GitBranch, GitPullRequest, X } from "lucide
 import { Composer } from "@/composer";
 import { DraftAgentModeControl } from "@/composer/agent-controls/mode-control";
 import { splitComposerAttachmentsForSubmit } from "@/composer/attachments/submit";
-import { FileDropZone } from "@/components/file-drop-zone";
 import { HostStatusDot } from "@/components/host-status-dot";
 import { HostPicker } from "@/components/hosts/host-picker";
 import { ProjectIconView } from "@/components/project-icon-view";
@@ -57,7 +56,7 @@ import {
 } from "@/projects/host-projects";
 import { useProjectIconDataByProjectKey } from "@/projects/project-icons";
 import type { ComposerAttachment, UserComposerAttachment } from "@/attachments/types";
-import type { ImageAttachment, MessagePayload } from "@/composer/types";
+import type { MessagePayload } from "@/composer/types";
 import type { AgentAttachment, GitHubSearchItem } from "@getpaseo/protocol/messages";
 import type { CreatePaseoWorktreeInput } from "@getpaseo/client/internal/daemon-client";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
@@ -1196,6 +1195,7 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
 
   const selectedHostLabel =
     host.allHosts.find((h) => h.serverId === host.selectedServerId)?.label ?? "Host";
+  const showHostControl = host.allHosts.length > 1;
   const isolationTriggerLabel = isolationLabel(t, isolation.effectiveIsolation);
 
   const badgePressableStyle = useCallback(
@@ -1242,7 +1242,7 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
     </View>
   );
 
-  const hostControl = (
+  const hostControl = showHostControl ? (
     <View>
       <HostPicker
         hosts={host.allHosts}
@@ -1271,7 +1271,7 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
         </Pressable>
       </HostPicker>
     </View>
-  );
+  ) : null;
 
   const isolationControl = isolation.canCreateWorktree ? (
     <View>
@@ -1334,7 +1334,7 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
   return isCompact ? (
     <View testID="new-workspace-ref-picker-row" style={styles.formStack}>
       <FormRow>{projectControl}</FormRow>
-      <FormRow>{hostControl}</FormRow>
+      {hostControl ? <FormRow>{hostControl}</FormRow> : null}
       {/* Keep fixed row height when git-only controls are hidden. */}
       {isolationControl ? (
         <FormRow>{isolationControl}</FormRow>
@@ -1808,14 +1808,6 @@ export function NewWorkspaceScreen({
     [composerState, draftKey, ensureWorkspace, selectedServerId, t, toast],
   );
 
-  const addImagesRef = useRef<((images: ImageAttachment[]) => void) | null>(null);
-  const handleAddImagesCallback = useCallback((addImages: (images: ImageAttachment[]) => void) => {
-    addImagesRef.current = addImages;
-  }, []);
-  const handleFilesDropped = useCallback((files: ImageAttachment[]) => {
-    addImagesRef.current?.(files);
-  }, []);
-
   const renderPickerOption = useCallback(
     (props: {
       option: ComboboxOptionType;
@@ -1973,46 +1965,43 @@ export function NewWorkspaceScreen({
   const screenHeaderLeft = useMemo(() => <SidebarMenuToggle />, []);
 
   return (
-    <FileDropZone onFilesDropped={handleFilesDropped}>
-      <View style={styles.container}>
-        <ScreenHeader left={screenHeaderLeft} borderless />
-        <View style={contentStyle}>
-          <TitlebarDragRegion />
-          <ReanimatedAnimated.View style={centeredStyle}>
-            <View style={styles.composerTitleContainer}>
-              <Text style={styles.composerTitle}>{t("newWorkspace.title")}</Text>
-            </View>
-            {formStack}
-            <Composer
-              externalKeyboardShift
-              agentId={draftKey}
-              serverId={selectedServerId}
-              isPaneFocused={true}
-              onSubmitMessage={handleSubmitNewWorkspace}
-              allowEmptySubmit={true}
-              submitButtonAccessibilityLabel={t("newWorkspace.create")}
-              submitButtonTestID="workspace-create-submit"
-              submitIcon="return"
-              isSubmitLoading={pendingAction !== null}
-              submitBehavior="preserve-and-lock"
-              blurOnSubmit={true}
-              value={chatDraft.text}
-              onChangeText={chatDraft.setText}
-              attachments={chatDraft.attachments}
-              onChangeAttachments={chatDraft.setAttachments}
-              cwd={selectedSourceDirectory ?? ""}
-              clearDraft={handleClearDraft}
-              autoFocus
-              commandDraftConfig={composerState?.commandDraftConfig}
-              agentControls={agentControlsWithDisabled}
-              onAddImages={handleAddImagesCallback}
-              footer={composerFooter}
-            />
-            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-          </ReanimatedAnimated.View>
-        </View>
+    <View style={styles.container}>
+      <ScreenHeader left={screenHeaderLeft} borderless />
+      <View style={contentStyle}>
+        <TitlebarDragRegion />
+        <ReanimatedAnimated.View style={centeredStyle}>
+          <View style={styles.composerTitleContainer}>
+            <Text style={styles.composerTitle}>{t("newWorkspace.title")}</Text>
+          </View>
+          {formStack}
+          <Composer
+            externalKeyboardShift
+            agentId={draftKey}
+            serverId={selectedServerId}
+            isPaneFocused={true}
+            onSubmitMessage={handleSubmitNewWorkspace}
+            allowEmptySubmit={true}
+            submitButtonAccessibilityLabel={t("newWorkspace.create")}
+            submitButtonTestID="workspace-create-submit"
+            submitIcon="return"
+            isSubmitLoading={pendingAction !== null}
+            submitBehavior="preserve-and-lock"
+            blurOnSubmit={true}
+            value={chatDraft.text}
+            onChangeText={chatDraft.setText}
+            attachments={chatDraft.attachments}
+            onChangeAttachments={chatDraft.setAttachments}
+            cwd={selectedSourceDirectory ?? ""}
+            clearDraft={handleClearDraft}
+            autoFocus
+            commandDraftConfig={composerState?.commandDraftConfig}
+            agentControls={agentControlsWithDisabled}
+            footer={composerFooter}
+          />
+          {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+        </ReanimatedAnimated.View>
       </View>
-    </FileDropZone>
+    </View>
   );
 }
 
@@ -2083,6 +2072,7 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     height: BADGE_HEIGHT,
     maxWidth: 240,
+    overflow: "hidden",
     paddingHorizontal: theme.spacing[2],
     borderRadius: theme.borderRadius["2xl"],
     gap: theme.spacing[1],
@@ -2114,6 +2104,7 @@ const styles = StyleSheet.create((theme) => ({
     opacity: 0.6,
   },
   badgeText: {
+    minWidth: 0,
     fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
     flexShrink: 1,
