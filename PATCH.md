@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: 8f20de9554837b6725610c6b1007380fac04c564 — feat(workspace): add tab info tooltips and remember workspace selection
+Anchor commit: ecaf3c87cc8ed0820425a343c5c6a3a7520bc6fa — docs(patch): refresh PATCH.md for feat/sidebar-workspace-tabs
 
 ## Purpose
 
@@ -194,6 +194,29 @@ The selector defines typed item components for:
 - badge mode
 
 Each component creates a stable `handleSelect` callback that passes its typed value back to the parent.
+
+## Left Sidebar Shell
+
+### `packages/app/src/components/left-sidebar.tsx`
+
+The left sidebar now coordinates the workspace/project list and the optional vertical workspace tab rail.
+
+Behavior:
+
+- Reads `settings.tabLayoutMode` and treats `"vertical"` on non-compact layouts as a mode where workspace tab content must remain mounted even when the project/workspace list is closed.
+- Calls `useSidebarWorkspacesList` when compact, when the main sidebar is open, or when the desktop vertical tab rail is visible.
+- Replaces `SidebarDisplayPreferencesMenu` with `SidebarGroupingSelector`, so one header/menu controls grouping, title source, workspace sorting, tab sorting, recent tab count, badge mode, and collapse preferences.
+- Removes the global "new workspace" header/footer action from the sidebar shell.
+- Moves the sessions/history action into the footer and marks it active when the current route is the sessions route.
+- Passes active workspace selection and sidebar badge mode into the desktop sidebar so `SidebarVerticalWorkspaceTabs` can render only the vertical tab rail while the workspace/project list is closed.
+- Uses a separate persisted `verticalTabsSidebarWidth` for the vertical tab rail instead of reusing the normal project/workspace sidebar width.
+
+The desktop layout has two separate width domains:
+
+- normal sidebar width: `MIN_SIDEBAR_WIDTH..MAX_SIDEBAR_WIDTH`
+- vertical tab rail width: `MIN_VERTICAL_TABS_SIDEBAR_WIDTH..MAX_VERTICAL_TABS_SIDEBAR_WIDTH`
+
+Closing the sidebar in vertical-tab mode hides the workspace/project list but keeps the rail available, preserving tab navigation.
 
 ## Sidebar Entry Row
 
@@ -1064,6 +1087,56 @@ Added `embeddedMainPaneId?: string | null` prop to `SplitContainerProps`.
 
 When `embeddedMainPaneId` equals the current pane's id, the pane's tab row (`WorkspaceDesktopTabsRow`) is suppressed entirely. This allows the workspace screen to hide the redundant tab row for the primary pane while the sidebar shows it instead.
 
+## Protocol And Workspace Metadata
+
+### `packages/protocol/src/messages.ts`
+
+`WorkspaceDescriptorPayloadSchema` accepts a new optional field:
+
+```ts
+createdAt?: string;
+```
+
+The schema keeps the field optional for old daemons. The field carries a `COMPAT(workspaceCreatedAt)` comment noting that the optional gate was added in `v0.1.102` and can be removed when the compatibility floor reaches that version.
+
+### `packages/server/src/server/session.ts`
+
+Workspace descriptor payloads now include `createdAt: workspace.createdAt` in both normal workspace descriptors and newly-created worktree descriptors.
+
+The worktree creation response also uses `result.workspace.createdAt` as `statusEnteredAt`, so newly-created empty workspaces have a stable creation/activity timestamp.
+
+### `packages/protocol/src/messages.workspaces.test.ts`
+
+Adds coverage that legacy workspace descriptors without `createdAt` still parse successfully and expose `createdAt` as `undefined`.
+
+The client-side sidebar uses this metadata for creation-time workspace sorting while preserving backward compatibility with older daemons.
+
+## Panel Store Width State
+
+### `packages/app/src/stores/panel-store/state.ts`
+
+Adds a dedicated width range for the vertical workspace tab rail:
+
+```ts
+DEFAULT_VERTICAL_TABS_SIDEBAR_WIDTH = 240;
+MIN_VERTICAL_TABS_SIDEBAR_WIDTH = 180;
+MAX_VERTICAL_TABS_SIDEBAR_WIDTH = 420;
+clampVerticalTabsSidebarWidth(width): number;
+```
+
+`migratePanelState` initializes `verticalTabsSidebarWidth` for persisted versions below `12`, defaults invalid values, and clamps valid numeric persisted values into the rail-specific range.
+
+### `packages/app/src/stores/panel-store/index.ts`
+
+`PanelState` adds:
+
+```ts
+verticalTabsSidebarWidth: number;
+setVerticalTabsSidebarWidth(width: number): void;
+```
+
+The persisted store version is bumped from `11` to `12`, `verticalTabsSidebarWidth` is included in `partialize`, and the setter clamps through `clampVerticalTabsSidebarWidth`.
+
 ## Agent Panel
 
 ### `packages/app/src/panels/agent-panel.tsx`
@@ -1097,7 +1170,43 @@ These changes are mostly spacing, hover, icon, spinner, and row-layout updates n
 
 ### App Settings
 
-Adds or uses `tabLayoutMode` and existing `workspaceTitleSource` in the sidebar menu.
+Adds persisted tab layout selection and keeps `workspaceTitleSource` available to the sidebar menu.
+
+#### `packages/app/src/hooks/use-settings/storage.ts`
+
+Adds:
+
+```ts
+export type AppTabLayoutMode = "horizontal" | "vertical" | "sidebar";
+
+interface AppSettings {
+  tabLayoutMode: AppTabLayoutMode;
+}
+```
+
+Defaults `tabLayoutMode` to `"horizontal"`.
+
+Settings parsing accepts only `"horizontal"`, `"vertical"`, and `"sidebar"`. It also migrates the legacy boolean `embeddedTabs` value:
+
+- `embeddedTabs: true` -> `tabLayoutMode: "sidebar"`
+- `embeddedTabs: false` -> `tabLayoutMode: "horizontal"`
+
+Invalid or missing tab layout values are ignored so the default applies.
+
+#### `packages/app/src/hooks/use-settings/index.ts`
+
+Re-exports `AppTabLayoutMode` and allows `updateSettings({ tabLayoutMode })` to flow into persisted app settings.
+
+#### `packages/app/src/screens/settings/appearance/appearance-section.tsx`
+
+Adds a Tab Layout row to Appearance settings.
+
+Behavior:
+
+- Renders a dropdown with Horizontal, Vertical, and Sidebar options.
+- Uses `getTabLayoutLabel(t, value)` to resolve localized labels.
+- Writes through `updateSettings({ tabLayoutMode })`.
+- Keeps the current settings card structure: theme row first, tab layout row second.
 
 ### Localization
 
