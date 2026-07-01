@@ -468,6 +468,11 @@ export const ptBR: TranslationResources = {
         title: "Alternar aba",
         searchPlaceholder: "Buscar abas",
       },
+      info: {
+        created: "Criado {{value}}",
+        updated: "Atualizado {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "Abrir menu de {{label}}",
         copyResumeCommand: "Copiar comando de retomada",

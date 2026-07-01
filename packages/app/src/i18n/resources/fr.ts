@@ -468,6 +468,11 @@ export const fr: TranslationResources = {
         title: "Changer d'onglet",
         searchPlaceholder: "Onglets de recherche",
       },
+      info: {
+        created: "Créé {{value}}",
+        updated: "Mis à jour {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "Ouvrir le menu pour{{label}}",
         copyResumeCommand: "Copier la commande de reprise",

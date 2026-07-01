@@ -468,6 +468,11 @@ export const ja: TranslationResources = {
         title: "タブを切り替え",
         searchPlaceholder: "タブを検索",
       },
+      info: {
+        created: "作成 {{value}}",
+        updated: "更新 {{value}}",
+        promptCount: "{{count}} 件のプロンプト",
+      },
       menu: {
         openFor: "{{label}}のメニューを開く",
         copyResumeCommand: "再開コマンドをコピー",

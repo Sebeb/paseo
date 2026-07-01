@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type CollapsedProjectsState,
   mergePersistedCollapsedProjects,
+  rememberProjectWorkspaceSelection,
   serializeCollapsedProjects,
   setOnlyProjectExpanded,
   setOnlyWorkspaceExpanded,
@@ -20,6 +21,7 @@ function emptyState(): CollapsedProjectsState {
     collapsedStatusGroupKeys: new Set(),
     collapsedWorkspaceKeys: new Set(),
     expandedParentTabKeys: new Set(),
+    lastSelectedWorkspaceIdByProjectKey: {},
   };
 }
 
@@ -46,6 +48,7 @@ describe("sidebar collapsed projects transitions", () => {
       collapsedStatusGroupKeys: new Set(["running"]),
       collapsedWorkspaceKeys: new Set(["workspace-a"]),
       expandedParentTabKeys: new Set(["workspace-a:agent-parent"]),
+      lastSelectedWorkspaceIdByProjectKey: { "project-a": "workspace-a" },
     };
 
     expect(serializeCollapsedProjects(state)).toEqual({
@@ -53,6 +56,7 @@ describe("sidebar collapsed projects transitions", () => {
       collapsedStatusGroupKeys: ["running"],
       collapsedWorkspaceKeys: ["workspace-a"],
       expandedParentTabKeys: ["workspace-a:agent-parent"],
+      lastSelectedWorkspaceIdByProjectKey: { "project-a": "workspace-a" },
     });
   });
 
@@ -78,6 +82,7 @@ describe("sidebar collapsed projects transitions", () => {
     expect(Array.from(restored.collapsedStatusGroupKeys)).toEqual([]);
     expect(Array.from(restored.collapsedWorkspaceKeys)).toEqual(["workspace-a", "workspace-b"]);
     expect(Array.from(restored.expandedParentTabKeys)).toEqual([]);
+    expect(restored.lastSelectedWorkspaceIdByProjectKey).toEqual({});
   });
 
   it("restores expanded parent tab keys from persisted preferences", () => {
@@ -90,6 +95,37 @@ describe("sidebar collapsed projects transitions", () => {
       "workspace-a:agent-parent",
       "workspace-a:agent-other",
     ]);
+  });
+
+  it("remembers the last selected workspace for a project", () => {
+    let state = emptyState();
+
+    state = rememberProjectWorkspaceSelection(state, " project-a ", " workspace-a ");
+    state = rememberProjectWorkspaceSelection(state, "project-b", "workspace-b");
+    state = rememberProjectWorkspaceSelection(state, "project-a", "workspace-c");
+
+    expect(state.lastSelectedWorkspaceIdByProjectKey).toEqual({
+      "project-a": "workspace-c",
+      "project-b": "workspace-b",
+    });
+  });
+
+  it("restores remembered project workspace selections from persisted preferences", () => {
+    const restored = mergePersistedCollapsedProjects(
+      {
+        lastSelectedWorkspaceIdByProjectKey: {
+          "project-a": "workspace-a",
+          "project-b": 42,
+          "project-c": "workspace-c",
+        },
+      },
+      emptyState(),
+    );
+
+    expect(restored.lastSelectedWorkspaceIdByProjectKey).toEqual({
+      "project-a": "workspace-a",
+      "project-c": "workspace-c",
+    });
   });
 
   it("sets one or more workspace collapsed states", () => {
@@ -148,6 +184,7 @@ describe("sidebar collapsed projects transitions", () => {
           collapsedStatusGroupKeys: [],
           collapsedWorkspaceKeys: [],
           expandedParentTabKeys: [],
+          lastSelectedWorkspaceIdByProjectKey: {},
         },
         currentState,
       ),

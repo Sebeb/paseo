@@ -468,6 +468,11 @@ export const es: TranslationResources = {
         title: "Cambiar pestaña",
         searchPlaceholder: "Pestañas de búsqueda",
       },
+      info: {
+        created: "Creado {{value}}",
+        updated: "Actualizado {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "Menú abierto para{{label}}",
         copyResumeCommand: "Copiar comando de reanudación",

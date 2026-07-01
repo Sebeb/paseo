@@ -464,6 +464,11 @@ export const en = {
         title: "Switch tab",
         searchPlaceholder: "Search tabs",
       },
+      info: {
+        created: "Created {{value}}",
+        updated: "Updated {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "Open menu for {{label}}",
         copyResumeCommand: "Copy resume command",
