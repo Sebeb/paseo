@@ -128,7 +128,7 @@ afterEach(() => {
 });
 
 describe("workspace subagents integration", () => {
-  it("opens a same-workspace child under its parent once the parent snapshot is available", () => {
+  it("auto-opens a child ingested before its parent, then exposes it in the parent section", () => {
     const workspaceKey = buildWorkspaceTabPersistenceKey({
       serverId: SERVER_ID,
       workspaceId: WORKSPACE_ID,
@@ -149,7 +149,7 @@ describe("workspace subagents integration", () => {
 
     reconcileWorkspaceTabs(workspaceKey!, deriveVisibilityFromSession());
 
-    expect(getWorkspaceTabIds(workspaceKey!)).toEqual([]);
+    expect(getWorkspaceTabIds(workspaceKey!)).toEqual(["agent_child-agent"]);
 
     appendAgent(parent);
 
@@ -173,7 +173,7 @@ describe("workspace subagents integration", () => {
     ).toEqual(["child-agent"]);
   });
 
-  it("moves a detached child out of the parent section and back into normal workspace tabs", () => {
+  it("moves a detached child out of the parent section while keeping its tab open", () => {
     const workspaceKey = buildWorkspaceTabPersistenceKey({
       serverId: SERVER_ID,
       workspaceId: WORKSPACE_ID,
@@ -213,7 +213,7 @@ describe("workspace subagents integration", () => {
     appendAgent({ ...child, parentAgentId: null, labels: {} });
     reconcileWorkspaceTabs(workspaceKey!, deriveVisibilityFromSession());
 
-    expect(getWorkspaceTabIds(workspaceKey!)).toEqual(["agent_parent-agent", "agent_child-agent"]);
+    expect(getWorkspaceTabIds(workspaceKey!)).toEqual(["agent_child-agent", "agent_parent-agent"]);
     expect(
       useWorkspaceLayoutStore.getState().layoutByWorkspace[workspaceKey!]?.parentTabIdByTabId,
     ).toBeUndefined();

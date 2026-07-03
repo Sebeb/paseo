@@ -1,7 +1,7 @@
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { afterEach, describe, expect, it } from "vitest";
 import { selectSubagentsForParent } from "./select";
-import { useSessionStore, type Agent } from "@/stores/session-store";
+import { useSessionStore, type Agent, type WorkspaceDescriptor } from "@/stores/session-store";
 
 const SERVER_ID = "server-1";
 const AGENT_TIMESTAMP = new Date("2026-03-08T10:00:00.000Z");
@@ -54,6 +54,39 @@ function setAgents(agents: Agent[]): void {
   useSessionStore
     .getState()
     .setAgents(SERVER_ID, new Map(agents.map((agent) => [agent.id, agent])));
+}
+
+function setWorkspaces(workspaces: WorkspaceDescriptor[]): void {
+  useSessionStore
+    .getState()
+    .setWorkspaces(SERVER_ID, new Map(workspaces.map((workspace) => [workspace.id, workspace])));
+}
+
+function makeWorkspace(
+  input: Partial<WorkspaceDescriptor> & Pick<WorkspaceDescriptor, "id">,
+): WorkspaceDescriptor {
+  return {
+    id: input.id,
+    projectId: input.projectId ?? "project-1",
+    projectDisplayName: input.projectDisplayName ?? "Project",
+    projectCustomName: input.projectCustomName ?? null,
+    projectRootPath: input.projectRootPath ?? "/tmp/project",
+    workspaceDirectory: input.workspaceDirectory ?? "/tmp/project",
+    projectKind: input.projectKind ?? "git",
+    workspaceKind: input.workspaceKind ?? "checkout",
+    name: input.name ?? "main",
+    title: input.title ?? null,
+    createdAt: input.createdAt ?? null,
+    activityAt: input.activityAt ?? null,
+    status: input.status ?? "done",
+    statusEnteredAt: input.statusEnteredAt ?? null,
+    archivingAt: input.archivingAt ?? null,
+    diffStat: input.diffStat ?? null,
+    scripts: input.scripts ?? [],
+    gitRuntime: input.gitRuntime,
+    githubRuntime: input.githubRuntime,
+    project: input.project,
+  } satisfies WorkspaceDescriptor;
 }
 
 afterEach(() => {
@@ -168,6 +201,7 @@ describe("selectSubagentsForParent", () => {
 
   it("maps only row-rendered fields and does not expose onOpen", () => {
     const createdAt = new Date("2026-03-08T10:01:00.000Z");
+    const workspace = makeWorkspace({ id: "workspace-1", name: "feature/subagents" });
     setAgents([
       makeAgent({ id: "parent" }),
       makeAgent({
@@ -180,8 +214,10 @@ describe("selectSubagentsForParent", () => {
         createdAt,
         model: "should-not-leak",
         cwd: "/private/project",
+        workspaceId: workspace.id,
       }),
     ]);
+    setWorkspaces([workspace]);
 
     const rows = selectSubagentsForParent(
       useSessionStore.getState(),
@@ -197,18 +233,24 @@ describe("selectSubagentsForParent", () => {
         id: "child",
         provider: "claude",
         title: "Review child",
+        workspaceId: "workspace-1",
+        workspaceName: "feature/subagents",
+        chatTitle: "Review child",
         status: "running",
         requiresAttention: true,
         createdAt,
       },
     ]);
     expect(Object.keys(rows[0] ?? {}).sort()).toEqual([
+      "chatTitle",
       "createdAt",
       "id",
       "provider",
       "requiresAttention",
       "status",
       "title",
+      "workspaceId",
+      "workspaceName",
     ]);
     expect(rows[0]).not.toHaveProperty("onOpen");
     expect(rows[0]).not.toHaveProperty("model");
