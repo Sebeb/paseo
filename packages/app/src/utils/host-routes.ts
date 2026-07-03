@@ -327,6 +327,11 @@ export function stripHostWorkspaceRouteEchoSearch(route: string): string {
     didStrip = true;
   }
 
+  if (params.get("pop") === "true") {
+    params.delete("pop");
+    didStrip = true;
+  }
+
   if (!didStrip) {
     return route;
   }
@@ -411,6 +416,10 @@ export function buildSessionsRoute() {
   return "/sessions" as const;
 }
 
+export function buildSchedulesRoute() {
+  return "/schedules" as const;
+}
+
 export function buildOpenProjectRoute() {
   return "/open-project" as const;
 }
@@ -451,6 +460,7 @@ interface NewWorkspaceRouteOptions {
   sourceDirectory?: string;
   displayName?: string;
   projectId?: string;
+  draftId?: string;
 }
 
 function buildNewWorkspaceSearch(options: NewWorkspaceRouteOptions): string {
@@ -467,6 +477,9 @@ function buildNewWorkspaceSearch(options: NewWorkspaceRouteOptions): string {
   }
   if (options.projectId) {
     params.set("projectId", options.projectId);
+  }
+  if (options.draftId) {
+    params.set("draftId", options.draftId);
   }
   return params.toString();
 }

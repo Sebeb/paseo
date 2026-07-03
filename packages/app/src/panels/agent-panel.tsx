@@ -24,10 +24,7 @@ import {
   type ToastState,
 } from "@/components/toast-host";
 import type { WorkspaceComposerAttachment } from "@/attachments/types";
-import {
-  useWorkspaceAttachments,
-  useWorkspaceAttachmentScopeKey,
-} from "@/attachments/workspace-attachments-store";
+import { useWorkspaceAttachmentScopeKey } from "@/attachments/workspace-attachments-store";
 import { COMPACT_FORM_FACTOR_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
 import { isNative, isWeb } from "@/constants/platform";
 import { useAgentAttentionClear } from "@/hooks/use-agent-attention-clear";
@@ -122,6 +119,7 @@ const EMPTY_CHAT_AGENT_STATE: ChatAgentSelectedState = {
   requiresAttention: false,
   attentionReason: null,
 };
+const EMPTY_ATTACHMENT_SCOPE_KEYS: readonly string[] = [];
 
 function selectChatAgentState(
   state: ReturnType<typeof useSessionStore.getState>,
@@ -1424,7 +1422,11 @@ function ActiveAgentComposer({
     cwd,
     workspaceId,
   });
-  const workspaceAttachments = useWorkspaceAttachments(workspaceAttachmentScopeKey);
+  const attachmentScopeKeys = useMemo(
+    () =>
+      workspaceAttachmentScopeKey ? [workspaceAttachmentScopeKey] : EMPTY_ATTACHMENT_SCOPE_KEYS,
+    [workspaceAttachmentScopeKey],
+  );
   const openFileExplorerForCheckout = usePanelStore((state) => state.openFileExplorerForCheckout);
   const setExplorerTabForCheckout = usePanelStore((state) => state.setExplorerTabForCheckout);
   const handleOpenWorkspaceAttachment = useCallback(
@@ -1525,7 +1527,7 @@ function ActiveAgentComposer({
         value={agentInputDraft.text}
         onChangeText={agentInputDraft.setText}
         attachments={agentInputDraft.attachments}
-        workspaceAttachments={workspaceAttachments}
+        attachmentScopeKeys={attachmentScopeKeys}
         onOpenWorkspaceAttachment={handleOpenWorkspaceAttachment}
         onChangeAttachments={agentInputDraft.setAttachments}
         cwd={cwd}

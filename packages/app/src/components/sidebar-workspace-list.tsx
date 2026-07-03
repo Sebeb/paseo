@@ -4695,7 +4695,7 @@ function ProjectBlock({
         chevron={rowModel.chevron}
         onPress={handleToggleCollapsed}
         serverId={serverId}
-        canCreateWorktree={rowModel.trailingAction.kind === "new_worktree"}
+        canCreateWorktree={rowModel.trailingAction.kind === "new_workspace"}
         isProjectActive={active}
         onWorkspacePress={onWorkspacePress}
         onWorktreeCreated={onWorktreeCreated}

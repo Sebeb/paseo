@@ -45,8 +45,8 @@ describe("workspace route parsing", () => {
   });
 
   it("decodes non-canonical base64url workspace IDs used by older links", () => {
-    expect(decodeWorkspaceIdFromPathSegment("L1VzZXJzL21vYm91ZHJhL2Rldi9wYXNlby")).toBe(
-      "/Users/moboudra/dev/paseo",
+    expect(decodeWorkspaceIdFromPathSegment("L2hvbWUvdXNlci9kZXYvcGFzZW8")).toBe(
+      "/home/user/dev/paseo",
     );
   });
 
@@ -141,6 +141,22 @@ describe("workspace route parsing", () => {
     );
   });
 
+  it("strips the React Navigation nested pop hint from workspace route search params", () => {
+    expect(stripHostWorkspaceRouteEchoSearch("/h/local/workspace/164?pop=true")).toBe(
+      "/h/local/workspace/164",
+    );
+    expect(
+      stripHostWorkspaceRouteEchoSearch("/h/local/workspace/164?pop=true&open=agent%3Aagent-1"),
+    ).toBe("/h/local/workspace/164?open=agent%3Aagent-1");
+  });
+
+  it("keeps non-navigation pop search params", () => {
+    expect(stripHostWorkspaceRouteEchoSearch("/h/local/workspace/164?pop=false")).toBe(
+      "/h/local/workspace/164?pop=false",
+    );
+    expect(stripHostWorkspaceRouteEchoSearch("/new?pop=true")).toBe("/new?pop=true");
+  });
+
   it("strips encoded workspace route echoes", () => {
     expect(
       stripHostWorkspaceRouteEchoSearch(
@@ -221,6 +237,16 @@ describe("global routes", () => {
         projectId: "project-1",
       }),
     ).toBe("/new?serverId=local&dir=%2Frepo%2Fproject&name=Project&projectId=project-1");
+  });
+
+  it("buildNewWorkspaceRoute carries a draft context id", () => {
+    expect(
+      buildNewWorkspaceRoute({
+        serverId: "local",
+        sourceDirectory: "/repo/project",
+        draftId: "draft-1",
+      }),
+    ).toBe("/new?serverId=local&dir=%2Frepo%2Fproject&draftId=draft-1");
   });
 });
 

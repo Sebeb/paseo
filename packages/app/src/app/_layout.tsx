@@ -4,7 +4,13 @@ import { PortalProvider } from "@gorhom/portal";
 import { QueryClientProvider } from "@tanstack/react-query";
 import * as Linking from "expo-linking";
 import * as Notifications from "expo-notifications";
-import { Stack, useGlobalSearchParams, usePathname, useRouter } from "expo-router";
+import {
+  Stack,
+  useGlobalSearchParams,
+  useNavigationContainerRef,
+  usePathname,
+  useRouter,
+} from "expo-router";
 import {
   createContext,
   type ReactNode,
@@ -59,6 +65,7 @@ import {
   startHostRuntimeBootstrap,
   type StartupBlocker,
 } from "@/navigation/host-runtime-bootstrap";
+import { registerWorkspaceRouteNavigationRef } from "@/navigation/workspace-route-navigation";
 import { shouldUseDesktopDaemon } from "@/desktop/daemon/desktop-daemon";
 import { listenToDesktopEvent } from "@/desktop/electron/events";
 import { updateDesktopWindowControls } from "@/desktop/electron/window";
@@ -81,6 +88,7 @@ import { polyfillCrypto } from "@/polyfills/crypto";
 import { queryClient } from "@/query/query-client";
 import {
   getHostRuntimeStore,
+  hasConfiguredLocalDaemonOverride,
   useHostRegistryLoaded,
   useHostMutations,
   useHostRuntimeClient,
@@ -127,14 +135,13 @@ const HostRuntimeBootstrapContext = createContext<HostRuntimeBootstrapState>({
 
 function PushNotificationRouter() {
   const router = useRouter();
-  const pathname = usePathname();
   const lastHandledIdRef = useRef<string | null>(null);
   const openNotification = useStableEvent((data: Record<string, unknown> | undefined) => {
     const target = resolveNotificationTarget(data);
     const serverId = target.serverId;
     const agentId = target.agentId;
     if (serverId && agentId) {
-      navigateToAgent({ serverId, agentId, currentPathname: pathname, pin: true });
+      navigateToAgent({ serverId, agentId, pin: true });
       return;
     }
 
@@ -305,6 +312,9 @@ const STARTUP_GIVE_UP_TIMEOUT_MS = 5_000;
 
 async function shouldStartBuiltInDaemon(): Promise<boolean> {
   if (!shouldUseDesktopDaemon()) {
+    return false;
+  }
+  if (hasConfiguredLocalDaemonOverride()) {
     return false;
   }
   const settings = await loadDesktopSettings();
@@ -883,6 +893,7 @@ function AppWithSidebar({ children }: { children: ReactNode }) {
     (pathname === "/open-project" ||
       pathname === "/new" ||
       pathname === "/sessions" ||
+      pathname === "/schedules" ||
       routeHasKnownHost);
 
   // Parse selectedAgentKey directly from pathname
@@ -941,6 +952,7 @@ function RootStack() {
         <Stack.Screen name="new" />
         <Stack.Screen name="open-project" />
         <Stack.Screen name="sessions" />
+        <Stack.Screen name="schedules" />
         <Stack.Screen name="pair-scan" />
       </Stack.Protected>
       <Stack.Screen name="h/[serverId]" />
@@ -950,12 +962,23 @@ function RootStack() {
   );
 }
 
+function WorkspaceRouteNavigationBridge() {
+  const navigationRef = useNavigationContainerRef();
+
+  useEffect(() => {
+    return registerWorkspaceRouteNavigationRef(navigationRef);
+  }, [navigationRef]);
+
+  return null;
+}
+
 function AppShell() {
   return (
     <SidebarAnimationProvider>
       <HorizontalScrollProvider>
         <OpenProjectListener />
         <AppWithSidebar>
+          <WorkspaceRouteNavigationBridge />
           <RootStack />
         </AppWithSidebar>
       </HorizontalScrollProvider>

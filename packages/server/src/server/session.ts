@@ -61,6 +61,10 @@ import { getErrorMessage, getErrorMessageOr } from "@getpaseo/protocol/error-uti
 import { getAgentStatusPriority } from "@getpaseo/protocol/agent-state-bucket";
 import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
 import type { WorkspaceGitRuntimeSnapshot, WorkspaceGitService } from "./workspace-git-service.js";
+import {
+  CLIENT_SHUTDOWN_RPC_REASON,
+  normalizeClientRestartRpcReason,
+} from "./lifecycle-reasons.js";
 
 import { AgentManager } from "./agent/agent-manager.js";
 import { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
@@ -71,7 +75,6 @@ import type {
   AgentTimelineFetchResult,
   ManagedAgent,
 } from "./agent/agent-manager.js";
-import { createPromptIndexRows } from "./agent/timeline-prompt-index.js";
 import { createAgentCommand } from "./agent/create-agent/create.js";
 import {
   archiveAgentCommand,
@@ -96,6 +99,7 @@ import {
   type TimelineProjectionEntry,
   type TimelineProjectionMode,
 } from "./agent/timeline-projection.js";
+import { buildAgentForkContextAttachment } from "./agent/activity-curator.js";
 import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
 import {
   getAgentStreamEventTurnId,
@@ -198,7 +202,6 @@ import {
   generateBranchNameFromFirstAgentContext,
   type GeneratedWorkspaceName,
 } from "./worktree-branch-name-generator.js";
-import { generateAgentTitleFromFirstAgentContext } from "./agent-title-generator.js";
 import {
   buildAgentSessionConfig as buildWorktreeAgentSessionConfig,
   createPaseoWorktreeWorkflow as createWorktreeWorkflow,
@@ -474,12 +477,13 @@ export type SessionLifecycleIntent =
       type: "shutdown";
       clientId: string;
       requestId: string;
+      reason: string;
     }
   | {
       type: "restart";
       clientId: string;
       requestId: string;
-      reason?: string;
+      reason: string;
     };
 
 function parseClientCapabilities(
@@ -1294,14 +1298,6 @@ export class Session {
   ): Promise<ProjectPlacementPayload | null> {
     const workspace = await this.workspaceRegistry.get(workspaceId);
     if (!workspace) return null;
-    return this.buildProjectPlacementForWorkspace(workspace);
-  }
-
-  private async buildProjectPlacementForExistingWorkspaceProject(
-    workspaceId: string,
-  ): Promise<ProjectPlacementPayload | null> {
-    const workspace = await this.workspaceRegistry.get(workspaceId);
-    if (!workspace) return null;
 
     const project = await this.projectRegistry.get(workspace.projectId);
     if (!project) return null;
@@ -1448,6 +1444,17 @@ export class Session {
     }
   }
 
+  private dispatchAgentTimelineMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "fetch_agent_timeline_request":
+        return this.handleFetchAgentTimelineRequest(msg);
+      case "agent.fork_context.request":
+        return this.handleAgentForkContextRequest(msg);
+      default:
+        return undefined;
+    }
+  }
+
   private dispatchAgentLifecycleMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
       case "fetch_agents_request":
@@ -1486,17 +1493,6 @@ export class Session {
         return this.handleAgentPermissionResponse(msg.agentId, msg.requestId, msg.response);
       case "clear_agent_attention":
         return this.handleClearAgentAttention(msg.agentId, msg.requestId);
-      default:
-        return undefined;
-    }
-  }
-
-  private dispatchAgentTimelineMessage(msg: SessionInboundMessage): Promise<void> | undefined {
-    switch (msg.type) {
-      case "fetch_agent_timeline_request":
-        return this.handleFetchAgentTimelineRequest(msg);
-      case "agent.timeline.prompt_index.request":
-        return this.handleAgentTimelinePromptIndexRequest(msg);
       default:
         return undefined;
     }
@@ -1743,6 +1739,10 @@ export class Session {
     this.peakInflightRequests = this.inflightRequests;
   }
 
+  public getSessionId(): string {
+    return this.sessionId;
+  }
+
   public async handleBinaryFrame(binaryFrame: BinaryFrame): Promise<void> {
     if (binaryFrame.kind === "file_transfer") {
       await this.workspaceFilesSession.handleFileTransferFrame(binaryFrame.frame);
@@ -1752,6 +1752,7 @@ export class Session {
   }
 
   private async handleRestartServerRequest(requestId: string, reason?: string): Promise<void> {
+    const lifecycleReason = normalizeClientRestartRpcReason(reason);
     const payload: { status: string } & Record<string, unknown> = {
       status: "restart_requested",
       clientId: this.clientId,
@@ -1761,7 +1762,7 @@ export class Session {
     }
     payload.requestId = requestId;
 
-    this.sessionLogger.warn({ reason }, "Restart requested via websocket");
+    this.sessionLogger.warn({ reason: lifecycleReason }, "Restart requested via websocket");
     this.emit({
       type: "status",
       payload,
@@ -1771,12 +1772,13 @@ export class Session {
       type: "restart",
       clientId: this.clientId,
       requestId,
-      ...(reason ? { reason } : {}),
+      reason: lifecycleReason,
     });
   }
 
   private async handleShutdownServerRequest(requestId: string): Promise<void> {
-    this.sessionLogger.warn("Shutdown requested via websocket");
+    const reason = CLIENT_SHUTDOWN_RPC_REASON;
+    this.sessionLogger.warn({ reason }, "Shutdown requested via websocket");
     this.emit({
       type: "status",
       payload: {
@@ -1790,6 +1792,7 @@ export class Session {
       type: "shutdown",
       clientId: this.clientId,
       requestId,
+      reason,
     });
   }
 
@@ -2423,7 +2426,7 @@ export class Session {
           initialTitle: workspacePromptTitle,
         },
       );
-      const isFirstAgentInWorkspace = !(await this.workspaceHasAnyAgent(workspaceId));
+      const createdDirectoryWorkspaceForAgent = !createdWorktree && !msg.workspaceId;
 
       const { snapshot, liveSnapshot } = await createAgentCommand(
         {
@@ -2454,29 +2457,13 @@ export class Session {
         },
       );
       createdAgentId = snapshot.id;
-      if (!createdWorktree && msg.workspaceId && isFirstAgentInWorkspace) {
-        await this.writeInitialWorkspaceTitleIfUntitled(workspaceId, workspacePromptTitle);
-      }
       await this.agentUpdates.forwardLiveAgent(snapshot);
-      if (trimmedPrompt || (attachments && attachments.length > 0)) {
-        if (this.agentManager.supportsNativeThreadTitle(snapshot.id)) {
-          if (isFirstAgentInWorkspace) {
-            this.scheduleNativeFirstAgentWorkspaceTitle({
-              agentId: snapshot.id,
-              workspaceId,
-              cwd: createAgentConfig.cwd,
-              firstAgentContext,
-            });
-          }
-        } else {
-          this.scheduleAutoNameAgentTitleFromContext({
-            agentId: snapshot.id,
-            workspaceId,
-            cwd: createAgentConfig.cwd,
-            firstAgentContext,
-            updateWorkspaceTitle: isFirstAgentInWorkspace,
-          });
-        }
+      if (createdDirectoryWorkspaceForAgent && trimmedPrompt) {
+        await this.scheduleAutoNameLocalWorkspaceTitleForFirstAgent({
+          workspaceId,
+          cwd: createAgentConfig.cwd,
+          firstAgentContext,
+        });
       }
       this.createAgentLifecycleDispatch.registerAutoArchiveIfRequested({
         autoArchive,
@@ -2871,6 +2858,9 @@ export class Session {
     workspace: PersistedWorkspaceRecord;
     firstAgentContext: FirstAgentContext;
   }): Promise<void> {
+    // Capture the generated title from the generator callback so we can write
+    // title := generated title after the branch rename completes.
+    let generatedTitle: string | null = null;
     const result = await attemptFirstAgentBranchAutoName({
       cwd: input.workspace.cwd,
       firstAgentContext: input.firstAgentContext,
@@ -2884,33 +2874,27 @@ export class Session {
           currentSelection: this.getFocusedAgentSelectionForCwd(cwd),
           firstAgentContext,
           logger: this.sessionLogger,
-        }).then((r) => r?.branch ?? null);
+        }).then((r) => {
+          generatedTitle = r?.title ?? null;
+          return r?.branch ?? null;
+        });
       },
     });
-    if (!result.renamed) {
+    if (!result.renamed || !generatedTitle) {
       return;
     }
-    await this.applyGeneratedWorkspaceBranch(input.workspace.workspaceId, result.branchName);
+
+    // K4: re-read from the registry before writing so any concurrent upsert
+    // that happened between workspace creation and this async path is not clobbered.
+    // The first-agent rename renamed the git branch too, so persist the new branch
+    // alongside the title — both are this path's own fields.
+    await this.applyGeneratedWorkspaceTitle(input.workspace.workspaceId, {
+      title: generatedTitle,
+      branch: result.branchName,
+      promptTitle: resolveFirstAgentPromptTitle(input.firstAgentContext),
+    });
     await this.gitMutation.notifyGitMutation(input.workspace.cwd, "rename-branch");
     await this.emitWorkspaceUpdateForCwd(input.workspace.cwd);
-  }
-
-  private async applyGeneratedWorkspaceBranch(
-    workspaceId: string,
-    branch: string | null,
-  ): Promise<void> {
-    if (!branch) {
-      return;
-    }
-    const current = await this.workspaceRegistry.get(workspaceId);
-    if (!current) {
-      return;
-    }
-    await this.workspaceRegistry.upsert({
-      ...current,
-      branch,
-      updatedAt: new Date().toISOString(),
-    });
   }
 
   // Generated names may replace the prompt title set at creation, but not a user
@@ -2931,115 +2915,6 @@ export class Session {
       ...current,
       title,
       ...(input.branch ? { branch: input.branch } : {}),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  private async workspaceHasAnyAgent(workspaceId: string): Promise<boolean> {
-    if (this.agentManager.listAgents().some((agent) => agent.workspaceId === workspaceId)) {
-      return true;
-    }
-    const storedAgents = await this.agentStorage.list();
-    return storedAgents.some(
-      (agent) => agent.workspaceId === workspaceId && agent.internal !== true,
-    );
-  }
-
-  private scheduleAutoNameAgentTitleFromContext(input: {
-    agentId: string;
-    workspaceId: string;
-    cwd: string;
-    firstAgentContext: FirstAgentContext;
-    updateWorkspaceTitle: boolean;
-  }): void {
-    this.scheduleWorkspaceNaming(() => this.maybeAutoNameAgentTitleFromContext(input), {
-      cwd: input.cwd,
-      message: "Failed to auto-name agent title",
-    });
-  }
-
-  private async maybeAutoNameAgentTitleFromContext(input: {
-    agentId: string;
-    workspaceId: string;
-    cwd: string;
-    firstAgentContext: FirstAgentContext;
-    updateWorkspaceTitle: boolean;
-  }): Promise<void> {
-    if (this.agentManager.supportsNativeThreadTitle(input.agentId)) {
-      return;
-    }
-    const title = await generateAgentTitleFromFirstAgentContext({
-      agentManager: this.agentManager,
-      cwd: input.cwd,
-      workspaceGitService: this.workspaceGitService,
-      providerSnapshotManager: this.providerSnapshotManager,
-      daemonConfig: this.readStructuredGenerationDaemonConfig(),
-      currentSelection: this.getFocusedAgentSelectionForCwd(input.cwd),
-      firstAgentContext: input.firstAgentContext,
-      logger: this.sessionLogger,
-    });
-    if (!title) {
-      return;
-    }
-    await this.agentManager.setTitle(input.agentId, title);
-    if (input.updateWorkspaceTitle) {
-      await this.applyGeneratedWorkspaceTitle(input.workspaceId, {
-        title,
-        promptTitle: resolveFirstAgentPromptTitle(input.firstAgentContext),
-      });
-      await this.emitWorkspaceUpdateForWorkspaceId(input.workspaceId);
-    }
-  }
-
-  private scheduleNativeFirstAgentWorkspaceTitle(input: {
-    agentId: string;
-    workspaceId: string;
-    cwd: string;
-    firstAgentContext: FirstAgentContext;
-  }): void {
-    this.scheduleWorkspaceNaming(() => this.maybeApplyNativeFirstAgentWorkspaceTitle(input), {
-      cwd: input.cwd,
-      message: "Failed to apply native first-agent title to workspace",
-    });
-  }
-
-  private async maybeApplyNativeFirstAgentWorkspaceTitle(input: {
-    agentId: string;
-    workspaceId: string;
-    firstAgentContext: FirstAgentContext;
-  }): Promise<void> {
-    const delaysMs = [0, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000];
-    for (const delayMs of delaysMs) {
-      if (delayMs > 0) {
-        await new Promise((done) => setTimeout(done, delayMs));
-      }
-      const title = await this.agentManager.refreshNativeThreadTitle(input.agentId);
-      if (!title) {
-        continue;
-      }
-      await this.applyGeneratedWorkspaceTitle(input.workspaceId, {
-        title,
-        promptTitle: resolveFirstAgentPromptTitle(input.firstAgentContext),
-      });
-      await this.emitWorkspaceUpdateForWorkspaceId(input.workspaceId);
-      return;
-    }
-  }
-
-  private async writeInitialWorkspaceTitleIfUntitled(
-    workspaceId: string,
-    title: string | null,
-  ): Promise<void> {
-    if (!title) {
-      return;
-    }
-    const current = await this.workspaceRegistry.get(workspaceId);
-    if (!current || current.title) {
-      return;
-    }
-    await this.workspaceRegistry.upsert({
-      ...current,
-      title,
       updatedAt: new Date().toISOString(),
     });
   }
@@ -3084,6 +2959,23 @@ export class Session {
       promptTitle: resolveFirstAgentPromptTitle(input.firstAgentContext),
     });
     await this.emitWorkspaceUpdateForWorkspaceId(input.workspaceId);
+  }
+
+  private async scheduleAutoNameLocalWorkspaceTitleForFirstAgent(input: {
+    workspaceId: string;
+    cwd: string;
+    firstAgentContext: FirstAgentContext;
+  }): Promise<void> {
+    const workspaceId = input.workspaceId;
+    this.scheduleWorkspaceNaming(
+      () =>
+        this.maybeAutoNameDirectoryWorkspaceTitle({
+          workspaceId,
+          cwd: input.cwd,
+          firstAgentContext: input.firstAgentContext,
+        }),
+      { cwd: input.cwd, message: "Failed to auto-name local workspace title" },
+    );
   }
 
   private isPathWithinRoot(rootPath: string, candidatePath: string): boolean {
@@ -3663,10 +3555,7 @@ export class Session {
       if (existing) {
         return existing;
       }
-      const placementPromise =
-        request.type === "fetch_agent_history_request"
-          ? this.buildProjectPlacementForExistingWorkspaceProject(workspaceId)
-          : this.buildProjectPlacementForWorkspaceId(workspaceId);
+      const placementPromise = this.buildProjectPlacementForWorkspaceId(workspaceId);
       placementByWorkspaceId.set(workspaceId, placementPromise);
       return placementPromise;
     };
@@ -3771,7 +3660,6 @@ export class Session {
       workspaceKind: workspace.kind,
       name: resolveWorkspaceDisplayName(workspace),
       title: workspace.title,
-      createdAt: workspace.createdAt,
       archivingAt: null,
       status: "done",
       statusEnteredAt: null,
@@ -3856,7 +3744,6 @@ export class Session {
         derivedDisplayName: result.worktree.branchName || result.workspace.displayName,
       }),
       title: result.workspace.title,
-      createdAt: result.workspace.createdAt,
       archivingAt: null,
       status: "done",
       statusEnteredAt: result.workspace.createdAt,
@@ -5364,56 +5251,6 @@ export class Session {
     return this.selectProjectedTimelineProjection(input);
   }
 
-  private async handleAgentTimelinePromptIndexRequest(
-    msg: Extract<SessionInboundMessage, { type: "agent.timeline.prompt_index.request" }>,
-  ): Promise<void> {
-    try {
-      await ensureAgentLoaded(msg.agentId, {
-        agentManager: this.agentManager,
-        agentStorage: this.agentStorage,
-        logger: this.sessionLogger,
-      });
-      const timeline = this.agentManager.fetchTimeline(msg.agentId, {
-        direction: "tail",
-        limit: 0,
-      });
-      const page = selectProjectedTimelinePage({
-        rows: timeline.rows,
-        bounds: timeline.window,
-        direction: "tail",
-        limit: 0,
-      });
-
-      this.emit({
-        type: "agent.timeline.prompt_index.response",
-        payload: {
-          requestId: msg.requestId,
-          agentId: msg.agentId,
-          epoch: timeline.epoch,
-          window: timeline.window,
-          rows: createPromptIndexRows(page.entries),
-          error: null,
-        },
-      });
-    } catch (error) {
-      this.sessionLogger.error(
-        { err: error, agentId: msg.agentId },
-        "Failed to handle agent.timeline.prompt_index.request",
-      );
-      this.emit({
-        type: "agent.timeline.prompt_index.response",
-        payload: {
-          requestId: msg.requestId,
-          agentId: msg.agentId,
-          epoch: "",
-          window: { minSeq: 0, maxSeq: 0, nextSeq: 0 },
-          rows: [],
-          error: error instanceof Error ? error.message : String(error),
-        },
-      });
-    }
-  }
-
   private async handleFetchAgentTimelineRequest(
     msg: Extract<SessionInboundMessage, { type: "fetch_agent_timeline_request" }>,
   ): Promise<void> {
@@ -5512,6 +5349,57 @@ export class Session {
           hasOlder: false,
           hasNewer: false,
           entries: [],
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleAgentForkContextRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.fork_context.request" }>,
+  ): Promise<void> {
+    try {
+      const snapshot = await ensureAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      const agentPayload = await this.buildAgentPayload(snapshot);
+      const rows = this.agentManager.fetchTimeline(msg.agentId, {
+        direction: "tail",
+        limit: 0,
+      }).rows;
+      const forkContext = buildAgentForkContextAttachment({
+        rows,
+        boundaryMessageId: msg.boundaryMessageId,
+        agentTitle: agentPayload.title,
+        cwd: snapshot.cwd,
+      });
+
+      this.emit({
+        type: "agent.fork_context.response",
+        payload: {
+          requestId: msg.requestId,
+          agentId: msg.agentId,
+          attachment: forkContext.attachment,
+          itemCount: forkContext.itemCount,
+          boundaryMessageId: forkContext.boundaryMessageId,
+          error: null,
+        },
+      });
+    } catch (error) {
+      this.sessionLogger.error(
+        { err: error, agentId: msg.agentId },
+        "Failed to handle agent.fork_context.request",
+      );
+      this.emit({
+        type: "agent.fork_context.response",
+        payload: {
+          requestId: msg.requestId,
+          agentId: msg.agentId,
+          attachment: null,
+          itemCount: 0,
+          boundaryMessageId: msg.boundaryMessageId ?? null,
           error: error instanceof Error ? error.message : String(error),
         },
       });

@@ -328,6 +328,7 @@ function decodeSegment(value: string): string {
 function useSyncWorkspaceActiveBrowser(input: {
   workspaceLayout: WorkspaceLayout | null;
   isRouteFocused: boolean;
+  workspaceId: string;
 }) {
   const focusedBrowserId = useMemo(
     () => getFocusedBrowserId(input.workspaceLayout),
@@ -339,8 +340,11 @@ function useSyncWorkspaceActiveBrowser(input: {
     if (!getIsElectron()) {
       return;
     }
-    void getDesktopHost()?.browser?.setWorkspaceActiveBrowser?.(desktopActiveBrowserId);
-  }, [desktopActiveBrowserId]);
+    void getDesktopHost()?.browser?.setWorkspaceActiveBrowser?.({
+      workspaceId: input.workspaceId,
+      browserId: desktopActiveBrowserId,
+    });
+  }, [desktopActiveBrowserId, input.workspaceId]);
 }
 
 function getFallbackTabOptionLabel(
@@ -2271,7 +2275,7 @@ function WorkspaceScreenContent({
     mainPaneId,
     topLeftPaneId,
   });
-  useSyncWorkspaceActiveBrowser({ workspaceLayout, isRouteFocused });
+  useSyncWorkspaceActiveBrowser({ workspaceLayout, isRouteFocused, workspaceId });
   const openWorkspaceTabInBackground = useWorkspaceLayoutStore(
     (state) => state.openTabInBackground,
   );
