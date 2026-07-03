@@ -375,6 +375,32 @@ describe("WorkspaceScriptsButton", () => {
     expect(startWorkspaceScriptMock).toHaveBeenLastCalledWith("workspace-1", "typecheck");
   });
 
+  it("shows and updates the split primary label for the last selected script even when labels are hidden", async () => {
+    current = renderScripts([script({ scriptName: "dev" }), script({ scriptName: "typecheck" })], {
+      hideLabels: true,
+    });
+
+    const primary = document.querySelector('[data-testid="workspace-scripts-run-last"]');
+    if (!(primary instanceof HTMLElement)) {
+      throw new Error("Missing scripts primary run action");
+    }
+
+    expect(primary.textContent).toContain("dev");
+
+    const typecheckRun = document.querySelector(
+      '[data-testid="workspace-scripts-start-typecheck"]',
+    );
+    if (!(typecheckRun instanceof HTMLElement)) {
+      throw new Error("Missing typecheck run action");
+    }
+
+    await act(async () => {
+      typecheckRun.click();
+    });
+
+    expect(primary.textContent).toContain("typecheck");
+  });
+
   it("removes the trigger caret in ghost presentation", () => {
     current = renderScripts([script({ scriptName: "dev" })], {
       hideLabels: true,
