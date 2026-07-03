@@ -128,6 +128,11 @@ import { formatDuration } from "@/utils/time";
 import type { TurnTiming } from "@/timeline/turn-time";
 import type { PinnedUserInputState } from "./pinned-user-input";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
+import {
+  getMessageTableLayoutMetrics,
+  MessageLayoutProvider,
+  type MessageLayoutMetrics,
+} from "@/components/message-layout-context";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
 import {
   buildFindHighlights,
@@ -153,6 +158,11 @@ const PINNED_USER_INPUT_TOP_PADDING = 15;
 const PINNED_USER_INPUT_MAX_HEIGHT_DEFAULT = 118;
 const PINNED_USER_INPUT_MAX_HEIGHT_COMPACT = 59;
 const PINNED_USER_INPUT_GRADIENT_HEIGHT = 15;
+const STREAM_LAYOUT_EPSILON = 0.5;
+
+const StreamLayoutReporterContext = React.createContext<
+  ((input: { breakoutOffset: number; contentWidth: number }) => void) | null
+>(null);
 
 type SessionStoreSnapshot = ReturnType<typeof useSessionStore.getState>;
 
@@ -1519,6 +1529,22 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const streamScrollEnabled =
       !streamRenderStrategy.shouldDisableParentScrollOnInlineDetailsExpansion() ||
       expandedInlineToolCallIds.size === 0;
+    const [messageLayoutMetrics, setMessageLayoutMetrics] = useState<MessageLayoutMetrics>(() =>
+      getMessageTableLayoutMetrics({ breakoutOffset: 0, contentWidth: 0 }),
+    );
+    const reportStreamLayout = useStableEvent(
+      (input: { breakoutOffset: number; contentWidth: number }) => {
+        const next = getMessageTableLayoutMetrics(input);
+        setMessageLayoutMetrics((previous) => {
+          const breakoutUnchanged =
+            Math.abs(previous.tableBreakoutOffset - next.tableBreakoutOffset) <
+            STREAM_LAYOUT_EPSILON;
+          const widthUnchanged =
+            Math.abs(previous.tableWidth - next.tableWidth) < STREAM_LAYOUT_EPSILON;
+          return breakoutUnchanged && widthUnchanged ? previous : next;
+        });
+      },
+    );
     const findOverlay = (
       <FindInThreadControls
         isOpen={isFindOpen}
@@ -1568,59 +1594,64 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         onPress={scrollToPinnedUserInput}
       />
     );
+    const scrollToBottomOverlay = !isNearBottom ? (
+      <Animated.View
+        style={stylesheet.scrollToBottomContainer}
+        entering={scrollIndicatorFadeIn}
+        exiting={scrollIndicatorFadeOut}
+      >
+        <View style={stylesheet.scrollToBottomInner}>
+          <Pressable
+            style={stylesheet.scrollToBottomButton}
+            onPress={scrollToBottom}
+            accessibilityRole="button"
+            accessibilityLabel={t("agentStream.scrollToBottom")}
+            testID="scroll-to-bottom-button"
+          >
+            <ChevronDown size={24} color={stylesheet.scrollToBottomIcon.color} />
+          </Pressable>
+        </View>
+      </Animated.View>
+    ) : null;
 
     return (
       <ToolCallSheetProvider>
-        <View style={stylesheet.container}>
-          {findOverlay}
-          <MessageOuterSpacingProvider disableOuterSpacing>
-            {streamRenderStrategy.render({
-              agentId,
-              segments: renderModel.segments,
-              promptIndex,
-              loadedHistoryStartSeq: timelineCursor?.startSeq ?? null,
-              expectsFullHistoryPromptIndex: serverSupportsPromptIndex,
-              boundary,
-              renderers,
-              listEmptyComponent,
-              viewportRef,
-              routeBottomAnchorRequest,
-              isAuthoritativeHistoryReady,
-              onNearBottomChange: setIsNearBottom,
-              onNearHistoryStart: loadOlder,
-              pinUserInputsEnabled,
-              pinnedBottom: pinnedUserInputBackdropFadeStart,
-              onPinnedUserInputChange: handlePinnedUserInputChange,
-              pinnedUserInputOverlay,
-              isLoadingOlderHistory: isLoadingOlder,
-              hasOlderHistory: hasOlder,
-              scrollEnabled: streamScrollEnabled,
-              listStyle: stylesheet.list,
-              baseListContentContainerStyle: stylesheet.listContentContainer,
-              forwardListContentContainerStyle: stylesheet.forwardListContentContainer,
-              findIndicator,
-            })}
-          </MessageOuterSpacingProvider>
-          {!isNearBottom && (
-            <Animated.View
-              style={stylesheet.scrollToBottomContainer}
-              entering={scrollIndicatorFadeIn}
-              exiting={scrollIndicatorFadeOut}
-            >
-              <View style={stylesheet.scrollToBottomInner}>
-                <Pressable
-                  style={stylesheet.scrollToBottomButton}
-                  onPress={scrollToBottom}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("agentStream.scrollToBottom")}
-                  testID="scroll-to-bottom-button"
-                >
-                  <ChevronDown size={24} color={stylesheet.scrollToBottomIcon.color} />
-                </Pressable>
-              </View>
-            </Animated.View>
-          )}
-        </View>
+        <MessageLayoutProvider value={messageLayoutMetrics}>
+          <StreamLayoutReporterContext.Provider value={reportStreamLayout}>
+            <View style={stylesheet.container}>
+              {findOverlay}
+              <MessageOuterSpacingProvider disableOuterSpacing>
+                {streamRenderStrategy.render({
+                  agentId,
+                  segments: renderModel.segments,
+                  promptIndex,
+                  loadedHistoryStartSeq: timelineCursor?.startSeq ?? null,
+                  expectsFullHistoryPromptIndex: serverSupportsPromptIndex,
+                  boundary,
+                  renderers,
+                  listEmptyComponent,
+                  viewportRef,
+                  routeBottomAnchorRequest,
+                  isAuthoritativeHistoryReady,
+                  onNearBottomChange: setIsNearBottom,
+                  onNearHistoryStart: loadOlder,
+                  pinUserInputsEnabled,
+                  pinnedBottom: pinnedUserInputBackdropFadeStart,
+                  onPinnedUserInputChange: handlePinnedUserInputChange,
+                  pinnedUserInputOverlay,
+                  isLoadingOlderHistory: isLoadingOlder,
+                  hasOlderHistory: hasOlder,
+                  scrollEnabled: streamScrollEnabled,
+                  listStyle: stylesheet.list,
+                  baseListContentContainerStyle: stylesheet.listContentContainer,
+                  forwardListContentContainerStyle: stylesheet.forwardListContentContainer,
+                  findIndicator,
+                })}
+              </MessageOuterSpacingProvider>
+              {scrollToBottomOverlay}
+            </View>
+          </StreamLayoutReporterContext.Provider>
+        </MessageLayoutProvider>
       </ToolCallSheetProvider>
     );
   },
@@ -2687,6 +2718,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     alignSelf: "center",
     paddingHorizontal: theme.spacing[2],
   },
+  streamItemInner: {
+    width: "100%",
+  },
   emptyState: {
     flex: 1,
     alignItems: "center",
@@ -3086,9 +3120,42 @@ interface StreamItemWrapperProps {
 }
 
 function StreamItemWrapper({ gapBelow, marginTop = 0, children }: StreamItemWrapperProps) {
-  const wrapperStyle = useMemo(
-    () => [stylesheet.streamItemWrapper, { marginTop, marginBottom: gapBelow }],
+  const reportLayout = useContext(StreamLayoutReporterContext);
+  const breakoutOffsetRef = useRef<number | null>(null);
+  const contentWidthRef = useRef<number | null>(null);
+  const flushLayoutMetrics = useCallback(() => {
+    if (!reportLayout || breakoutOffsetRef.current == null || contentWidthRef.current == null) {
+      return;
+    }
+    reportLayout({
+      breakoutOffset: breakoutOffsetRef.current,
+      contentWidth: contentWidthRef.current,
+    });
+  }, [reportLayout]);
+  const handleOuterLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      breakoutOffsetRef.current = Math.max(0, event.nativeEvent.layout.x);
+      flushLayoutMetrics();
+    },
+    [flushLayoutMetrics],
+  );
+  const handleInnerLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      contentWidthRef.current = Math.max(0, event.nativeEvent.layout.width);
+      flushLayoutMetrics();
+    },
+    [flushLayoutMetrics],
+  );
+  const wrapperStyle = useMemo(() => [stylesheet.streamItemWrapper], []);
+  const innerStyle = useMemo(
+    () => [stylesheet.streamItemInner, { marginTop, marginBottom: gapBelow }],
     [gapBelow, marginTop],
   );
-  return <View style={wrapperStyle}>{children}</View>;
+  return (
+    <View style={wrapperStyle} onLayout={handleOuterLayout}>
+      <View style={innerStyle} onLayout={handleInnerLayout}>
+        {children}
+      </View>
+    </View>
+  );
 }
