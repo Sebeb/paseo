@@ -4,7 +4,7 @@ Branch: `feat/collapse-thinking`
 
 Base: `origin/main`
 
-Anchor commit: d3084cf9e03abf8f5b7ddb395e76d3423b16bd80 — feat(app): expand collapsed thinking preview on press
+Anchor commit: acf221b7443cdbac63be56f5b69d7cafed4653be — fix(app): balance collapsed thinking spacing
 
 ## Purpose
 
@@ -24,6 +24,7 @@ It also updates bottom anchoring so expanding/collapsing thinking groups does no
 - Shows group headers with message and tool-call counts.
 - Shows previews for collapsed active thinking groups when there are visible thinking messages.
 - Lets users expand a collapsed thinking group by pressing the lower half of its preview area.
+- Balances vertical spacing around a collapsed completed thinking group when it sits between the user prompt and final assistant response.
 - Keeps final assistant messages outside the collapsed thinking group so the actual answer remains visible.
 - Preserves normal access to tool calls and thinking content through expand/collapse controls.
 
@@ -179,6 +180,32 @@ The stream view now:
 - Adds an invisible accessible press target over the bottom half of a collapsed preview; pressing it expands the group without requiring the user to move back to the header.
 - Shows active/completed duration text in collapsed group headers using `turnTiming.runningStartedAt` and `turnTiming.byAssistantId`.
 - Handles scroll/anchor behavior when a group is expanded.
+- Passes both `gapBelow` and `marginTop` into `StreamItemWrapper` for collapsed thinking groups. Expanded groups keep the existing spacing. Collapsed completed groups between a user message and assistant response call `getCollapsedThinkingGroupSpacing` so the visible gap above and below the collapsed pill is symmetrical.
+- `StreamItemWrapper` accepts an optional `marginTop` prop and includes it with `marginBottom` in the wrapper style.
+
+### `packages/app/src/agent-stream/spacing.ts`
+
+Adds:
+
+```ts
+export interface CollapsedThinkingGroupSpacing {
+  marginTop: number;
+  gapBelow: number;
+}
+
+export function getCollapsedThinkingGroupSpacing(params: {
+  aboveItem: StreamItem | null | undefined;
+  firstItem: StreamItem;
+  belowItem: StreamItem | null | undefined;
+  defaultGapBelow: number;
+}): CollapsedThinkingGroupSpacing;
+```
+
+Behavior:
+
+- If the collapsed group is not directly between a `user_message` and an `assistant_message`, returns `{ marginTop: 0, gapBelow: defaultGapBelow }`.
+- If it is between that prompt/answer pair, uses `SPACING[2]` as the symmetric visible gap around the collapsed group.
+- Computes the existing gap above with `getGapBetweenStreamItems(aboveItem, firstItem)` and returns `marginTop: SPACING[2] - gapAbove`, reducing the inherited larger user-to-thinking gap without changing the surrounding layout algorithm.
 
 ### `packages/app/src/components/message.tsx`
 
@@ -262,6 +289,10 @@ Adds coverage for:
 - Count generation for messages and tool calls.
 - Preview-message generation.
 - Preview visibility rules.
+
+### `packages/app/src/agent-stream/spacing.test.ts`
+
+Adds coverage for symmetric collapsed thinking spacing between user prompt and assistant response, plus fallback behavior when there is no assistant response below the group.
 
 ### Strategy/View Tests
 
