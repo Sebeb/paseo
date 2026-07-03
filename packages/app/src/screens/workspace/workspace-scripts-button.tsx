@@ -473,6 +473,7 @@ export function WorkspaceScriptsButton({
   const triggerPlayProps =
     presentation === "ghost" ? { ...playFillTransparent, ...ghostPlayStroke } : playFillTransparent;
   const primaryRunLabel = lastRunScript.scriptName;
+  const showPrimaryRunLabel = presentation === "split" || !hideLabels;
 
   return (
     <View style={styles.row}>
@@ -496,7 +497,9 @@ export function WorkspaceScriptsButton({
                     uniProps={triggerPlayMapping}
                     {...triggerPlayProps}
                   />
-                  {!hideLabels && <Text style={styles.splitButtonText}>{primaryRunLabel}</Text>}
+                  {showPrimaryRunLabel ? (
+                    <Text style={styles.splitButtonText}>{primaryRunLabel}</Text>
+                  ) : null}
                 </View>
               </Pressable>
               <DropdownMenuTrigger
