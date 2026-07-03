@@ -159,6 +159,7 @@ import { requireWorkspaceDirectory, resolveWorkspaceDirectory } from "@/utils/wo
 import {
   getProjectAncestorHighlighted,
   getWorkspaceAncestorHighlighted,
+  type SidebarRowHighlightState,
 } from "@/utils/sidebar-active-ancestor-highlight";
 import { findActiveSidebarWorkspaceRevealTarget } from "@/utils/sidebar-active-workspace-reveal";
 import { useWorkspaceArchive } from "@/workspace/use-workspace-archive";
@@ -558,7 +559,7 @@ interface ProjectHeaderRowProps {
   statusSummary?: SidebarTabStatusSummary | null;
   showStatusSummary?: boolean;
   leadingStatusKind?: SidebarEntryStatusKind | null;
-  selected?: boolean;
+  highlightState?: SidebarRowHighlightState;
   chevron: "expand" | "collapse" | null;
   onPress: (event: GestureResponderEvent) => void;
   serverId: string | null;
@@ -582,7 +583,7 @@ interface WorkspaceRowInnerProps {
   badgeMode: SidebarBadgeMode;
   tabStatusSummary: SidebarTabStatusSummary;
   workspaceTitleSource: WorkspaceTitleSource;
-  selected: boolean;
+  highlightState: SidebarRowHighlightState;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
   onPress: (event: GestureResponderEvent) => void;
@@ -722,24 +723,35 @@ function embeddedTabCloseButtonStyle({
 function getProjectWorkspaceRowStyle({
   embeddedTabsEnabled = false,
   isDragging,
-  selected,
+  highlightState,
   isHovered,
 }: {
   embeddedTabsEnabled?: boolean;
   isDragging: boolean;
-  selected: boolean;
+  highlightState: SidebarRowHighlightState;
   isHovered: boolean;
 }) {
   return [
     styles.workspaceRow,
     embeddedTabsEnabled && styles.workspaceRowEmbeddedTabs,
     isDragging && styles.workspaceRowDragging,
-    selected && styles.sidebarRowSelected,
+    getSidebarRowHighlightStyle(highlightState),
     isHovered && styles.workspaceRowHovered,
   ];
 }
 
 function noop() {}
+
+function getSidebarRowHighlightStyle(highlightState: SidebarRowHighlightState) {
+  switch (highlightState) {
+    case "selected":
+      return styles.sidebarRowSelected;
+    case "active":
+      return styles.sidebarRowActive;
+    case "idle":
+      return null;
+  }
+}
 
 const prBadgeStyles = StyleSheet.create((theme) => ({
   badge: {
@@ -2015,7 +2027,7 @@ function ProjectHeaderRow({
   statusSummary = null,
   showStatusSummary = false,
   leadingStatusKind = null,
-  selected = false,
+  highlightState = "idle",
   chevron,
   onPress,
   serverId,
@@ -2076,11 +2088,11 @@ function ProjectHeaderRow({
     ({ pressed }: PressableStateCallbackType) => [
       styles.projectRow,
       isDragging && styles.projectRowDragging,
-      selected && styles.sidebarRowSelected,
+      getSidebarRowHighlightStyle(highlightState),
       isHovered && styles.projectRowHovered,
       pressed && styles.projectRowPressed,
     ],
-    [isDragging, selected, isHovered],
+    [highlightState, isDragging, isHovered],
   );
   const showShortcut = showShortcutBadge && shortcutNumber !== null;
   const showTrailingActions = isHovered || platformIsNative || isMobileBreakpoint;
@@ -2260,7 +2272,7 @@ function WorkspaceRowInner({
   badgeMode,
   tabStatusSummary,
   workspaceTitleSource,
-  selected,
+  highlightState,
   shortcutNumber,
   showShortcutBadge,
   onPress,
@@ -2315,7 +2327,11 @@ function WorkspaceRowInner({
     [interaction.didLongPressRef, onPress],
   );
 
-  const accessibilityState = useMemo(() => ({ selected }), [selected]);
+  const accessibilitySelected = highlightState === "selected";
+  const accessibilityState = useMemo(
+    () => ({ selected: accessibilitySelected }),
+    [accessibilitySelected],
+  );
 
   return (
     <SidebarWorkspaceRowFrame workspace={workspace} isDragging={isDragging}>
@@ -2332,7 +2348,7 @@ function WorkspaceRowInner({
         const workspaceRowStyle = getProjectWorkspaceRowStyle({
           embeddedTabsEnabled,
           isDragging,
-          selected,
+          highlightState,
           isHovered,
         });
         const workspaceRightVisibility = getWorkspaceRowRightVisibility({
@@ -2369,7 +2385,7 @@ function WorkspaceRowInner({
           >
             <Pressable
               disabled={isArchiving}
-              aria-selected={selected}
+              aria-selected={accessibilitySelected}
               accessibilityRole="button"
               accessibilityState={accessibilityState}
               style={workspaceRowStyle}
@@ -2710,6 +2726,35 @@ function WorkspaceRowWithMenu({
   const onCopyBranchName = canCopyBranchName ? handleCopyBranchName : undefined;
   const onMarkAsRead = hasClearableAttention ? handleMarkAsRead : undefined;
   const contextArchiveShortcutKeys = selected ? archiveShortcutKeys : null;
+  const hasSelectedEmbeddedTab = useMemo(() => {
+    if (!workspaceLayout) {
+      return false;
+    }
+    const panes = collectAllPanes(workspaceLayout.root);
+    const uiTabs = collectAllTabs(workspaceLayout.root);
+    const mainPane = findMainPane(workspaceLayout.root);
+    const mainPaneState = deriveWorkspacePaneState({
+      pane: mainPane,
+      tabs: uiTabs,
+    });
+    if (mainPaneState.activeTabId) {
+      return true;
+    }
+    return panes.some((pane) => {
+      if (!mainPane || pane.id === mainPane.id) {
+        return false;
+      }
+      const paneState = deriveWorkspacePaneState({
+        pane,
+        tabs: uiTabs,
+      });
+      return paneState.activeTab !== null && workspaceLayout.focusedPaneId === pane.id;
+    });
+  }, [workspaceLayout]);
+  const highlightState = getWorkspaceAncestorHighlighted({
+    selected,
+    embeddedTabsEnabled: embeddedTabsEnabled && hasSelectedEmbeddedTab,
+  });
 
   return (
     <ContextMenu>
@@ -2718,7 +2763,7 @@ function WorkspaceRowWithMenu({
         badgeMode={badgeMode}
         tabStatusSummary={tabStatusSummary}
         workspaceTitleSource={appSettings.workspaceTitleSource}
-        selected={getWorkspaceAncestorHighlighted({ selected, embeddedTabsEnabled })}
+        highlightState={highlightState}
         shortcutNumber={shortcutNumber}
         showShortcutBadge={showShortcutBadge}
         onPress={handleWorkspaceRowPress}
@@ -2977,7 +3022,7 @@ function EmbeddedWorkspaceTabRow({
     ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.embeddedTabRow,
       row.depth > 0 && { paddingLeft: 24 + row.depth * 16 },
-      active && styles.embeddedTabRowActive,
+      active && styles.sidebarRowSelected,
       isDragging && styles.embeddedTabRowDragging,
       (hovered || pressed) && styles.embeddedTabRowHovered,
     ],
@@ -4322,7 +4367,7 @@ function ProjectBlock({
         statusSummary={projectStatusSummary}
         showStatusSummary={badgeMode === "status" && collapsed}
         leadingStatusKind={projectLeadingStatusKind}
-        selected={getProjectAncestorHighlighted(active)}
+        highlightState={getProjectAncestorHighlighted(active)}
         chevron={rowModel.chevron}
         onPress={handleToggleCollapsed}
         serverId={serverId}
@@ -5249,6 +5294,9 @@ const styles = StyleSheet.create((theme) => ({
     zIndex: 3,
     ...theme.shadow.md,
   },
+  sidebarRowActive: {
+    backgroundColor: theme.colors.surface1,
+  },
   sidebarRowSelected: {
     backgroundColor: theme.colors.surfaceSidebarHover,
   },
@@ -5307,9 +5355,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   embeddedTabRowHovered: {
     backgroundColor: theme.colors.surfaceSidebarHover,
-  },
-  embeddedTabRowActive: {
-    backgroundColor: theme.colors.surface2,
   },
   embeddedTabRowDragging: {
     transform: [{ scale: 1.01 }],

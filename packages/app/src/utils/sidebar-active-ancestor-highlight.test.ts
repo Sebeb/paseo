@@ -6,17 +6,26 @@ import {
 
 describe("sidebar active ancestor highlighting", () => {
   it("highlights the project row when one of its workspaces is active", () => {
-    expect(getProjectAncestorHighlighted(true)).toBe(true);
-    expect(getProjectAncestorHighlighted(false)).toBe(false);
+    expect(getProjectAncestorHighlighted(true)).toBe("active");
+    expect(getProjectAncestorHighlighted(false)).toBe("idle");
   });
 
-  it("keeps the active workspace highlighted when embedded tabs are enabled", () => {
+  it("uses the ancestor state for selected workspaces when embedded tabs are enabled", () => {
     expect(
       getWorkspaceAncestorHighlighted({
         selected: true,
         embeddedTabsEnabled: true,
       }),
-    ).toBe(true);
+    ).toBe("active");
+  });
+
+  it("keeps direct workspace selection stronger when embedded tabs are disabled", () => {
+    expect(
+      getWorkspaceAncestorHighlighted({
+        selected: true,
+        embeddedTabsEnabled: false,
+      }),
+    ).toBe("selected");
   });
 
   it("does not highlight inactive workspaces in either tab layout", () => {
@@ -25,12 +34,12 @@ describe("sidebar active ancestor highlighting", () => {
         selected: false,
         embeddedTabsEnabled: true,
       }),
-    ).toBe(false);
+    ).toBe("idle");
     expect(
       getWorkspaceAncestorHighlighted({
         selected: false,
         embeddedTabsEnabled: false,
       }),
-    ).toBe(false);
+    ).toBe("idle");
   });
 });
