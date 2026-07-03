@@ -100,6 +100,8 @@ vi.mock("lucide-react-native", () => {
 
 vi.stubGlobal("React", React);
 
+const wideTrailingSlotStyle = { width: 76 } as const;
+
 function createWorkspace(input: Partial<SidebarWorkspaceEntry> = {}): SidebarWorkspaceEntry {
   return {
     workspaceKey: "server:workspace",
@@ -214,6 +216,21 @@ describe("SidebarWorkspaceRowContent", () => {
     expect(slot?.getAttribute("style")).toContain("justify-content: center");
     expect(overlay?.getAttribute("style")).toContain("bottom: 0px");
     expect(overlay?.getAttribute("style")).toContain("justify-content: center");
+  });
+
+  it("allows trailing action slots to reserve custom widths for multi-icon right contexts", () => {
+    const { getByTestId } = render(
+      <SidebarWorkspaceTrailingActionSlot style={wideTrailingSlotStyle}>
+        <SidebarWorkspaceTrailingActionOverlay visible>
+          <span data-testid="workspace-trailing-action-wide" />
+        </SidebarWorkspaceTrailingActionOverlay>
+      </SidebarWorkspaceTrailingActionSlot>,
+    );
+
+    const slot = getByTestId("workspace-trailing-action-wide").parentElement?.parentElement;
+
+    expect(slot?.getAttribute("style")).toContain("width: 76px");
+    expect(slot?.getAttribute("style")).toContain("height: 24px");
   });
 
   it("keeps the normal workspace icon when right-side status badges own status display", () => {

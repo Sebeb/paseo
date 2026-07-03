@@ -139,9 +139,12 @@ import { isEmphasizedStatusDotBucket } from "@/utils/status-dot-color";
 import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import { SidebarStatusWorkspaceList } from "@/components/sidebar/sidebar-status-list";
 import {
+  SidebarWorkspaceTrailingActionBase,
+  SidebarWorkspaceTrailingActionOverlay,
   SidebarWorkspaceRowFrame,
   SidebarWorkspaceRowContent,
   SidebarWorkspaceShortcutBadge,
+  SidebarWorkspaceTrailingActionSlot,
 } from "@/components/sidebar/sidebar-workspace-row-content";
 import {
   SidebarVcOperationBadges,
@@ -1259,52 +1262,51 @@ function WorkspaceRowActionSlot({
   const showTrailingMeta = Boolean(
     (showOperationBadges || showDiffStat || showStatusSummary) && !showActionControls,
   );
-  const actionSlotStyle = useMemo(
+  const trailingSlotStyle = useMemo(
     () => [
-      styles.workspaceActionSlot,
-      showTrailingMeta && styles.workspaceActionSlotDiff,
-      actionControlCount === 2 && styles.workspaceActionSlotDouble,
-      actionControlCount >= 3 && styles.workspaceActionSlotTriple,
+      actionControlCount === 2 && styles.workspaceTrailingActionSlotDouble,
+      actionControlCount >= 3 && styles.workspaceTrailingActionSlotTriple,
     ],
-    [actionControlCount, showTrailingMeta],
+    [actionControlCount],
   );
 
   return (
-    <View style={actionSlotStyle}>
-      <WorkspaceRowTrailingMeta
-        workspace={workspace}
-        statusSummary={statusSummary}
-        visible={showTrailingMeta}
-        showOperationBadges={showOperationBadges}
-        showDiffStat={showDiffStat}
-        showStatusSummary={showStatusSummary}
-        pendingBranchActionIds={pendingBranchActionIds}
-      />
-      <WorkspaceRowActionControls
-        workspace={workspace}
-        visible={showActionControls}
-        showCreateTab={showCreateTab}
-        showCreateTabMenu={showCreateTabMenu}
-        showKebab={showKebab}
-        archiveLabel={archiveLabel}
-        archiveStatus={archiveStatus}
-        archivePendingLabel={archivePendingLabel}
-        archiveShortcutKeys={archiveShortcutKeys}
-        onArchive={onArchive}
-        onCreateTab={onCreateTab}
-        onCopyBranchName={onCopyBranchName}
-        onCopyPath={onCopyPath}
-        onMarkAsRead={onMarkAsRead}
-        onRename={onRename}
-      />
-    </View>
+    <SidebarWorkspaceTrailingActionSlot style={trailingSlotStyle}>
+      <SidebarWorkspaceTrailingActionBase visible={showTrailingMeta}>
+        <WorkspaceRowTrailingMeta
+          workspace={workspace}
+          statusSummary={statusSummary}
+          showOperationBadges={showOperationBadges}
+          showDiffStat={showDiffStat}
+          showStatusSummary={showStatusSummary}
+          pendingBranchActionIds={pendingBranchActionIds}
+        />
+      </SidebarWorkspaceTrailingActionBase>
+      <SidebarWorkspaceTrailingActionOverlay visible={showActionControls}>
+        <WorkspaceRowActionControls
+          workspace={workspace}
+          showCreateTab={showCreateTab}
+          showCreateTabMenu={showCreateTabMenu}
+          showKebab={showKebab}
+          archiveLabel={archiveLabel}
+          archiveStatus={archiveStatus}
+          archivePendingLabel={archivePendingLabel}
+          archiveShortcutKeys={archiveShortcutKeys}
+          onArchive={onArchive}
+          onCreateTab={onCreateTab}
+          onCopyBranchName={onCopyBranchName}
+          onCopyPath={onCopyPath}
+          onMarkAsRead={onMarkAsRead}
+          onRename={onRename}
+        />
+      </SidebarWorkspaceTrailingActionOverlay>
+    </SidebarWorkspaceTrailingActionSlot>
   );
 }
 
 function WorkspaceRowTrailingMeta({
   workspace,
   statusSummary,
-  visible,
   showOperationBadges,
   showDiffStat,
   showStatusSummary,
@@ -1312,7 +1314,6 @@ function WorkspaceRowTrailingMeta({
 }: {
   workspace: SidebarWorkspaceEntry;
   statusSummary: SidebarTabStatusSummary;
-  visible: boolean;
   showOperationBadges: boolean;
   showDiffStat: boolean;
   showStatusSummary: boolean;
@@ -1320,7 +1321,7 @@ function WorkspaceRowTrailingMeta({
 }) {
   const showPrHint = Boolean(!showOperationBadges && showDiffStat && workspace.prHint);
   return (
-    <View style={visible ? styles.workspaceDiffMetaRow : styles.workspaceActionHidden}>
+    <View style={styles.workspaceDiffMetaRow}>
       {showOperationBadges ? <SidebarVcOperationBadges actionIds={pendingBranchActionIds} /> : null}
       {!showOperationBadges && showStatusSummary ? (
         <SidebarEntryStatusBadges summary={statusSummary} />
@@ -1359,7 +1360,6 @@ function WorkspaceRowDiffMeta({
 
 function WorkspaceRowActionControls({
   workspace,
-  visible,
   showCreateTab,
   showCreateTabMenu,
   showKebab,
@@ -1375,7 +1375,6 @@ function WorkspaceRowActionControls({
   onRename,
 }: {
   workspace: SidebarWorkspaceEntry;
-  visible: boolean;
   showCreateTab: boolean;
   showCreateTabMenu: boolean;
   showKebab: boolean;
@@ -1395,12 +1394,12 @@ function WorkspaceRowActionControls({
     onCreateTab?.();
   }, [onCreateTab]);
 
-  if (!visible) {
+  if (!showCreateTab && !showCreateTabMenu && !showKebab) {
     return null;
   }
 
   return (
-    <View style={styles.workspaceActionOverlayRow}>
+    <View style={styles.workspaceTrailingActionOverlayRow}>
       {showCreateTab ? (
         <Pressable
           accessibilityRole="button"
@@ -5552,30 +5551,13 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
   },
-  workspaceActionSlot: {
-    position: "relative",
-    width: 24,
-    height: 24,
-    flexShrink: 0,
-    alignItems: "flex-end",
-    justifyContent: "center",
-  },
-  workspaceActionSlotDiff: {
-    width: "auto",
-  },
-  workspaceActionSlotDouble: {
+  workspaceTrailingActionSlotDouble: {
     width: 50,
   },
-  workspaceActionSlotTriple: {
+  workspaceTrailingActionSlotTriple: {
     width: 76,
   },
-  workspaceActionHidden: {
-    opacity: 0,
-  },
-  workspaceActionOverlayRow: {
-    position: "absolute",
-    top: 0,
-    right: 0,
+  workspaceTrailingActionOverlayRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 2,
