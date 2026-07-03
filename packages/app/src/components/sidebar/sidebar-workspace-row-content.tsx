@@ -1,5 +1,12 @@
 import { createElement, memo, useCallback, useMemo, useState, type ReactNode } from "react";
-import { Pressable, Text, View, type GestureResponderEvent, type ViewStyle } from "react-native";
+import {
+  Pressable,
+  Text,
+  View,
+  type GestureResponderEvent,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   CircleAlert,
@@ -444,8 +451,21 @@ export function SidebarWorkspaceShortcutBadge({ number }: { number: number }) {
   );
 }
 
-export function SidebarWorkspaceTrailingActionSlot({ children }: { children: ReactNode }) {
-  return <View style={sidebarWorkspaceRowStyles.trailingActionSlot}>{children}</View>;
+export function SidebarWorkspaceTrailingActionSlot({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const resolvedStyle = useMemo(
+    () =>
+      style
+        ? [sidebarWorkspaceRowStyles.trailingActionSlot, style]
+        : sidebarWorkspaceRowStyles.trailingActionSlot,
+    [style],
+  );
+  return <View style={resolvedStyle}>{children}</View>;
 }
 
 export function SidebarWorkspaceTrailingActionBase({
