@@ -1,10 +1,10 @@
 # Patch Summary: Workspace Script Run Button
 
-Branch: `split/workspace-script-run-button`
+Branch: `feat/workspace-script-run-button`
 
 Base: `origin/main`
 
-Primary commit before this writeup: new split branch created for restored script-button polish
+Anchor commit: 7faa89e4b5f81680eb9c0c937ab1cb553083e167 — fix(app): keep split script label visible
 
 ## Purpose
 
@@ -17,6 +17,7 @@ This branch splits the workspace scripts toolbar control into a direct run actio
 - The first script is used as the primary action until the user runs a script from either the primary action or the dropdown.
 - Running a script from the dropdown updates the primary action target.
 - Ghost presentation remains compact and menu-only.
+- In split presentation, the primary action always shows the current script label even when the surrounding toolbar hides labels.
 
 ## Implementation Details
 
@@ -24,6 +25,7 @@ This branch splits the workspace scripts toolbar control into a direct run actio
 
 - Tracks `lastRunScriptName` locally in the button component.
 - Routes both menu-row run actions and the primary action through the same `handleStartScript` callback.
+- Derives `showPrimaryRunLabel` as `presentation === "split" || !hideLabels`, preserving compact ghost presentation while keeping the split primary button labeled.
 - Mirrors the existing "open in" split-control structure:
   - primary `Pressable` for the direct action
   - separate `DropdownMenuTrigger` for the caret/menu
@@ -33,6 +35,7 @@ This branch splits the workspace scripts toolbar control into a direct run actio
 
 - Adds coverage that the primary action starts the first script initially.
 - Verifies that running another script from the dropdown updates the primary action to that script.
+- Verifies hidden-label split presentation still shows and updates the primary script label.
 - Keeps existing checks for split and ghost caret behavior.
 
 ## Verification
