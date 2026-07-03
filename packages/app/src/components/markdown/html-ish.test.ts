@@ -158,6 +158,61 @@ describe("splitHtmlishMarkdown", () => {
     });
   });
 
+  it("normalizes safe HTML tables with local image sources into markdown tables", () => {
+    const source = [
+      '<div style="max-width: 100%;">',
+      '<table style="width: 100%;">',
+      "<thead>",
+      "<tr>",
+      '<th align="left">Mockup</th>',
+      '<th align="left">Implementation</th>',
+      "</tr>",
+      "</thead>",
+      "<tbody>",
+      "<tr>",
+      '<td width="390" valign="top"><img src="01-step.mockup.svg" alt="Mockup: Step 01" width="390" style="display: block;" /></td>',
+      '<td width="780" valign="top"><img src="01-step.png" alt="Implementation: Step 01" width="780" style="display: block;" /></td>',
+      "</tr>",
+      "</tbody>",
+      "</table>",
+      "</div>",
+    ].join("\n");
+
+    expect(splitHtmlishMarkdown(source)).toEqual([
+      {
+        kind: "table",
+        header: [
+          { parts: [{ kind: "markdown", text: "Mockup" }] },
+          { parts: [{ kind: "markdown", text: "Implementation" }] },
+        ],
+        rows: [
+          [
+            {
+              parts: [
+                {
+                  kind: "inlineImage",
+                  alt: "Mockup: Step 01",
+                  src: "01-step.mockup.svg",
+                  width: 390,
+                },
+              ],
+            },
+            {
+              parts: [
+                {
+                  kind: "inlineImage",
+                  alt: "Implementation: Step 01",
+                  src: "01-step.png",
+                  width: 780,
+                },
+              ],
+            },
+          ],
+        ],
+      },
+    ]);
+  });
+
   it("leaves ordinary markdown images on the markdown path", () => {
     const source = "![Ordinary](https://example.com/full-size.png)";
 
@@ -195,6 +250,7 @@ describe("splitHtmlishMarkdown", () => {
       .map((part) => {
         if (part.kind === "markdown") return part.text;
         if (part.kind === "details") return `${part.summary}\n${part.body}`;
+        if (part.kind === "table") return "table";
         return part.alt;
       })
       .join("\n");

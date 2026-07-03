@@ -23,7 +23,21 @@ export interface MarkdownInlineImagePart {
   flowsWithText?: boolean;
 }
 
-export type MarkdownDisplayPart = MarkdownTextPart | MarkdownDetailsPart | MarkdownInlineImagePart;
+export interface MarkdownTableCellPart {
+  parts: MarkdownDisplayPart[];
+}
+
+export interface MarkdownTablePart {
+  kind: "table";
+  header: MarkdownTableCellPart[];
+  rows: MarkdownTableCellPart[][];
+}
+
+export type MarkdownDisplayPart =
+  | MarkdownTextPart
+  | MarkdownDetailsPart
+  | MarkdownInlineImagePart
+  | MarkdownTablePart;
 
 const FENCE_LINE_RE = /^ {0,3}([`~]{3,})[^\n\r]*(?:\r?\n|$)/gm;
 const BACKTICK_RUN_RE = /`+/g;
@@ -66,6 +80,11 @@ interface InlineImageParseResult {
   end: number;
 }
 
+interface HtmlTableParseResult {
+  part: MarkdownTablePart;
+  end: number;
+}
+
 interface MarkdownDelimiterMatch {
   index: number;
   end: number;
@@ -99,6 +118,13 @@ function splitHtmlishTokens(tokens: HtmlToken[]): MarkdownDisplayPart[] {
       }
     }
 
+    const htmlTable = parseHtmlTableAt(tokens, cursor);
+    if (htmlTable) {
+      parts.push(htmlTable.part);
+      cursor = htmlTable.end;
+      continue;
+    }
+
     const inlineImage = parseInlineImageAt(tokens, cursor);
     if (inlineImage) {
       parts.push(
@@ -118,6 +144,135 @@ function splitHtmlishTokens(tokens: HtmlToken[]): MarkdownDisplayPart[] {
   }
 
   return parts;
+}
+
+function parseHtmlTableAt(tokens: HtmlToken[], start: number): HtmlTableParseResult | null {
+  const token = tokens[start];
+  if (isOpenTag(token, "table")) {
+    return parseTableTokenRange(tokens, start);
+  }
+
+  if (!isOpenTag(token, "div")) {
+    return null;
+  }
+
+  const closeIndex = findMatchingClose(tokens, start, "div");
+  if (closeIndex === null) {
+    return null;
+  }
+
+  const inner = tokens.slice(start + 1, closeIndex);
+  const tableStart = inner.findIndex((child) => isOpenTag(child, "table"));
+  if (tableStart < 0) {
+    return null;
+  }
+
+  const leading = inner.slice(0, tableStart);
+  if (leading.some((child) => child.kind !== "comment" && !isWhitespaceText(child))) {
+    return null;
+  }
+
+  const parsed = parseTableTokenRange(inner, tableStart);
+  if (!parsed) {
+    return null;
+  }
+
+  const trailing = inner.slice(parsed.end);
+  if (trailing.some((child) => child.kind !== "comment" && !isWhitespaceText(child))) {
+    return null;
+  }
+
+  return {
+    part: parsed.part,
+    end: closeIndex + 1,
+  };
+}
+
+function parseTableTokenRange(tokens: HtmlToken[], start: number): HtmlTableParseResult | null {
+  const closeIndex = findMatchingClose(tokens, start, "table");
+  if (closeIndex === null) {
+    return null;
+  }
+
+  const rows = parseTableRows(tokens.slice(start + 1, closeIndex));
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const header = rows[0];
+  if (!header || header.length === 0) {
+    return null;
+  }
+
+  return {
+    part: {
+      kind: "table",
+      header,
+      rows: rows.slice(1),
+    },
+    end: closeIndex + 1,
+  };
+}
+
+function parseTableRows(tokens: HtmlToken[]): MarkdownTableCellPart[][] {
+  const rows: MarkdownTableCellPart[][] = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (isOpenTag(token, "thead") || isOpenTag(token, "tbody") || isOpenTag(token, "tfoot")) {
+      const closeIndex = findMatchingClose(tokens, index, token.name);
+      if (closeIndex === null) {
+        continue;
+      }
+      rows.push(...parseTableRows(tokens.slice(index + 1, closeIndex)));
+      index = closeIndex;
+      continue;
+    }
+
+    if (!isOpenTag(token, "tr")) {
+      continue;
+    }
+
+    const closeIndex = findMatchingClose(tokens, index, "tr");
+    if (closeIndex === null) {
+      continue;
+    }
+
+    const row = parseTableCells(tokens.slice(index + 1, closeIndex));
+    if (row.length > 0) {
+      rows.push(row);
+    }
+    index = closeIndex;
+  }
+
+  return rows;
+}
+
+function parseTableCells(tokens: HtmlToken[]): MarkdownTableCellPart[] {
+  const cells: MarkdownTableCellPart[] = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!isOpenTag(token, "th") && !isOpenTag(token, "td")) {
+      continue;
+    }
+
+    const closeIndex = findMatchingClose(tokens, index, token.name);
+    if (closeIndex === null) {
+      continue;
+    }
+
+    cells.push(renderTableCell(tokens.slice(index + 1, closeIndex)));
+    index = closeIndex;
+  }
+
+  return cells;
+}
+
+function renderTableCell(tokens: HtmlToken[]): MarkdownTableCellPart {
+  return {
+    parts: trimBodyParts(splitHtmlishTokens(tokens)),
+  };
 }
 
 function parseInlineImageAt(tokens: HtmlToken[], start: number): InlineImageParseResult | null {
@@ -372,7 +527,7 @@ function imageTokenToInlineImage(
   href: string | undefined,
 ): MarkdownInlineImagePart | null {
   const src = token.attributes.src ?? "";
-  if (!SAFE_IMAGE_SRC_RE.test(src)) {
+  if (!isSafeImageSource(src)) {
     return null;
   }
 
@@ -383,6 +538,18 @@ function imageTokenToInlineImage(
     ...(href ? { href } : {}),
     ...parseImageDimensions(token.attributes),
   };
+}
+
+function isSafeImageSource(src: string): boolean {
+  if (SAFE_IMAGE_SRC_RE.test(src)) {
+    return true;
+  }
+
+  if (!src || /[<>\n\r]/.test(src)) {
+    return false;
+  }
+
+  return !/^[a-z][a-z0-9+.-]*:/i.test(src);
 }
 
 function parseImageDimensions(attributes: Record<string, string>): MarkdownImageDimensions {

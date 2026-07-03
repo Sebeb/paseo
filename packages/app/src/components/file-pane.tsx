@@ -398,6 +398,7 @@ function FilePreviewMarkdownImage({
   serverId,
   workspaceRoot,
   markdownFileDirectory,
+  preferredWidth,
 }: {
   source: string;
   alt?: string;
@@ -405,6 +406,7 @@ function FilePreviewMarkdownImage({
   serverId: string;
   workspaceRoot: string;
   markdownFileDirectory?: string;
+  preferredWidth?: number;
 }) {
   const { t } = useTranslation();
   const { resolvedUri, isLoading, errorText } = useMarkdownPreviewImageSource({
@@ -420,9 +422,10 @@ function FilePreviewMarkdownImage({
   const surfaceStyle = useMemo(
     () => [
       filePreviewMarkdownImageStyles.surface,
+      preferredWidth ? { maxWidth: preferredWidth } : null,
       aspectRatio ? { aspectRatio } : { height: FILE_PREVIEW_MARKDOWN_IMAGE_MIN_HEIGHT },
     ],
-    [aspectRatio],
+    [aspectRatio, preferredWidth],
   );
   const imageSource = useMemo(() => (resolvedUri ? { uri: resolvedUri } : null), [resolvedUri]);
 
@@ -482,6 +485,12 @@ const filePreviewMarkdownImageStyles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     textAlign: "center",
+  },
+}));
+
+const filePreviewMarkdownInlineImageStyles = StyleSheet.create(() => ({
+  flow: {
+    alignSelf: "flex-start",
   },
 }));
 
@@ -799,6 +808,29 @@ function FilePreviewBody({
     }),
     [client, markdownFileDirectory, serverId, workspaceRoot],
   );
+  const renderMarkdownImagePart = useCallback(
+    (part: { src: string; alt: string; width?: number }, variant: "inline" | "flow") => {
+      if (/^(https?:|data:|blob:)/i.test(part.src)) {
+        return null;
+      }
+
+      const style = variant === "flow" ? filePreviewMarkdownInlineImageStyles.flow : undefined;
+      return (
+        <View style={style}>
+          <FilePreviewMarkdownImage
+            source={part.src}
+            alt={part.alt}
+            client={client}
+            serverId={serverId}
+            workspaceRoot={workspaceRoot}
+            markdownFileDirectory={markdownFileDirectory ?? undefined}
+            preferredWidth={part.width}
+          />
+        </View>
+      );
+    },
+    [client, markdownFileDirectory, serverId, workspaceRoot],
+  );
 
   useEffect(() => {
     if (!lineSelection) {
@@ -844,7 +876,11 @@ function FilePreviewBody({
             scrollEventThrottle={16}
             showsVerticalScrollIndicator={!showDesktopWebScrollbar}
           >
-            <MarkdownRenderer text={preview.content ?? ""} rules={markdownRules} />
+            <MarkdownRenderer
+              text={preview.content ?? ""}
+              rules={markdownRules}
+              renderImagePart={renderMarkdownImagePart}
+            />
           </RNScrollView>
           {scrollbar.overlay}
         </View>
