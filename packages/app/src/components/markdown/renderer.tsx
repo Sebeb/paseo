@@ -35,6 +35,8 @@ import {
   splitHtmlishMarkdown,
   type MarkdownDisplayPart,
   type MarkdownInlineImagePart,
+  type MarkdownTableCellPart,
+  type MarkdownTablePart,
 } from "./html-ish";
 import { resolveInlineImageSize, type InlineImageDimensions } from "./inline-image-size";
 import { groupMarkdownParts, type MarkdownPartGroup } from "./part-groups";
@@ -75,6 +77,9 @@ export interface MarkdownRendererProps {
   allowedImageHandlers?: readonly string[];
   topLevelMaxExceededItem?: ReactNode;
   enableHtmlish?: boolean;
+  renderImagePart?:
+    | ((part: MarkdownInlineImagePart, variant: "inline" | "flow") => ReactNode)
+    | null;
 }
 
 export function MarkdownRenderer({
@@ -86,6 +91,7 @@ export function MarkdownRenderer({
   allowedImageHandlers,
   topLevelMaxExceededItem,
   enableHtmlish = true,
+  renderImagePart = null,
 }: MarkdownRendererProps) {
   const markdownRules = useMemo(() => rules ?? createSharedMarkdownRules(), [rules]);
   const parts = useMemo(
@@ -100,6 +106,7 @@ export function MarkdownRenderer({
       onLinkPress,
       allowedImageHandlers,
       topLevelMaxExceededItem,
+      renderImagePart,
     }),
     [
       allowedImageHandlers,
@@ -108,6 +115,7 @@ export function MarkdownRenderer({
       markdownit,
       onLinkPress,
       topLevelMaxExceededItem,
+      renderImagePart,
     ],
   );
 
@@ -165,6 +173,9 @@ function getMarkdownPartIdentity(part: MarkdownDisplayPart): string {
   if (part.kind === "inlineImage") {
     return `inlineImage:${part.src}:${part.alt}`;
   }
+  if (part.kind === "table") {
+    return `table:${part.header.length}:${part.rows.length}`;
+  }
   return `details:${part.summary.slice(0, 80)}:${part.body.slice(0, 80)}`;
 }
 
@@ -180,7 +191,17 @@ function MarkdownPart({
   }
 
   if (part.kind === "inlineImage") {
-    return <MarkdownInlineImage part={part} onLinkPress={rendererProps.onLinkPress} />;
+    return (
+      <MarkdownInlineImage
+        part={part}
+        onLinkPress={rendererProps.onLinkPress}
+        renderImagePart={rendererProps.renderImagePart}
+      />
+    );
+  }
+
+  if (part.kind === "table") {
+    return <MarkdownStructuredTable part={part} rendererProps={rendererProps} />;
   }
 
   if (part.text.length === 0) {
@@ -253,9 +274,13 @@ function useNaturalImageDimensions(part: MarkdownInlineImagePart): {
 function MarkdownInlineImage({
   part,
   onLinkPress,
+  renderImagePart,
 }: {
   part: Extract<MarkdownDisplayPart, { kind: "inlineImage" }>;
   onLinkPress?: (url: string) => boolean;
+  renderImagePart?:
+    | ((part: MarkdownInlineImagePart, variant: "inline" | "flow") => ReactNode)
+    | null;
 }) {
   const { natural: naturalDimensions } = useNaturalImageDimensions(part);
   const explicitDimensions = useMemo(
@@ -273,6 +298,7 @@ function MarkdownInlineImage({
     [explicitDimensions, naturalDimensions],
   );
   const imageStyle = useMemo(() => [detailsStyles.inlineImage, imageSize], [imageSize]);
+  const customImage = renderImagePart?.(part, "inline");
 
   const image = (
     <Image
@@ -282,6 +308,10 @@ function MarkdownInlineImage({
       accessibilityLabel={part.alt || undefined}
     />
   );
+
+  if (customImage) {
+    return <View style={detailsStyles.inlineImageWrap}>{customImage}</View>;
+  }
 
   if (!part.href) {
     return <View style={detailsStyles.inlineImageWrap}>{image}</View>;
@@ -299,9 +329,13 @@ const FLOW_IMAGE_MAX_HEIGHT = 18;
 function MarkdownFlowImage({
   part,
   onLinkPress,
+  renderImagePart,
 }: {
   part: MarkdownInlineImagePart;
   onLinkPress?: (url: string) => boolean;
+  renderImagePart?:
+    | ((part: MarkdownInlineImagePart, variant: "inline" | "flow") => ReactNode)
+    | null;
 }) {
   const { natural, failed, setFailed } = useNaturalImageDimensions(part);
   const handlePress = useCallback(() => {
@@ -320,6 +354,7 @@ function MarkdownFlowImage({
     return { width: Math.round(size.width * scale), height: Math.round(size.height * scale) };
   }, [natural, part.height, part.width]);
   const imageStyle = useMemo(() => [detailsStyles.flowImage, imageSize], [imageSize]);
+  const customImage = renderImagePart?.(part, "flow");
 
   if (failed) {
     if (!part.alt) {
@@ -341,6 +376,10 @@ function MarkdownFlowImage({
       onError={handleError}
     />
   );
+
+  if (customImage) {
+    return customImage;
+  }
 
   if (!part.href) {
     return image;
@@ -364,7 +403,12 @@ function MarkdownImageTextGroup({
     <>
       <View style={detailsStyles.imageTextRow}>
         {group.images.map((image) => (
-          <MarkdownFlowImage key={image.src} part={image} onLinkPress={rendererProps.onLinkPress} />
+          <MarkdownFlowImage
+            key={image.src}
+            part={image}
+            onLinkPress={rendererProps.onLinkPress}
+            renderImagePart={rendererProps.renderImagePart}
+          />
         ))}
         <View style={detailsStyles.imageTextRowContent}>
           <MarkdownFragment text={group.lead} {...rendererProps} />
@@ -373,6 +417,118 @@ function MarkdownImageTextGroup({
       {group.rest ? <MarkdownFragment text={group.rest} {...rendererProps} /> : null}
     </>
   );
+}
+
+function MarkdownStructuredTable({
+  part,
+  rendererProps,
+}: {
+  part: MarkdownTablePart;
+  rendererProps: MarkdownPartRendererProps;
+}) {
+  const columnWidths = useMemo(() => {
+    const widths = Array.from({ length: part.header.length }, () => MARKDOWN_TABLE_CELL_MIN_WIDTH);
+    const rows = [part.header, ...part.rows];
+    for (const row of rows) {
+      row.forEach((cell, index) => {
+        widths[index] = Math.max(
+          widths[index] ?? MARKDOWN_TABLE_CELL_MIN_WIDTH,
+          getPreferredCellWidth(cell),
+        );
+      });
+    }
+    return widths;
+  }, [part.header, part.rows]);
+
+  return (
+    <ScrollView
+      horizontal
+      nestedScrollEnabled
+      style={structuredTableStyles.table}
+      contentContainerStyle={structuredTableStyles.tableContent}
+    >
+      <View>
+        <View style={structuredTableStyles.headerRow}>
+          {part.header.map((cell, index) => (
+            <MarkdownStructuredTableCell
+              key={getStructuredTableCellKey(cell, `header-${index}`)}
+              cell={cell}
+              width={columnWidths[index] ?? MARKDOWN_TABLE_CELL_MIN_WIDTH}
+              rendererProps={rendererProps}
+              header
+            />
+          ))}
+        </View>
+        {part.rows.map((row, rowIndex) => (
+          <View
+            key={getStructuredTableRowKey(row, `row-${rowIndex}`)}
+            style={structuredTableStyles.row}
+          >
+            {row.map((cell, cellIndex) => (
+              <MarkdownStructuredTableCell
+                key={getStructuredTableCellKey(cell, `row-${rowIndex}-cell-${cellIndex}`)}
+                cell={cell}
+                width={columnWidths[cellIndex] ?? MARKDOWN_TABLE_CELL_MIN_WIDTH}
+                rendererProps={rendererProps}
+              />
+            ))}
+          </View>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
+
+function MarkdownStructuredTableCell({
+  cell,
+  width,
+  rendererProps,
+  header = false,
+}: {
+  cell: MarkdownTableCellPart;
+  width: number;
+  rendererProps: MarkdownPartRendererProps;
+  header?: boolean;
+}) {
+  const style = useMemo(
+    () => [
+      structuredTableStyles.cell,
+      header ? structuredTableStyles.headerCell : structuredTableStyles.bodyCell,
+      { width },
+    ],
+    [header, width],
+  );
+
+  return (
+    <View style={style}>
+      <MarkdownPartList parts={cell.parts} rendererProps={rendererProps} />
+    </View>
+  );
+}
+
+function getPreferredCellWidth(cell: MarkdownTableCellPart): number {
+  let width = MARKDOWN_TABLE_CELL_MIN_WIDTH;
+  for (const part of cell.parts) {
+    width = Math.max(width, getPreferredPartWidth(part));
+  }
+  return width;
+}
+
+function getPreferredPartWidth(part: MarkdownDisplayPart): number {
+  if (part.kind === "inlineImage") {
+    return part.width ?? MARKDOWN_TABLE_CELL_MIN_WIDTH;
+  }
+  return MARKDOWN_TABLE_CELL_MIN_WIDTH;
+}
+
+function getStructuredTableRowKey(row: MarkdownTableCellPart[], fallback: string): string {
+  const key = row.map((cell) => getStructuredTableCellKey(cell, "")).join("|");
+  return key || fallback;
+}
+
+function getStructuredTableCellKey(cell: MarkdownTableCellPart, fallback: string): string {
+  const key = cell.parts.map(getMarkdownPartIdentity).join(",");
+  return key || fallback;
 }
 
 function MarkdownDetails({
@@ -511,10 +667,9 @@ function MarkdownTableCell({
   style: MarkdownStyles[string];
 }) {
   const cellStyle = useMemo(() => [style, markdownTableStyles.cell], [style]);
-  const textStyle = useMemo(() => [style, markdownTableStyles.cellText], [style]);
   return (
     <View key={node.key} style={cellStyle}>
-      <Text style={textStyle}>{children}</Text>
+      <View style={markdownTableStyles.cellContent}>{children}</View>
     </View>
   );
 }
@@ -765,9 +920,40 @@ const markdownTableStyles = StyleSheet.create(() => ({
     minWidth: MARKDOWN_TABLE_CELL_MIN_WIDTH,
     flex: 1,
   },
-  cellText: {
+  cellContent: {
     flexShrink: 1,
   },
+}));
+
+const structuredTableStyles = StyleSheet.create((theme) => ({
+  table: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.md,
+    marginVertical: theme.spacing[3],
+  },
+  tableContent: {
+    minWidth: "100%",
+  },
+  headerRow: {
+    flexDirection: "row",
+    backgroundColor: theme.colors.surface2,
+  },
+  row: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  cell: {
+    padding: theme.spacing[2],
+    borderRightWidth: 1,
+    borderColor: theme.colors.border,
+    flexShrink: 0,
+  },
+  headerCell: {
+    backgroundColor: theme.colors.surface2,
+  },
+  bodyCell: {},
 }));
 
 const detailsStyles = StyleSheet.create((theme) => ({
