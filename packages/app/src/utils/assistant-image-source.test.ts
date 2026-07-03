@@ -27,6 +27,20 @@ describe("resolveAssistantImageSource", () => {
     });
   });
 
+  it("resolves relative paths against the supplied base directory before the workspace root", () => {
+    expect(
+      resolveAssistantImageSource({
+        source: "01-mobile-empty-action-panel.png",
+        workspaceRoot: "/Users/test/project",
+        baseDirectory: "/Users/test/project/dev_data/screenshots/visual-client/action-planner",
+      }),
+    ).toEqual({
+      kind: "file_rpc",
+      cwd: "/Users/test/project",
+      path: "/Users/test/project/dev_data/screenshots/visual-client/action-planner/01-mobile-empty-action-panel.png",
+    });
+  });
+
   it("uses the workspace root for absolute paths inside the workspace", () => {
     expect(
       resolveAssistantImageSource({

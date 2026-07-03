@@ -8,6 +8,7 @@ export type AssistantImageSourceResolution =
 export function resolveAssistantImageSource(input: {
   source: string;
   workspaceRoot?: string;
+  baseDirectory?: string;
 }): AssistantImageSourceResolution | null {
   const source = input.source.trim();
   if (!source) {
@@ -21,6 +22,7 @@ export function resolveAssistantImageSource(input: {
   const readTarget = resolveFilePreviewReadTarget({
     path: localFileSourceToPath(source),
     workspaceRoot: input.workspaceRoot,
+    baseDirectory: input.baseDirectory,
   });
   if (!readTarget) {
     return null;

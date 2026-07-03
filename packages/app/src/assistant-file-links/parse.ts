@@ -33,6 +33,7 @@ const ASSISTANT_FILE_EXTENSIONS = new Set([
   "cxx",
   "env",
   "fish",
+  "gd",
   "go",
   "gql",
   "gradle",
@@ -111,7 +112,10 @@ function normalizePathToken(value: string): string | null {
     return null;
   }
 
-  return trimmed.replace(/\\/g, "/");
+  // Markdown link hrefs arrive percent-encoded, even for local workspace
+  // paths. Decode before parsing so `Foo%20Bar/file.ts:12` resolves like the
+  // visible path the model intended.
+  return safeDecodeURIComponent(trimmed).replace(/\\/g, "/");
 }
 
 function parseLineFragment(value: string): Pick<InlinePathTarget, "lineStart" | "lineEnd"> | null {
