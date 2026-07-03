@@ -65,6 +65,10 @@ Worktree setup best-effort seeds the generated iOS project and newest native bui
 
 Starting the service must not create, focus, reveal, or leave behind macOS Simulator.app windows. The browser preview is the user-visible simulator surface.
 
+### Image preview sizing
+
+On web/Electron, browser image sizing APIs can report density-corrected CSS dimensions for Retina screenshots. File previews that need true pixel dimensions should read width and height from the file bytes or header, not from `naturalWidth`, `naturalHeight`, or browser auto-sizing.
+
 ### Desktop renderer profiling
 
 `npm run dev:desktop` starts Electron with Chromium remote debugging enabled on

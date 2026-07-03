@@ -22,6 +22,17 @@ describe("parseInlinePathToken", () => {
     });
   });
 
+  it("decodes percent-escaped local paths before parsing line suffixes", () => {
+    expect(
+      parseInlinePathToken("Ad%20Inf%20Godot/Testing/support/visual_report_helper.gd:37"),
+    ).toEqual({
+      raw: "Ad%20Inf%20Godot/Testing/support/visual_report_helper.gd:37",
+      path: "Ad Inf Godot/Testing/support/visual_report_helper.gd",
+      lineStart: 37,
+      lineEnd: undefined,
+    });
+  });
+
   it("parses filename:lineStart-lineEnd", () => {
     expect(parseInlinePathToken("src/app.ts:12-20")).toEqual({
       raw: "src/app.ts:12-20",
@@ -271,6 +282,19 @@ describe("parseAssistantFileLink", () => {
     });
   });
 
+  it("resolves percent-escaped relative paths against the active workspace", () => {
+    expect(
+      parseAssistantFileLink("Ad%20Inf%20Godot/Testing/support/visual_report_helper.gd:37", {
+        workspaceRoot: "/Users/test/project",
+      }),
+    ).toEqual({
+      raw: "Ad%20Inf%20Godot/Testing/support/visual_report_helper.gd:37",
+      path: "/Users/test/project/Ad Inf Godot/Testing/support/visual_report_helper.gd",
+      lineStart: 37,
+      lineEnd: undefined,
+    });
+  });
+
   it("parses absolute POSIX hrefs inside the active workspace", () => {
     expect(
       parseAssistantFileLink("/Users/test/project/src/app.tsx#L33", {
@@ -292,6 +316,19 @@ describe("parseAssistantFileLink", () => {
     ).toEqual({
       raw: "/Users/test/project/src/app.tsx:33",
       path: "/Users/test/project/src/app.tsx",
+      lineStart: 33,
+      lineEnd: undefined,
+    });
+  });
+
+  it("parses percent-escaped absolute POSIX hrefs with VS Code-style line suffixes", () => {
+    expect(
+      parseAssistantFileLink("/Users/test/Ad%20Inf%20Godot/src/app.tsx:33", {
+        workspaceRoot: "/Users/test/Ad Inf Godot",
+      }),
+    ).toEqual({
+      raw: "/Users/test/Ad%20Inf%20Godot/src/app.tsx:33",
+      path: "/Users/test/Ad Inf Godot/src/app.tsx",
       lineStart: 33,
       lineEnd: undefined,
     });

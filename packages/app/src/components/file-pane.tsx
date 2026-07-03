@@ -1,10 +1,33 @@
-import React, { useContext, useEffect, useMemo, useRef } from "react";
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { FileReadResult } from "@getpaseo/client/internal/daemon-client";
-import { Image as RNImage, ScrollView as RNScrollView, Text, View } from "react-native";
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import {
+  Pressable,
+  Image as RNImage,
+  ScrollView as RNScrollView,
+  Text,
+  View,
+  type GestureResponderEvent,
+  type LayoutChangeEvent,
+} from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
-import { MarkdownRenderer } from "@/components/markdown/renderer";
+import type { ASTNode } from "react-native-markdown-display";
+import {
+  createSharedMarkdownRules,
+  MarkdownRenderer,
+  type MarkdownStyles,
+} from "@/components/markdown/renderer";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useSessionStore, type ExplorerFile } from "@/stores/session-store";
@@ -19,14 +42,23 @@ import { isRenderedMarkdownFile } from "@/components/file-pane-render-mode";
 import { isWeb } from "@/constants/platform";
 import type { AttachmentMetadata } from "@/attachments/types";
 import { useAttachmentPreviewUrl } from "@/attachments/use-attachment-preview-url";
-import { persistAttachmentFromBytes } from "@/attachments/service";
+import { persistAttachmentFromBytes, persistAttachmentFromDataUrl } from "@/attachments/service";
 import { createPreviewAttachmentId, getFileNameFromPath } from "@/attachments/utils";
+import { parseImageDataUrl } from "@/attachments/utils";
 import { explorerFileFromReadResult } from "@/file-explorer/read-result";
 import { resolveFilePreviewReadTarget } from "@/file-explorer/preview-target";
-import type { WorkspaceFileLocation } from "@/workspace/file-open";
+import { resolveWorkspaceFilePaths, type WorkspaceFileLocation } from "@/workspace/file-open";
 import { MountedTabActiveContext } from "@/components/split-container";
 import { useAppVisible } from "@/hooks/use-app-visible";
 import { isFileQueryEnabled } from "@/components/file-pane-enabled";
+import { resolveAssistantImageSource } from "@/utils/assistant-image-source";
+import {
+  imageExceedsViewport,
+  readImagePixelSize,
+  resolveImagePreviewDisplaySize,
+  resolveImageZoomScrollOffset,
+  type ImagePixelSize,
+} from "./file-pane-image-size";
 
 interface CodeLineProps {
   tokens: HighlightToken[];
@@ -40,8 +72,12 @@ interface FilePreviewBodyProps {
   isLoading: boolean;
   showDesktopWebScrollbar: boolean;
   isMobile: boolean;
+  serverId: string;
+  client: DaemonClient | null;
+  workspaceRoot: string;
   location: WorkspaceFileLocation;
   imagePreviewUri: string | null;
+  imagePixelSize: ImagePixelSize | null;
 }
 
 function trimNonEmpty(value: string | null | undefined): string | null {
@@ -70,14 +106,15 @@ function formatFileSize({ size }: { size: number }): string {
 async function createFilePanePreview(file: FileReadResult | null): Promise<{
   file: ExplorerFile | null;
   imageAttachment: AttachmentMetadata | null;
+  imagePixelSize: ImagePixelSize | null;
 }> {
   if (!file) {
-    return { file: null, imageAttachment: null };
+    return { file: null, imageAttachment: null, imagePixelSize: null };
   }
 
   const explorerFile = explorerFileFromReadResult(file);
   if (file.kind !== "image") {
-    return { file: explorerFile, imageAttachment: null };
+    return { file: explorerFile, imageAttachment: null, imagePixelSize: null };
   }
 
   const imageAttachment = await persistAttachmentFromBytes({
@@ -96,6 +133,7 @@ async function createFilePanePreview(file: FileReadResult | null): Promise<{
   return {
     file: explorerFile,
     imageAttachment,
+    imagePixelSize: readImagePixelSize(file.bytes, file.mime),
   };
 }
 
@@ -184,13 +222,513 @@ const codeLineStyles = StyleSheet.create((theme) => ({
   },
 }));
 
+interface ImageFilePreviewProps {
+  imageSource: { uri: string } | null;
+  imagePixelSize: ImagePixelSize | null;
+  previewScrollRef: React.RefObject<RNScrollView | null>;
+  scrollbar: ReturnType<typeof useWebScrollViewScrollbar>;
+  showDesktopWebScrollbar: boolean;
+}
+
+function getParentDirectory(path: string): string | null {
+  const normalized = path.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "/") {
+    return "/";
+  }
+  if (/^[A-Za-z]:$/.test(normalized)) {
+    return `${normalized}/`;
+  }
+  const lastSlash = normalized.lastIndexOf("/");
+  if (lastSlash < 0) {
+    return null;
+  }
+  if (lastSlash === 0) {
+    return "/";
+  }
+  return normalized.slice(0, lastSlash);
+}
+
+const FILE_PREVIEW_MARKDOWN_IMAGE_MIN_HEIGHT = 160;
+
+function resolveMarkdownImageErrorText(
+  fileError: unknown,
+  dataError: unknown,
+  fallbackText: string,
+): string {
+  if (fileError instanceof Error) {
+    return fileError.message;
+  }
+  if (dataError instanceof Error) {
+    return dataError.message;
+  }
+  return fallbackText;
+}
+
+function useResolvedImageAspectRatio(uri: string | null): number | null {
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!uri) {
+      setAspectRatio(null);
+      return;
+    }
+
+    let cancelled = false;
+    RNImage.getSize(
+      uri,
+      (width, height) => {
+        if (!cancelled && width > 0 && height > 0) {
+          setAspectRatio(width / height);
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setAspectRatio(null);
+        }
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [uri]);
+
+  return aspectRatio;
+}
+
+function useMarkdownPreviewImageSource(input: {
+  source: string;
+  client: DaemonClient | null;
+  serverId: string;
+  workspaceRoot: string;
+  markdownFileDirectory?: string;
+  imageUnavailableText: string;
+  fallbackErrorText: string;
+}): {
+  resolvedUri: string | null;
+  isLoading: boolean;
+  errorText: string;
+} {
+  const resolution = useMemo(
+    () =>
+      resolveAssistantImageSource({
+        source: input.source,
+        workspaceRoot: input.workspaceRoot,
+        baseDirectory: input.markdownFileDirectory,
+      }),
+    [input.markdownFileDirectory, input.source, input.workspaceRoot],
+  );
+  const dataImage = useMemo(() => parseImageDataUrl(input.source), [input.source]);
+  const query = useQuery({
+    queryKey: [
+      "filePreviewMarkdownImage",
+      input.serverId,
+      resolution?.kind === "file_rpc" ? resolution.cwd : null,
+      resolution?.kind === "file_rpc" ? resolution.path : null,
+    ],
+    enabled: Boolean(input.client && resolution?.kind === "file_rpc"),
+    staleTime: 30_000,
+    queryFn: async () => {
+      if (!input.client || !resolution || resolution.kind !== "file_rpc") {
+        return null;
+      }
+
+      const file = await input.client.readFile(resolution.cwd, resolution.path);
+      if (file.kind !== "image") {
+        throw new Error(input.imageUnavailableText);
+      }
+
+      return await persistAttachmentFromBytes({
+        id: createPreviewAttachmentId({
+          mimeType: file.mime,
+          path: file.path || resolution.path,
+          size: file.size,
+          modifiedAt: file.modifiedAt,
+          contentLength: file.bytes.byteLength,
+        }),
+        bytes: file.bytes,
+        mimeType: file.mime,
+        fileName: getFileNameFromPath(file.path || resolution.path),
+      });
+    },
+  });
+  const dataImageQuery = useQuery({
+    queryKey: ["filePreviewMarkdownDataImage", dataImage?.cacheKey ?? null],
+    enabled: dataImage !== null,
+    staleTime: 30_000,
+    queryFn: async () => {
+      if (!dataImage) {
+        return null;
+      }
+
+      return await persistAttachmentFromDataUrl({
+        id: createPreviewAttachmentId({
+          mimeType: dataImage.mimeType,
+          contentLength: dataImage.base64.length,
+        }),
+        dataUrl: input.source,
+        mimeType: dataImage.mimeType,
+        fileName: null,
+      });
+    },
+  });
+
+  const fileAssetUri = useAttachmentPreviewUrl(query.data);
+  const dataImageAssetUri = useAttachmentPreviewUrl(dataImageQuery.data);
+  const directUri = resolution?.kind === "direct" && !dataImage ? resolution.uri : null;
+
+  return {
+    resolvedUri: directUri ?? dataImageAssetUri ?? fileAssetUri ?? null,
+    isLoading: query.isLoading || dataImageQuery.isLoading,
+    errorText: resolveMarkdownImageErrorText(
+      query.error,
+      dataImageQuery.error,
+      input.fallbackErrorText,
+    ),
+  };
+}
+
+function FilePreviewMarkdownImage({
+  source,
+  alt,
+  client,
+  serverId,
+  workspaceRoot,
+  markdownFileDirectory,
+}: {
+  source: string;
+  alt?: string;
+  client: DaemonClient | null;
+  serverId: string;
+  workspaceRoot: string;
+  markdownFileDirectory?: string;
+}) {
+  const { t } = useTranslation();
+  const { resolvedUri, isLoading, errorText } = useMarkdownPreviewImageSource({
+    source,
+    client,
+    serverId,
+    workspaceRoot,
+    markdownFileDirectory,
+    imageUnavailableText: t("message.attachments.imagePreviewUnavailable"),
+    fallbackErrorText: t("message.attachments.imagePreviewLoadFailed"),
+  });
+  const aspectRatio = useResolvedImageAspectRatio(resolvedUri);
+  const surfaceStyle = useMemo(
+    () => [
+      filePreviewMarkdownImageStyles.surface,
+      aspectRatio ? { aspectRatio } : { height: FILE_PREVIEW_MARKDOWN_IMAGE_MIN_HEIGHT },
+    ],
+    [aspectRatio],
+  );
+  const imageSource = useMemo(() => (resolvedUri ? { uri: resolvedUri } : null), [resolvedUri]);
+
+  if (resolvedUri) {
+    return (
+      <View style={filePreviewMarkdownImageStyles.frame}>
+        <View style={surfaceStyle}>
+          <RNImage
+            source={imageSource ?? undefined}
+            style={filePreviewMarkdownImageStyles.image}
+            resizeMode="contain"
+            accessibilityLabel={alt}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <View style={filePreviewMarkdownImageStyles.stateFrame}>
+        <LoadingSpinner size="small" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={filePreviewMarkdownImageStyles.stateFrame}>
+      <Text style={filePreviewMarkdownImageStyles.errorText}>{errorText}</Text>
+    </View>
+  );
+}
+
+const filePreviewMarkdownImageStyles = StyleSheet.create((theme) => ({
+  frame: {
+    width: "100%",
+    minHeight: FILE_PREVIEW_MARKDOWN_IMAGE_MIN_HEIGHT,
+    marginBottom: theme.spacing[3],
+  },
+  surface: {
+    width: "100%",
+    overflow: "hidden",
+  },
+  image: {
+    width: "100%",
+    height: "100%",
+  },
+  stateFrame: {
+    width: "100%",
+    minHeight: FILE_PREVIEW_MARKDOWN_IMAGE_MIN_HEIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing[4],
+    paddingVertical: theme.spacing[6],
+  },
+  errorText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    textAlign: "center",
+  },
+}));
+
+function ImageFilePreview({
+  imageSource,
+  imagePixelSize,
+  previewScrollRef,
+  scrollbar,
+  showDesktopWebScrollbar,
+}: ImageFilePreviewProps) {
+  const horizontalScrollRef = useRef<RNScrollView>(null);
+  const [imageViewportSize, setImageViewportSize] = useState<ImagePixelSize | null>(null);
+  const [zoomed, setZoomed] = useState(false);
+
+  const handleImageViewportLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    setImageViewportSize((current) => {
+      if (current && current.width === width && current.height === height) {
+        return current;
+      }
+      return { width, height };
+    });
+  }, []);
+
+  const fitImageSize = useMemo(() => {
+    if (!imagePixelSize || !imageViewportSize) {
+      return null;
+    }
+    return resolveImagePreviewDisplaySize({
+      imagePixelSize,
+      availableWidth: imageViewportSize.width,
+      availableHeight: imageViewportSize.height,
+    });
+  }, [imagePixelSize, imageViewportSize]);
+  const canZoom = useMemo(() => {
+    if (!imagePixelSize || !imageViewportSize) {
+      return false;
+    }
+    return imageExceedsViewport({
+      imagePixelSize,
+      viewportSize: imageViewportSize,
+    });
+  }, [imagePixelSize, imageViewportSize]);
+  const displayedImageSize = useMemo(() => {
+    if (zoomed && imagePixelSize) {
+      return imagePixelSize;
+    }
+    return fitImageSize ?? styles.previewImageFallback;
+  }, [fitImageSize, imagePixelSize, zoomed]);
+  const imageStyle = useMemo(() => [styles.previewImage, displayedImageSize], [displayedImageSize]);
+  const overflowX = Boolean(
+    zoomed && imagePixelSize && imageViewportSize && imagePixelSize.width > imageViewportSize.width,
+  );
+  const overflowY = Boolean(
+    zoomed &&
+    imagePixelSize &&
+    imageViewportSize &&
+    imagePixelSize.height > imageViewportSize.height,
+  );
+  const verticalScrollStyle = useMemo(
+    () =>
+      imageViewportSize
+        ? [
+            styles.previewContent,
+            {
+              width:
+                zoomed && imagePixelSize
+                  ? Math.max(imageViewportSize.width, imagePixelSize.width)
+                  : imageViewportSize.width,
+            },
+          ]
+        : styles.previewContent,
+    [imagePixelSize, imageViewportSize, zoomed],
+  );
+  const imageViewportContentStyle = useMemo(() => {
+    if (!imageViewportSize) {
+      return styles.previewImageContent;
+    }
+    const alignItems: "flex-start" | "center" = overflowX ? "flex-start" : "center";
+    const justifyContent: "flex-start" | "center" = overflowY ? "flex-start" : "center";
+    return [
+      styles.previewImageContent,
+      {
+        minWidth: imageViewportSize.width,
+        minHeight: imageViewportSize.height,
+        alignItems,
+        justifyContent,
+      },
+    ];
+  }, [imageViewportSize, overflowX, overflowY]);
+  const imagePressableStyle = styles.previewImagePressable;
+  const webCursor = useMemo(() => {
+    if (!canZoom) {
+      return "auto";
+    }
+    return zoomed ? "zoom-out" : "zoom-in";
+  }, [canZoom, zoomed]);
+  const webZoomWrapperStyle = useMemo<CSSProperties>(
+    () => ({
+      cursor: webCursor,
+      display: "inline-block",
+      lineHeight: 0,
+    }),
+    [webCursor],
+  );
+
+  useEffect(() => {
+    setZoomed(false);
+    horizontalScrollRef.current?.scrollTo({ x: 0, animated: false });
+    previewScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [imageSource?.uri, previewScrollRef]);
+
+  useEffect(() => {
+    if (!canZoom && zoomed) {
+      setZoomed(false);
+    }
+  }, [canZoom, zoomed]);
+
+  const toggleZoomAtPoint = useCallback(
+    (point?: { clickX: number; clickY: number }) => {
+      if (!canZoom) {
+        return;
+      }
+      if (zoomed) {
+        setZoomed(false);
+        horizontalScrollRef.current?.scrollTo({ x: 0, animated: false });
+        previewScrollRef.current?.scrollTo({ y: 0, animated: false });
+        return;
+      }
+      if (!fitImageSize || !imagePixelSize || !imageViewportSize) {
+        setZoomed(true);
+        return;
+      }
+
+      const offset = resolveImageZoomScrollOffset({
+        clickX: point?.clickX ?? fitImageSize.width / 2,
+        clickY: point?.clickY ?? fitImageSize.height / 2,
+        fitSize: fitImageSize,
+        trueSize: imagePixelSize,
+        viewportSize: imageViewportSize,
+      });
+      setZoomed(true);
+      requestAnimationFrame(() => {
+        horizontalScrollRef.current?.scrollTo({ x: offset.x, animated: false });
+        previewScrollRef.current?.scrollTo({ y: offset.y, animated: false });
+      });
+    },
+    [canZoom, fitImageSize, imagePixelSize, imageViewportSize, previewScrollRef, zoomed],
+  );
+  const handleImagePress = useCallback(
+    (event: GestureResponderEvent) => {
+      toggleZoomAtPoint({
+        clickX: event.nativeEvent.locationX,
+        clickY: event.nativeEvent.locationY,
+      });
+    },
+    [toggleZoomAtPoint],
+  );
+  const handleWebImageClick = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      toggleZoomAtPoint({
+        clickX: event.clientX - rect.left,
+        clickY: event.clientY - rect.top,
+      });
+    },
+    [toggleZoomAtPoint],
+  );
+  const imageElement = useMemo(
+    () => <RNImage source={imageSource ?? undefined} style={imageStyle} resizeMode="contain" />,
+    [imageSource, imageStyle],
+  );
+  const imageInteraction = useMemo(() => {
+    if (isWeb) {
+      return React.createElement(
+        "div",
+        {
+          onClick: canZoom ? handleWebImageClick : undefined,
+          role: canZoom ? "button" : undefined,
+          style: webZoomWrapperStyle,
+        },
+        imageElement,
+      );
+    }
+    return (
+      <Pressable
+        accessibilityRole={canZoom ? "button" : undefined}
+        disabled={!canZoom}
+        onPress={handleImagePress}
+        style={imagePressableStyle}
+      >
+        {imageElement}
+      </Pressable>
+    );
+  }, [
+    canZoom,
+    handleImagePress,
+    handleWebImageClick,
+    imageElement,
+    imagePressableStyle,
+    webZoomWrapperStyle,
+  ]);
+
+  return (
+    <View style={styles.previewScrollContainer}>
+      <View onLayout={handleImageViewportLayout} style={styles.previewImageViewportFrame}>
+        <RNScrollView
+          ref={horizontalScrollRef}
+          horizontal
+          bounces={false}
+          scrollEnabled={zoomed}
+          showsHorizontalScrollIndicator={zoomed}
+          style={styles.previewContent}
+          contentContainerStyle={styles.previewImageHorizontalScrollContent}
+        >
+          <RNScrollView
+            ref={previewScrollRef}
+            bounces={false}
+            scrollEnabled={zoomed}
+            showsVerticalScrollIndicator={zoomed && !showDesktopWebScrollbar}
+            style={verticalScrollStyle}
+            contentContainerStyle={imageViewportContentStyle}
+            onLayout={scrollbar.onLayout}
+            onScroll={scrollbar.onScroll}
+            onContentSizeChange={scrollbar.onContentSizeChange}
+            scrollEventThrottle={16}
+          >
+            {imageInteraction}
+          </RNScrollView>
+        </RNScrollView>
+        {scrollbar.overlay}
+      </View>
+    </View>
+  );
+}
+
 function FilePreviewBody({
   preview,
   isLoading,
   showDesktopWebScrollbar,
   isMobile,
+  serverId,
+  client,
+  workspaceRoot,
   location,
   imagePreviewUri,
+  imagePixelSize,
 }: FilePreviewBodyProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
@@ -231,6 +769,35 @@ function FilePreviewBody({
   const imageSource = useMemo(
     () => (imagePreviewUri ? { uri: imagePreviewUri } : null),
     [imagePreviewUri],
+  );
+  const markdownFileDirectory = useMemo(() => {
+    const resolved = resolveWorkspaceFilePaths({
+      path: location.path,
+      workspaceRoot,
+    });
+    return resolved ? getParentDirectory(resolved.absolutePath) : null;
+  }, [location.path, workspaceRoot]);
+  const markdownRules = useMemo(
+    () => ({
+      ...createSharedMarkdownRules(),
+      image: (
+        node: ASTNode,
+        _children: React.ReactNode[],
+        _parent: ASTNode[],
+        _styles: MarkdownStyles,
+      ) => (
+        <FilePreviewMarkdownImage
+          key={node.key}
+          source={typeof node.attributes?.src === "string" ? node.attributes.src : ""}
+          alt={typeof node.attributes?.alt === "string" ? node.attributes.alt : undefined}
+          client={client}
+          serverId={serverId}
+          workspaceRoot={workspaceRoot}
+          markdownFileDirectory={markdownFileDirectory ?? undefined}
+        />
+      ),
+    }),
+    [client, markdownFileDirectory, serverId, workspaceRoot],
   );
 
   useEffect(() => {
@@ -277,7 +844,7 @@ function FilePreviewBody({
             scrollEventThrottle={16}
             showsVerticalScrollIndicator={!showDesktopWebScrollbar}
           >
-            <MarkdownRenderer text={preview.content ?? ""} />
+            <MarkdownRenderer text={preview.content ?? ""} rules={markdownRules} />
           </RNScrollView>
           {scrollbar.overlay}
         </View>
@@ -347,27 +914,14 @@ function FilePreviewBody({
         </View>
       );
     }
-
     return (
-      <View style={styles.previewScrollContainer}>
-        <RNScrollView
-          ref={previewScrollRef}
-          style={styles.previewContent}
-          contentContainerStyle={styles.previewImageScrollContent}
-          onLayout={scrollbar.onLayout}
-          onScroll={scrollbar.onScroll}
-          onContentSizeChange={scrollbar.onContentSizeChange}
-          scrollEventThrottle={16}
-          showsVerticalScrollIndicator={!showDesktopWebScrollbar}
-        >
-          <RNImage
-            source={imageSource ?? undefined}
-            style={styles.previewImage}
-            resizeMode="contain"
-          />
-        </RNScrollView>
-        {scrollbar.overlay}
-      </View>
+      <ImageFilePreview
+        imageSource={imageSource}
+        imagePixelSize={imagePixelSize}
+        previewScrollRef={previewScrollRef}
+        scrollbar={scrollbar}
+        showDesktopWebScrollbar={showDesktopWebScrollbar}
+      />
     );
   }
 
@@ -432,12 +986,14 @@ export function FilePane({
         return {
           file: preview.file,
           imageAttachment: preview.imageAttachment,
+          imagePixelSize: preview.imagePixelSize,
           error: null,
         };
       } catch (error) {
         return {
           file: null,
           imageAttachment: null,
+          imagePixelSize: null,
           error: error instanceof Error ? error.message : t("panels.file.failedToLoad"),
         };
       }
@@ -460,8 +1016,12 @@ export function FilePane({
         isLoading={query.isFetching}
         showDesktopWebScrollbar={showDesktopWebScrollbar}
         isMobile={isMobile}
+        serverId={serverId}
+        client={client}
+        workspaceRoot={normalizedWorkspaceRoot}
         location={location}
         imagePreviewUri={imagePreviewUri}
+        imagePixelSize={query.data?.imagePixelSize ?? null}
       />
     </View>
   );
@@ -516,10 +1076,27 @@ const styles = StyleSheet.create((theme) => ({
   previewImageScrollContent: {
     flexGrow: 1,
     padding: theme.spacing[4],
+  },
+  previewImageViewportFrame: {
+    flex: 1,
+    minHeight: 0,
+    overflow: "hidden",
+  },
+  previewImageHorizontalScrollContent: {
+    flexGrow: 1,
+  },
+  previewImageContent: {
+    flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
   },
+  previewImagePressable: {
+    flexShrink: 0,
+  },
   previewImage: {
+    flexShrink: 0,
+  },
+  previewImageFallback: {
     width: "100%",
     height: 420,
   },

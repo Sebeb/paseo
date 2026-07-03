@@ -5,6 +5,11 @@ export interface FilePreviewReadTarget {
   path: string;
 }
 
+interface AbsolutePathParts {
+  prefix: string;
+  segments: string[];
+}
+
 function trimTrailingSeparators(value: string): string {
   if (value === "/" || /^[A-Za-z]:[\\/]?$/.test(value)) {
     return value.replace(/\\/g, "/");
@@ -57,9 +62,75 @@ function isHomeRelativePath(value: string): boolean {
   return value === "~" || value.startsWith("~/") || value.startsWith("~\\");
 }
 
+function splitAbsolutePath(value: string): AbsolutePathParts | null {
+  const normalized = value.replace(/\\/g, "/");
+  if (normalized.startsWith("/")) {
+    return {
+      prefix: "/",
+      segments: normalized.split("/").filter(Boolean),
+    };
+  }
+
+  const driveMatch = /^([A-Za-z]:)\/?(.*)$/.exec(normalized);
+  if (driveMatch) {
+    return {
+      prefix: `${driveMatch[1]}/`,
+      segments: driveMatch[2]?.split("/").filter(Boolean) ?? [],
+    };
+  }
+
+  const uncMatch = /^(\/\/[^/]+\/[^/]+)\/?(.*)$/.exec(normalized);
+  if (uncMatch) {
+    return {
+      prefix: uncMatch[1],
+      segments: uncMatch[2]?.split("/").filter(Boolean) ?? [],
+    };
+  }
+
+  return null;
+}
+
+function joinAbsolutePath(parts: AbsolutePathParts): string {
+  if (parts.prefix === "/") {
+    return `/${parts.segments.join("/")}`.replace(/\/+$/, "") || "/";
+  }
+  const suffix = parts.segments.join("/");
+  return suffix ? `${parts.prefix}${suffix}` : parts.prefix;
+}
+
+function resolveRelativePathAgainstBase(
+  baseDirectory: string,
+  relativePath: string,
+): string | null {
+  const baseParts = splitAbsolutePath(baseDirectory);
+  if (!baseParts) {
+    return null;
+  }
+
+  const segments = [...baseParts.segments];
+  for (const segment of relativePath.replace(/\\/g, "/").split("/")) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      if (segments.length > 0) {
+        segments.pop();
+      }
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  return joinAbsolutePath({
+    prefix: baseParts.prefix,
+    segments,
+  });
+}
+
 export function resolveFilePreviewReadTarget(input: {
   path: string;
   workspaceRoot?: string;
+  baseDirectory?: string;
 }): FilePreviewReadTarget | null {
   const previewPath = input.path.trim();
   if (!previewPath) {
@@ -75,6 +146,18 @@ export function resolveFilePreviewReadTarget(input: {
 
   const workspaceRoot = input.workspaceRoot?.trim();
   if (!isAbsolutePath(previewPath)) {
+    const baseDirectory = input.baseDirectory?.trim();
+    if (baseDirectory && isAbsolutePath(baseDirectory)) {
+      const absolutePath = resolveRelativePathAgainstBase(baseDirectory, previewPath);
+      if (!absolutePath) {
+        return null;
+      }
+      return resolveFilePreviewReadTarget({
+        path: absolutePath,
+        workspaceRoot,
+      });
+    }
+
     if (!workspaceRoot || !isAbsolutePath(workspaceRoot)) {
       return null;
     }

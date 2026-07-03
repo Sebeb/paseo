@@ -86,6 +86,26 @@ describe("classifyForResolution", () => {
     });
   });
 
+  it("decodes percent-escaped workspace paths before resolving direct files", () => {
+    const result = classifyForResolution(
+      { href: "Ad%20Inf%20Godot/Testing/support/visual_report_helper.gd:37" },
+      CONTEXT,
+    );
+
+    expect(result).toEqual({
+      kind: "resolved",
+      value: {
+        kind: "file",
+        target: {
+          raw: "Ad%20Inf%20Godot/Testing/support/visual_report_helper.gd:37",
+          path: "/Users/test/project/Ad Inf Godot/Testing/support/visual_report_helper.gd",
+          lineStart: 37,
+          lineEnd: undefined,
+        },
+      },
+    });
+  });
+
   it("flags basename inline-code as a daemon lookup keyed by suggestion query", () => {
     const result = classifyForResolution(
       { href: "file.ts:12", text: "file.ts:12", sourceType: "inline-code" },

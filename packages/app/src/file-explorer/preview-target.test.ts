@@ -14,6 +14,32 @@ describe("resolveFilePreviewReadTarget", () => {
     });
   });
 
+  it("resolves relative paths against the markdown file directory when provided", () => {
+    expect(
+      resolveFilePreviewReadTarget({
+        path: "01-mobile-empty-action-panel.png",
+        workspaceRoot: "/Users/test/project",
+        baseDirectory: "/Users/test/project/dev_data/screenshots/visual-client/action-planner",
+      }),
+    ).toEqual({
+      cwd: "/Users/test/project",
+      path: "/Users/test/project/dev_data/screenshots/visual-client/action-planner/01-mobile-empty-action-panel.png",
+    });
+  });
+
+  it("normalizes dot segments when resolving relative paths against a base directory", () => {
+    expect(
+      resolveFilePreviewReadTarget({
+        path: "../shared/output.png",
+        workspaceRoot: "/Users/test/project",
+        baseDirectory: "/Users/test/project/dev_data/screenshots/visual-client/action-planner",
+      }),
+    ).toEqual({
+      cwd: "/Users/test/project",
+      path: "/Users/test/project/dev_data/screenshots/visual-client/shared/output.png",
+    });
+  });
+
   it("uses the workspace cwd for absolute paths inside the workspace", () => {
     expect(
       resolveFilePreviewReadTarget({
