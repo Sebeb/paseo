@@ -342,6 +342,8 @@ export const ar: TranslationResources = {
       scriptsAccessibility: "البرامج النصية Workspace",
       copyPath: "نسخ المسار",
       copyBranchName: "نسخ اسم الفرع",
+      created: "تم الإنشاء {{value}}",
+      updated: "تم التحديث {{value}}",
       copied: "تم النسخ",
     },
     fileExplorer: {

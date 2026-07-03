@@ -342,6 +342,8 @@ export const zhCN: TranslationResources = {
       scriptsAccessibility: "Workspace scripts",
       copyPath: "复制路径",
       copyBranchName: "复制分支名称",
+      created: "创建于 {{value}}",
+      updated: "更新于 {{value}}",
       copied: "已复制",
     },
     fileExplorer: {

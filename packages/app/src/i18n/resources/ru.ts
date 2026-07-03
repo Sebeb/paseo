@@ -345,6 +345,8 @@ export const ru: TranslationResources = {
       scriptsAccessibility: "Скрипты Workspace",
       copyPath: "Копировать путь",
       copyBranchName: "Копировать имя ветки",
+      created: "Создано {{value}}",
+      updated: "Обновлено {{value}}",
       copied: "Скопировано",
     },
     fileExplorer: {

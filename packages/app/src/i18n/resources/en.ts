@@ -342,6 +342,8 @@ export const en = {
       scriptsAccessibility: "Workspace scripts",
       copyPath: "Copy path",
       copyBranchName: "Copy branch name",
+      created: "Created {{value}}",
+      updated: "Updated {{value}}",
       copied: "Copied",
     },
     fileExplorer: {
