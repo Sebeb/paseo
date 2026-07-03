@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: 2b32f4b52c2251418bf2d5eb81e4387674aa5e35 — fix(app): refine sidebar active highlight states
+Anchor commit: dfc214cec96ef7796abe19b234b0c71d6b0355e2 — fix(app): stabilize sidebar trailing action slot
 
 ## Purpose
 
@@ -56,6 +56,7 @@ These details were previously implemented on `main`, then lost when this feature
 - The sidebar header no longer shows a global "new workspace" action.
 - The history/sessions action lives in the sidebar footer beside the open-folder action.
 - Project and workspace hover actions must not change row height or vertical spacing; trailing action buttons are overlaid within a stable row layout.
+- Workspace trailing action slots can reserve custom widths for multi-icon hover controls while keeping the base metadata row and hover overlay in the same 24 px-tall stable slot.
 - In vertical tab layout, the vertical workspace tab rail remains visible when the main workspace sidebar is toggled closed. Closing the sidebar hides only the workspace/project list, not the separate vertical tab rail.
 - In sidebar/vertical tab layout, the main pane's split-tab creation action lives in the workspace header immediately after the sidebar toggle instead of floating over the pane body. The trigger shows the horizontal split icon by default, switches to the vertical split icon while Command is held on macOS or Control is held on non-macOS platforms, and opens the new-tab menu so the selected agent/browser/terminal/profile is created inside that split.
 
@@ -856,6 +857,10 @@ The active-workspace reveal effect also calls `rememberProjectWorkspaceSelection
 - Trailing metadata is split into:
   - `WorkspaceRowTrailingMeta` for diff stat / PR hint / status badges / VC operation badges.
   - `WorkspaceRowActionControls` for hover-visible create-tab and kebab actions.
+- The right-side content is rendered through `SidebarWorkspaceTrailingActionSlot`, `SidebarWorkspaceTrailingActionBase`, and `SidebarWorkspaceTrailingActionOverlay` so metadata and hover actions occupy one stable, layered slot instead of conditionally replacing each other with separate row layouts.
+- `WorkspaceRowActionSlot` computes custom slot width styles for two-action and three-action control groups (`workspaceTrailingActionSlotDouble` = 50 px, `workspaceTrailingActionSlotTriple` = 76 px) and passes those through the exported slot component.
+- `WorkspaceRowTrailingMeta` always renders its row contents; visibility is handled by the slot base wrapper.
+- `WorkspaceRowActionControls` returns null when there are no create-tab/menu/kebab controls, and otherwise renders only the overlay row content. Visibility is handled by the slot overlay wrapper.
 - When branch-operation badges are visible, they replace diff/status trailing metadata for that row unless a collapsed status summary or shortcut badge has priority.
 
 #### `EmbeddedWorkspaceTabs`
@@ -913,6 +918,9 @@ Changes:
 - `WorkspaceLeadingVisual` is passed as the `leading` prop via `createElement`.
 - `scriptIconKind` and `children` are composed into a single `rightContext` `View` via `createElement` — avoiding JSX to satisfy the memo equality contract at the call sites.
 - Shortcut badge is passed as `shortcutBadge` prop.
+- `SidebarWorkspaceTrailingActionSlot` accepts an optional `style?: StyleProp<ViewStyle>` prop and merges it with the fixed base slot style through `useMemo`. Callers use this to reserve wider trailing slots for multi-button action overlays without changing row height.
+- `SidebarWorkspaceTrailingActionBase` owns the base metadata layer visibility.
+- `SidebarWorkspaceTrailingActionOverlay` owns the hover/action overlay visibility.
 
 ### `packages/app/src/components/sidebar/sidebar-status-list.tsx`
 
