@@ -370,6 +370,8 @@ export const ptBR: TranslationResources = {
       scriptsAccessibility: "Scripts do workspace",
       copyPath: "Copiar caminho",
       copyBranchName: "Copiar nome da branch",
+      created: "Criado em {{value}}",
+      updated: "Atualizado em {{value}}",
       copied: "Copiado",
     },
     fileExplorer: {

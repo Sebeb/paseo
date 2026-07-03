@@ -370,6 +370,8 @@ export const fr: TranslationResources = {
       scriptsAccessibility: "ScriptsWorkspace",
       copyPath: "Copier le chemin",
       copyBranchName: "Copier le nom de la branche",
+      created: "Créé {{value}}",
+      updated: "Mis à jour {{value}}",
       copied: "Copié",
     },
     fileExplorer: {

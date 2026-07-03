@@ -370,6 +370,8 @@ export const ja: TranslationResources = {
       scriptsAccessibility: "ワークスペーススクリプト",
       copyPath: "パスをコピー",
       copyBranchName: "ブランチ名をコピー",
+      created: "作成日時 {{value}}",
+      updated: "更新日時 {{value}}",
       copied: "コピーしました",
     },
     fileExplorer: {

@@ -24,6 +24,8 @@ import {
   ChevronDown,
   Columns2,
   Copy,
+  CalendarPlus,
+  Clock3,
   MessageCircle,
   Pencil,
   RotateCw,
@@ -103,7 +105,7 @@ import type { PinnedTabTarget } from "@/workspace-pins/target";
 import { PinnedTargetsRow } from "@/workspace-pins/pinned-targets-row";
 import { PinnableMenuItem } from "@/workspace-pins/pinnable-menu-item";
 import { useSessionStore } from "@/stores/session-store";
-import { formatTimeAgo } from "@/utils/time";
+import { formatAbsoluteDateTime, formatRecentOrAbsoluteDateTime } from "@/utils/time";
 import type { StreamItem } from "@/types/stream";
 
 const DROPDOWN_WIDTH = 220;
@@ -121,6 +123,8 @@ const ThemedPencil = withUnistyles(Pencil);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedMessageCircle = withUnistyles(MessageCircle);
+const ThemedCalendarPlus = withUnistyles(CalendarPlus);
+const ThemedClock3 = withUnistyles(Clock3);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedGlobe = withUnistyles(Globe);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
@@ -139,7 +143,6 @@ const DRAFT_TARGET: PinnedTabTarget = { kind: "draft" };
 const TERMINAL_TARGET: PinnedTabTarget = { kind: "terminal" };
 const BROWSER_TARGET: PinnedTabTarget = { kind: "browser" };
 const EMPTY_STREAM_ITEMS: StreamItem[] = [];
-const RECENT_RELATIVE_TIME_MS = 7 * 24 * 60 * 60 * 1000;
 
 function newTabActionButtonStyle({ hovered, pressed }: PressableStateCallbackType) {
   return [styles.newTabActionButton, (hovered || pressed) && styles.newTabActionButtonHovered];
@@ -960,24 +963,6 @@ function useAgentTabInfo(serverId: string, tab: WorkspaceTabDescriptor): AgentTa
   );
 }
 
-function formatAbsoluteDateTime(date: Date): string {
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatUpdatedDateTime(date: Date): string {
-  const ageMs = Date.now() - date.getTime();
-  if (ageMs >= 0 && ageMs < RECENT_RELATIVE_TIME_MS) {
-    return formatTimeAgo(date);
-  }
-  return formatAbsoluteDateTime(date);
-}
-
 function AgentTabTooltipContent({
   label,
   agentId,
@@ -1004,18 +989,24 @@ function AgentTabTooltipContent({
       ) : null}
       <View style={styles.tabInfoMeta}>
         {info?.createdAt ? (
-          <Text style={styles.tabInfoMetaText}>
-            {t("workspace.tabs.info.created", {
-              value: formatAbsoluteDateTime(info.createdAt),
-            })}
-          </Text>
+          <View style={styles.tabInfoMetaRow}>
+            <ThemedCalendarPlus size={13} uniProps={mutedColorMapping} />
+            <Text style={styles.tabInfoMetaText}>
+              {t("workspace.tabs.info.created", {
+                value: formatAbsoluteDateTime(info.createdAt),
+              })}
+            </Text>
+          </View>
         ) : null}
         {info?.updatedAt ? (
-          <Text style={styles.tabInfoMetaText}>
-            {t("workspace.tabs.info.updated", {
-              value: formatUpdatedDateTime(info.updatedAt),
-            })}
-          </Text>
+          <View style={styles.tabInfoMetaRow}>
+            <ThemedClock3 size={13} uniProps={mutedColorMapping} />
+            <Text style={styles.tabInfoMetaText}>
+              {t("workspace.tabs.info.updated", {
+                value: formatRecentOrAbsoluteDateTime(info.updatedAt),
+              })}
+            </Text>
+          </View>
         ) : null}
       </View>
       <View style={styles.tabInfoPromptCountRow}>
@@ -1197,7 +1188,7 @@ function TabChip({
   return (
     <View>
       <ContextMenu key={tab.key}>
-        <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
+        <Tooltip enabledOnDesktop enabledOnMobile={false}>
           <TooltipTrigger asChild triggerRefProp="triggerRef">
             <ContextMenuTrigger
               {...(dragHandleProps?.attributes as object | undefined)}
@@ -2173,9 +2164,16 @@ const styles = StyleSheet.create((theme) => ({
   tabInfoMeta: {
     gap: 2,
   },
+  tabInfoMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
   tabInfoMetaText: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
+    flex: 1,
+    minWidth: 0,
   },
   tabInfoPromptCountRow: {
     flexDirection: "row",

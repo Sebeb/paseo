@@ -14,10 +14,12 @@ import { FadeIn, FadeOut } from "react-native-reanimated";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   Check,
+  CalendarPlus,
   CircleCheck,
   CircleDot,
   CircleX,
   Copy,
+  Clock3,
   ExternalLink,
   Folder,
   GitBranch,
@@ -41,6 +43,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { FloatingSurface } from "@/components/ui/floating";
 import { isWeb } from "@/constants/platform";
 import { useHosts } from "@/runtime/host-runtime";
+import { formatAbsoluteDateTime, formatRecentOrAbsoluteDateTime } from "@/utils/time";
 
 interface Rect {
   x: number;
@@ -305,6 +308,24 @@ function WorkspaceHoverCardContent({
               testID="hover-card-workspace-cwd"
             />
           ) : null}
+          {workspace.createdAt ? (
+            <InfoRow
+              icon={ThemedCalendarPlus}
+              value={t("workspace.hoverCard.created", {
+                value: formatAbsoluteDateTime(workspace.createdAt),
+              })}
+              testID="hover-card-workspace-created"
+            />
+          ) : null}
+          {workspace.activityAt ? (
+            <InfoRow
+              icon={ThemedClock3}
+              value={t("workspace.hoverCard.updated", {
+                value: formatRecentOrAbsoluteDateTime(workspace.activityAt),
+              })}
+              testID="hover-card-workspace-updated"
+            />
+          ) : null}
           {prHint || workspace.diffStat ? (
             <View style={styles.cardMetaRow}>
               {workspace.diffStat ? (
@@ -331,17 +352,8 @@ function WorkspaceHoverCardContent({
 const ThemedGitBranch = withUnistyles(GitBranch);
 const ThemedFolder = withUnistyles(Folder);
 const ThemedServer = withUnistyles(Server);
-
-type CardInfoIcon = React.ComponentType<React.ComponentProps<typeof ThemedGitBranch>>;
-
-function HostRow({ serverId }: { serverId: string }): ReactElement | null {
-  const hosts = useHosts();
-  const host = hosts.find((h) => h.serverId === serverId);
-  const label = host?.label?.trim() || serverId;
-
-  return <InfoRow icon={ThemedServer} value={label} testID="hover-card-workspace-host" />;
-}
-
+const ThemedCalendarPlus = withUnistyles(CalendarPlus);
+const ThemedClock3 = withUnistyles(Clock3);
 const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedGitHubIcon = withUnistyles(GitHubIcon);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
@@ -355,6 +367,16 @@ const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.for
 const successColorMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
 const warningColorMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
 const dangerColorMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
+
+type CardInfoIcon = React.ComponentType<React.ComponentProps<typeof ThemedGitBranch>>;
+
+function HostRow({ serverId }: { serverId: string }): ReactElement | null {
+  const hosts = useHosts();
+  const host = hosts.find((h) => h.serverId === serverId);
+  const label = host?.label?.trim() || serverId;
+
+  return <InfoRow icon={ThemedServer} value={label} testID="hover-card-workspace-host" />;
+}
 
 function InfoRow({
   icon: Icon,

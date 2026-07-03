@@ -36,6 +36,26 @@ export function formatTimeAgo(date: Date): string {
   return `${month} ${day}`;
 }
 
+export function formatAbsoluteDateTime(date: Date): string {
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+const RECENT_RELATIVE_TIME_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function formatRecentOrAbsoluteDateTime(date: Date): string {
+  const ageMs = Date.now() - date.getTime();
+  if (ageMs >= 0 && ageMs < RECENT_RELATIVE_TIME_MS) {
+    return formatTimeAgo(date);
+  }
+  return formatAbsoluteDateTime(date);
+}
+
 function isSameLocalDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
