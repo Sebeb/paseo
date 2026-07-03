@@ -9,11 +9,13 @@ import React, {
 import {
   Image,
   Pressable,
+  StyleSheet as RNStyleSheet,
   ScrollView,
   Text,
   View,
   type TextProps,
   type TextStyle,
+  type StyleProp,
   type ViewStyle,
 } from "react-native";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
@@ -519,19 +521,24 @@ function MarkdownTableCell({
   );
 }
 
-export function createMarkdownTableRules(): RenderRules {
+export function createMarkdownTableRules(input?: {
+  tableStyle?: StyleProp<ViewStyle>;
+}): RenderRules {
   return {
-    table: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
-      <ScrollView
-        key={node.key}
-        horizontal
-        nestedScrollEnabled
-        style={styles.table}
-        contentContainerStyle={markdownTableStyles.tableContent}
-      >
-        <View>{children}</View>
-      </ScrollView>
-    ),
+    table: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => {
+      const tableStyle = RNStyleSheet.compose(styles.table, input?.tableStyle);
+      return (
+        <ScrollView
+          key={node.key}
+          horizontal
+          nestedScrollEnabled
+          style={tableStyle}
+          contentContainerStyle={markdownTableStyles.tableContent}
+        >
+          <View>{children}</View>
+        </ScrollView>
+      );
+    },
     thead: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
       <View key={node.key} style={styles.thead}>
         {children}

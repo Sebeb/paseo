@@ -5,7 +5,7 @@ import {
   Pressable,
   type GestureResponderEvent,
   type LayoutChangeEvent,
-  StyleProp,
+  type StyleProp,
   ViewStyle,
   type TextStyle,
 } from "react-native";
@@ -67,6 +67,7 @@ import {
   MarkdownRenderer,
   type MarkdownStyles,
 } from "@/components/markdown/renderer";
+import { useMessageLayoutMetrics } from "@/components/message-layout-context";
 import type { TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { AgentCapabilityFlags, ToolCallDetail } from "@getpaseo/protocol/agent-types";
@@ -1707,6 +1708,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   }, []);
 
   const fileLinkActions = useAssistantFileLinkActions();
+  const { tableBreakoutOffset, tableWidth } = useMessageLayoutMetrics();
   const markdownFindOffsetRef = useRef(0);
   const handleMarkdownLinkPress = useStableEvent((url: string) => {
     fileLinkActions.open({ href: url }, "main");
@@ -1715,9 +1717,19 @@ export const AssistantMessage = memo(function AssistantMessage({
     return false;
   });
 
+  const markdownTableStyle = useMemo<ViewStyle | undefined>(() => {
+    if (tableBreakoutOffset <= 0 || tableWidth <= 0) {
+      return undefined;
+    }
+    return {
+      marginHorizontal: -tableBreakoutOffset,
+      width: tableWidth,
+    };
+  }, [tableBreakoutOffset, tableWidth]);
+
   const markdownRules = useMemo<RenderRules>(() => {
     return {
-      ...createMarkdownTableRules(),
+      ...createMarkdownTableRules({ tableStyle: markdownTableStyle }),
       text: (
         node: ASTNode,
         _children: ReactNode[],
@@ -2023,7 +2035,15 @@ export const AssistantMessage = memo(function AssistantMessage({
         );
       },
     };
-  }, [client, fileLinkActions, findHighlightRanges, markdownParser, serverId, workspaceRoot]);
+  }, [
+    client,
+    fileLinkActions,
+    findHighlightRanges,
+    markdownParser,
+    markdownTableStyle,
+    serverId,
+    workspaceRoot,
+  ]);
 
   const blocks = useMemo(() => splitMarkdownBlocks(message), [message]);
   const keyedBlocks = useMemo(
