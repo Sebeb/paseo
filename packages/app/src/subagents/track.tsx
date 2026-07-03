@@ -136,6 +136,8 @@ function SubagentsTrackRow({
   const presentation = useMemo(() => buildRowPresentation(row), [row]);
   const displayLabel =
     presentation.titleState === "loading" ? t("common.states.loading") : presentation.label;
+  const displaySubtitle = presentation.subtitle;
+  const accessibilityLabel = displaySubtitle ? `${displayLabel}, ${displaySubtitle}` : displayLabel;
   const handlePress = useCallback(() => {
     onOpenSubagent(row.id);
   }, [onOpenSubagent, row.id]);
@@ -157,16 +159,23 @@ function SubagentsTrackRow({
     <View onPointerEnter={handlePointerEnter} onPointerLeave={handlePointerLeave}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={displayLabel}
+        accessibilityLabel={accessibilityLabel}
         testID={`subagents-track-row-${row.id}`}
         onPress={handlePress}
       >
         {({ pressed }) => (
           <View style={hovered || pressed ? styles.rowActive : styles.row}>
             <WorkspaceTabIcon presentation={presentation} />
-            <Text style={styles.rowLabel} numberOfLines={1}>
-              {displayLabel}
-            </Text>
+            <View style={styles.rowText}>
+              <Text style={styles.rowLabel} numberOfLines={1}>
+                {displayLabel}
+              </Text>
+              {displaySubtitle ? (
+                <Text style={styles.rowSubtitle} numberOfLines={1}>
+                  {displaySubtitle}
+                </Text>
+              ) : null}
+            </View>
             <SubagentRowActions
               rowId={row.id}
               displayLabel={displayLabel}
@@ -337,10 +346,16 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface2,
   },
   rowLabel: {
-    flex: 1,
-    minWidth: 0,
     fontSize: theme.fontSize.sm,
     color: theme.colors.foreground,
+  },
+  rowSubtitle: {
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.foregroundMuted,
+  },
+  rowText: {
+    flex: 1,
+    minWidth: 0,
   },
   actionClusterVisible: {
     flexDirection: "row",

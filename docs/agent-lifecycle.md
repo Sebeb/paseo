@@ -63,6 +63,8 @@ Closing a tab on a **subagent** (any agent with `parentAgentId`) is **layout-onl
 
 The asymmetry is intentional: a subagent's home is the parent's track, not the tab. Tabs are ephemeral viewing slots; the track is the persistent record of the parent's children.
 
+Active subagents auto-open workspace tabs by default, just like root agents. Closing one of those tabs still follows the layout-only subagent policy above; archive and detach remain explicit actions from the subagents track.
+
 ## Workspace activity
 
 Agent lifecycle status stays literal: a parent agent is `idle` when its own turn is idle, even if a child is running.

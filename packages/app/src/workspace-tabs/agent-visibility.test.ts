@@ -60,7 +60,7 @@ function makeAgent(input: {
 const WORKSPACE_ID = "ws-1";
 
 describe("workspace agent visibility", () => {
-  it("keeps subagents active and known while excluding them from auto-open", () => {
+  it("keeps subagents active and known while including them in auto-open", () => {
     const parent = makeAgent({
       id: "parent-agent",
       cwd: "/repo/worktree",
@@ -82,7 +82,7 @@ describe("workspace agent visibility", () => {
     });
 
     expect(result.activeAgentIds).toEqual(new Set(["parent-agent", "child-agent"]));
-    expect(result.autoOpenAgentIds).toEqual(new Set(["parent-agent"]));
+    expect(result.autoOpenAgentIds).toEqual(new Set(["parent-agent", "child-agent"]));
     expect(result.knownAgentIds).toEqual(new Set(["parent-agent", "child-agent"]));
   });
 
@@ -105,7 +105,7 @@ describe("workspace agent visibility", () => {
     expect(result.knownAgentIds).toEqual(new Set(["archived-child"]));
   });
 
-  it("excludes a child from auto-open even when its snapshot arrives before the parent", () => {
+  it("includes a child in auto-open even when its snapshot arrives before the parent", () => {
     const child = makeAgent({
       id: "child-agent",
       cwd: "/repo/worktree",
@@ -127,7 +127,7 @@ describe("workspace agent visibility", () => {
     });
 
     expect(result.activeAgentIds).toEqual(new Set(["child-agent", "parent-agent"]));
-    expect(result.autoOpenAgentIds).toEqual(new Set(["parent-agent"]));
+    expect(result.autoOpenAgentIds).toEqual(new Set(["child-agent", "parent-agent"]));
     expect(result.knownAgentIds).toEqual(new Set(["child-agent", "parent-agent"]));
   });
 

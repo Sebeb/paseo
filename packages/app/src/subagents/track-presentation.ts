@@ -17,13 +17,24 @@ export function buildSubagentRowPresentationData(row: SubagentRow): SubagentRowP
     key: `subagent_${row.id}`,
     kind: "agent",
     label: label ?? "",
-    subtitle: "",
+    subtitle: formatSubagentRowSubtitle(row),
     titleState: label ? "ready" : "loading",
     statusBucket: deriveSidebarStateBucket({
       status: row.status,
       requiresAttention: false,
     }),
   };
+}
+
+export function formatSubagentRowSubtitle(row: SubagentRow): string {
+  const parts = [row.workspaceName, row.chatTitle].flatMap((part) => {
+    if (typeof part !== "string") {
+      return [];
+    }
+    const normalized = part.trim();
+    return normalized ? [normalized] : [];
+  });
+  return parts.join(" · ");
 }
 
 export function formatHeaderLabel(rows: readonly SubagentRow[]): string {

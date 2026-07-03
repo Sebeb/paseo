@@ -7,6 +7,9 @@ export interface SubagentRow {
   id: Agent["id"];
   provider: Agent["provider"];
   title: Agent["title"];
+  workspaceId: Agent["workspaceId"] | null;
+  workspaceName: string | null;
+  chatTitle: string | null;
   status: Agent["status"];
   requiresAttention: Agent["requiresAttention"];
   createdAt: Agent["createdAt"];
@@ -21,11 +24,32 @@ interface SelectSubagentsParams {
 
 const EMPTY_SUBAGENT_ROWS: SubagentRow[] = [];
 
-function toSubagentRow(agent: Agent): SubagentRow {
+function resolveSubagentChatTitle(title: Agent["title"]): string | null {
+  if (typeof title !== "string") {
+    return null;
+  }
+  const normalized = title.trim();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.toLowerCase() === "new agent") {
+    return null;
+  }
+  return normalized;
+}
+
+function toSubagentRow(
+  agent: Agent,
+  workspaceNameById: ReadonlyMap<string, { name: string }>,
+): SubagentRow {
+  const workspaceId = agent.workspaceId ?? null;
   return {
     id: agent.id,
     provider: agent.provider,
     title: agent.title,
+    workspaceId,
+    workspaceName: workspaceId ? (workspaceNameById.get(workspaceId)?.name ?? null) : null,
+    chatTitle: resolveSubagentChatTitle(agent.title),
     status: agent.status,
     requiresAttention: agent.requiresAttention,
     createdAt: agent.createdAt,
@@ -37,7 +61,8 @@ export function selectSubagentsForParent(
   params: SelectSubagentsParams,
   pendingArchiveIds: ReadonlySet<string>,
 ): SubagentRow[] {
-  const agents = state.sessions[params.serverId]?.agents;
+  const session = state.sessions[params.serverId];
+  const agents = session?.agents;
   if (!agents || agents.size === 0) {
     return EMPTY_SUBAGENT_ROWS;
   }
@@ -51,7 +76,7 @@ export function selectSubagentsForParent(
     ) {
       continue;
     }
-    rows.push(toSubagentRow(agent));
+    rows.push(toSubagentRow(agent, session.workspaces));
   }
 
   if (rows.length === 0) {
