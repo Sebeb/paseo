@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: ecaf3c87cc8ed0820425a343c5c6a3a7520bc6fa — docs(patch): refresh PATCH.md for feat/sidebar-workspace-tabs
+Anchor commit: 2b32f4b52c2251418bf2d5eb81e4387674aa5e35 — fix(app): refine sidebar active highlight states
 
 ## Purpose
 
@@ -43,6 +43,7 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Auto-reveals the active workspace row by expanding its project, respecting project auto-collapse, and either expanding only the active workspace in workspace auto-collapse mode or uncollapsing that workspace in normal mode.
 - Remembers the last selected workspace inside each project and navigates back to it when reopening an auto-collapsed project.
 - Replaces agent tab tooltips with a detail card showing the tab label, short agent id, initial prompt, created/updated timestamps, and prompt count.
+- Distinguishes ancestor highlighting from direct selection so active project/workspace ancestors use a quieter row background while the selected embedded tab keeps the stronger selected treatment.
 
 ## Restored Main Polish
 
@@ -820,6 +821,7 @@ Key behavior:
 - Renders workspace rows through a `DraggableList` only when `workspaceSortMode === "manual"`; created/lastUpdated/status modes render a static list so drag gestures cannot rewrite a derived sort order.
 - Uses `findActiveSidebarWorkspaceRevealTarget` whenever the route points at a workspace. The containing project is expanded, or becomes the only expanded project when `autoCollapseProjects` is enabled. The workspace is uncollapsed, or becomes the only expanded workspace when sidebar-layout `autoCollapseWorkspaces` is enabled.
 - Tracks the last auto-revealed workspace key to avoid repeatedly rewriting collapsed-section state for the same active workspace.
+- Uses a three-state row highlight model (`"idle"`, `"active"`, `"selected"`) so project/workspace ancestors can show a subdued active background while directly selected rows and embedded active tabs keep the stronger selected background.
 
 #### `useSidebarTabStatusSummaries`
 
@@ -831,6 +833,15 @@ Now also reads `queuedMessages` from the session store and `draftInputsByKey` fr
 Old `SidebarStatusSummaryBadges`, `StatusSummaryCountBadge`, and `SidebarTabStatusSymbol` local components were removed. Callers now use `SidebarEntryStatusBadges` from `sidebar-entry-row.tsx`.
 
 `ProjectHeaderTrailingContent` was removed. Project rows build their trailing content inline and pass `SidebarEntryStatusBadges` directly.
+
+`ProjectHeaderRow`, `WorkspaceRowInner`, and `EmbeddedWorkspaceTabRow` share the row highlight semantics:
+
+- `SidebarRowHighlightState = "idle" | "active" | "selected"` is exported from `sidebar-active-ancestor-highlight.ts`.
+- `"selected"` maps to `styles.sidebarRowSelected` and is used for direct selection, including active embedded tab rows.
+- `"active"` maps to `styles.sidebarRowActive` and is used for project/workspace ancestor rows when a selected embedded tab lives beneath them.
+- `"idle"` applies no highlight style.
+- Workspace rows report `aria-selected` / `accessibilityState.selected` only when the highlight state is `"selected"`, not for the softer ancestor-active state.
+- `WorkspaceRowWithMenu` checks the workspace layout before treating a selected workspace as an embedded-tab ancestor: the main pane must have an active tab, or the focused non-main pane must have an active tab. This avoids soft-highlighting a workspace as an embedded ancestor when embedded tabs are enabled but no embedded tab is actually selected.
 
 Added `ProjectContextMenuContent` — a `ContextMenuContent` panel mirroring the project kebab menu, wrapping the project row with `ContextMenu`/`ContextMenuTrigger`.
 
