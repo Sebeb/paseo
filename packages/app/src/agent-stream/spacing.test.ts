@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { StreamItem } from "@/types/stream";
-import { getAssistantBlockSpacing, isSameAssistantBlockGroup } from "./spacing";
+import {
+  getAssistantBlockSpacing,
+  getCollapsedThinkingGroupSpacing,
+  getGapBetweenStreamItems,
+  isSameAssistantBlockGroup,
+} from "./spacing";
 
 function assistantBlock(params: {
   id: string;
@@ -33,6 +38,25 @@ function toolCallBlock(id: string): Extract<StreamItem, { kind: "tool_call" }> {
         status: "executing",
       },
     },
+  };
+}
+
+function userMessage(id: string): Extract<StreamItem, { kind: "user_message" }> {
+  return {
+    kind: "user_message",
+    id,
+    text: id,
+    timestamp: new Date("2026-05-01T00:00:00.000Z"),
+  };
+}
+
+function thought(id: string): Extract<StreamItem, { kind: "thought" }> {
+  return {
+    kind: "thought",
+    id,
+    text: id,
+    timestamp: new Date("2026-05-01T00:00:00.000Z"),
+    status: "ready",
   };
 }
 
@@ -119,5 +143,43 @@ describe("getAssistantBlockSpacing", () => {
     expect(
       getAssistantBlockSpacing({ item: headBlock, aboveItem: tailBlock, belowItem: null }),
     ).toBe("compactTop");
+  });
+});
+
+describe("getCollapsedThinkingGroupSpacing", () => {
+  it("uses equal spacing around a collapsed completed group between a user message and assistant reply", () => {
+    const above = userMessage("u1");
+    const firstItem = thought("t1");
+    const below = assistantBlock({ id: "a1", blockGroupId: "group-1", blockIndex: 0 });
+    const defaultGapBelow = getGapBetweenStreamItems(firstItem, below);
+
+    expect(
+      getCollapsedThinkingGroupSpacing({
+        aboveItem: above,
+        firstItem,
+        belowItem: below,
+        defaultGapBelow,
+      }),
+    ).toEqual({
+      marginTop: -8,
+      gapBelow: 8,
+    });
+  });
+
+  it("falls back to the existing bottom gap when the group has no assistant reply below it", () => {
+    const above = userMessage("u1");
+    const firstItem = thought("t1");
+
+    expect(
+      getCollapsedThinkingGroupSpacing({
+        aboveItem: above,
+        firstItem,
+        belowItem: null,
+        defaultGapBelow: 0,
+      }),
+    ).toEqual({
+      marginTop: 0,
+      gapBelow: 0,
+    });
   });
 });

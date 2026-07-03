@@ -93,6 +93,7 @@ import { resolveStreamRenderStrategy } from "./strategy-resolver";
 import { type StreamSegmentRenderers, type StreamViewportHandle } from "./strategy";
 import { CompletedTurnFooterRow, TurnFooter, type TurnContentStrategy } from "./turn-footer";
 import { layoutStream, type StreamLayoutItem } from "./layout";
+import { getCollapsedThinkingGroupSpacing } from "./spacing";
 import {
   type BottomAnchorLocalRequest,
   type BottomAnchorRouteRequest,
@@ -1004,8 +1005,8 @@ function ThinkingGroupRow({
     return layouts;
   }, [group.itemIds, layoutItemById]);
 
+  const firstLayout = groupLayouts[0];
   const lastLayout = groupLayouts.at(-1);
-  const gapBelow = lastLayout?.gapBelow ?? 0;
   const isExpanded = expanded ?? group.defaultExpanded;
   const completedTiming = group.finalAssistantItemId
     ? timingByAssistantId.get(group.finalAssistantItemId)
@@ -1037,8 +1038,18 @@ function ThinkingGroupRow({
     return null;
   }
 
+  const wrapperSpacing =
+    !isExpanded && firstLayout
+      ? getCollapsedThinkingGroupSpacing({
+          aboveItem: firstLayout.aboveItem,
+          firstItem: firstLayout.item,
+          belowItem: lastLayout?.belowItem,
+          defaultGapBelow: lastLayout?.gapBelow ?? 0,
+        })
+      : { marginTop: 0, gapBelow: lastLayout?.gapBelow ?? 0 };
+
   return (
-    <StreamItemWrapper gapBelow={gapBelow}>
+    <StreamItemWrapper gapBelow={wrapperSpacing.gapBelow} marginTop={wrapperSpacing.marginTop}>
       <CollapsibleThinkingGroup
         completedTiming={completedTiming}
         counts={counts}
@@ -2050,13 +2061,14 @@ const thinkingGroupStaticStyles = RNStyleSheet.create({
 
 interface StreamItemWrapperProps {
   gapBelow: number;
+  marginTop?: number;
   children: ReactNode;
 }
 
-function StreamItemWrapper({ gapBelow, children }: StreamItemWrapperProps) {
+function StreamItemWrapper({ gapBelow, marginTop = 0, children }: StreamItemWrapperProps) {
   const wrapperStyle = useMemo(
-    () => [stylesheet.streamItemWrapper, { marginBottom: gapBelow }],
-    [gapBelow],
+    () => [stylesheet.streamItemWrapper, { marginTop, marginBottom: gapBelow }],
+    [gapBelow, marginTop],
   );
   return <View style={wrapperStyle}>{children}</View>;
 }

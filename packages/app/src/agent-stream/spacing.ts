@@ -1,6 +1,11 @@
 import type { StreamItem } from "@/types/stream";
 import { SPACING } from "@/styles/theme";
 
+export interface CollapsedThinkingGroupSpacing {
+  marginTop: number;
+  gapBelow: number;
+}
+
 export function isSameAssistantBlockGroup(params: {
   item: StreamItem | null | undefined;
   other: StreamItem | null | undefined;
@@ -60,4 +65,25 @@ export function getGapBetweenStreamItems(
     return SPACING[3];
   }
   return SPACING[4];
+}
+
+export function getCollapsedThinkingGroupSpacing(params: {
+  aboveItem: StreamItem | null | undefined;
+  firstItem: StreamItem;
+  belowItem: StreamItem | null | undefined;
+  defaultGapBelow: number;
+}): CollapsedThinkingGroupSpacing {
+  if (params.aboveItem?.kind !== "user_message" || params.belowItem?.kind !== "assistant_message") {
+    return {
+      marginTop: 0,
+      gapBelow: params.defaultGapBelow,
+    };
+  }
+
+  const symmetricGap = SPACING[2];
+  const gapAbove = getGapBetweenStreamItems(params.aboveItem, params.firstItem);
+  return {
+    marginTop: symmetricGap - gapAbove,
+    gapBelow: symmetricGap,
+  };
 }
