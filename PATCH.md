@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: dfc214cec96ef7796abe19b234b0c71d6b0355e2 — fix(app): stabilize sidebar trailing action slot
+Anchor commit: cdfa833c7b6b9013a3e88714668fbe1cec27ae4f — feat(app): show workspace tab timestamps
 
 ## Purpose
 
@@ -44,6 +44,7 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Remembers the last selected workspace inside each project and navigates back to it when reopening an auto-collapsed project.
 - Replaces agent tab tooltips with a detail card showing the tab label, short agent id, initial prompt, created/updated timestamps, and prompt count.
 - Distinguishes ancestor highlighting from direct selection so active project/workspace ancestors use a quieter row background while the selected embedded tab keeps the stronger selected treatment.
+- Shows created and updated timestamps in workspace hover cards, using absolute creation time and recent-or-absolute activity time.
 
 ## Restored Main Polish
 
@@ -1050,11 +1051,11 @@ The desktop tab row now gives agent tabs a richer tooltip instead of the previou
 
 #### Tooltip formatting
 
-- `formatAbsoluteDateTime(date)` renders month/day/year/hour/minute with the current locale.
-- `formatUpdatedDateTime(date)` uses `formatTimeAgo` for timestamps newer than seven days and absolute formatting for older updates.
-- `AgentTabTooltipContent` renders a 260 px detail card with the tab label, seven-character agent id, initial prompt capped at three lines, created/updated rows when present, and a `MessageCircle` prompt-count row.
+- Uses shared time helpers from `packages/app/src/utils/time.ts`:
+  - `formatAbsoluteDateTime(date)` renders month/day/year/hour/minute with the current locale.
+  - `formatRecentOrAbsoluteDateTime(date)` uses `formatTimeAgo` for timestamps newer than seven days and absolute formatting for older updates.
+- `AgentTabTooltipContent` renders a 260 px detail card with the tab label, seven-character agent id, initial prompt capped at three lines, icon-labeled created/updated rows when present, and a `MessageCircle` prompt-count row.
 - `TabChip` passes `normalizedServerId` into the tooltip path so the hook can read the right session. Agent tab tooltips use `AgentTabTooltipContent`; terminal/browser/draft tabs still use the simple label tooltip.
-- The tooltip delay is set to `0` for immediate desktop disclosure.
 
 #### `useDesktopEmbeddedTabsEnabled(isMobile)`
 
@@ -1185,6 +1186,30 @@ The branch adjusts a broad set of components so embedded sidebar tabs align with
 
 These changes are mostly spacing, hover, icon, spinner, and row-layout updates needed for consistent sidebar embedded tab presentation.
 
+### `packages/app/src/components/workspace-hover-card.tsx`
+
+Workspace hover cards now include workspace timestamps alongside branch, path, diff, PR, and check metadata.
+
+Behavior:
+
+- Imports `formatAbsoluteDateTime` and `formatRecentOrAbsoluteDateTime` from `packages/app/src/utils/time.ts`.
+- Renders a non-copyable `InfoRow` for `workspace.createdAt` using a `CalendarPlus` icon and the localized `workspace.hoverCard.created` label.
+- Renders a non-copyable `InfoRow` for `workspace.activityAt` using a `Clock3` icon and the localized `workspace.hoverCard.updated` label.
+- Creation timestamps are always absolute.
+- Activity timestamps are relative for non-future timestamps newer than seven days and absolute for older or future timestamps.
+- The timestamp rows use muted icons/text, single-line truncation, and the existing hover-card row spacing.
+
+### `packages/app/src/utils/time.ts`
+
+Adds shared date/time formatting helpers used by both workspace hover cards and agent tab info tooltips:
+
+```ts
+function formatAbsoluteDateTime(date: Date): string;
+function formatRecentOrAbsoluteDateTime(date: Date): string;
+```
+
+`formatRecentOrAbsoluteDateTime` uses `formatTimeAgo` only when `0 <= Date.now() - date.getTime() < 7 days`; otherwise it falls back to `formatAbsoluteDateTime`. This keeps future timestamps and older timestamps stable instead of rendering misleading relative labels.
+
 ## Settings And Localization
 
 ### App Settings
@@ -1238,6 +1263,11 @@ Adds sidebar/tab preference strings in:
 - `packages/app/src/i18n/resources/ru.ts`
 - `packages/app/src/i18n/resources/zh-CN.ts`
 
+Also adds workspace hover-card timestamp labels in the same locale files:
+
+- `workspace.hoverCard.created`
+- `workspace.hoverCard.updated`
+
 ## Documentation
 
 Updates:
@@ -1264,6 +1294,7 @@ New and updated tests include:
 - `packages/app/src/workspace-tabs/agent-visibility.test.ts`
 - `packages/app/src/workspace-tabs/tab-navigation.test.ts`
 - `packages/app/src/screens/workspace/workspace-tab-close-tree.test.ts`
+- `packages/app/src/utils/time.test.ts`
 - navigation and collapsed-section store tests
 
 These cover ordering, nested tree construction, row rendering, persisted sidebar preferences, main-pane lookup, close-descendant sequencing, tab status summaries (including draft state and queued message counts), navigation behavior, and collapsed-section state.
