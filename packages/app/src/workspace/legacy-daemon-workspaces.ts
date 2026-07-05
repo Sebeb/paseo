@@ -3,6 +3,7 @@ import type {
   FetchAgentsEntry,
   FetchAgentsOptions,
 } from "@getpaseo/client/internal/daemon-client";
+import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
 import {
   deriveAgentStateBucket,
   getWorkspaceStateBucketPriority,
@@ -243,8 +244,9 @@ function readFetchAgentsNextCursor(
 }
 
 function stampLegacyWorkspaceIds(entries: FetchAgentsEntry[]): FetchAgentsEntry[] {
+  const entriesByAgentId = new Map(entries.map((entry) => [entry.agent.id, entry] as const));
   return entries.map((entry) => {
-    const workspaceId = resolveLegacyWorkspaceId(entry);
+    const workspaceId = resolveLegacyWorkspaceId(entry, entriesByAgentId);
     return {
       ...entry,
       agent: {
@@ -256,9 +258,11 @@ function stampLegacyWorkspaceIds(entries: FetchAgentsEntry[]): FetchAgentsEntry[
 }
 
 function buildLegacyWorkspaces(entries: FetchAgentsEntry[]): Map<string, WorkspaceDescriptor> {
+  const entriesByAgentId = new Map(entries.map((entry) => [entry.agent.id, entry] as const));
   const workspaces = new Map<string, WorkspaceDescriptor>();
   for (const entry of entries) {
-    const workspaceId = entry.agent.workspaceId ?? resolveLegacyWorkspaceId(entry);
+    const workspaceId =
+      entry.agent.workspaceId ?? resolveLegacyWorkspaceId(entry, entriesByAgentId);
     const status = deriveAgentStateBucket({
       status: entry.agent.status,
       pendingPermissionCount: entry.agent.pendingPermissions.length,
@@ -328,6 +332,48 @@ function createLegacyWorkspace(
   };
 }
 
+function resolveDelegationRootEntry(
+  entry: FetchAgentsEntry,
+  entriesByAgentId: ReadonlyMap<string, FetchAgentsEntry>,
+): FetchAgentsEntry | null {
+  const seen = new Set<string>([entry.agent.id]);
+  let current = entry;
+
+  while (true) {
+    const parentAgentId = getParentAgentIdFromLabels(current.agent.labels ?? {});
+    if (!parentAgentId) {
+      return current;
+    }
+    if (seen.has(parentAgentId)) {
+      return null;
+    }
+    const parent = entriesByAgentId.get(parentAgentId);
+    if (!parent) {
+      return null;
+    }
+    seen.add(parentAgentId);
+    current = parent;
+  }
+}
+
+function shouldUseDelegationRootLegacyWorkspace(
+  entry: FetchAgentsEntry,
+  rootEntry: FetchAgentsEntry,
+): boolean {
+  if (entry.agent.id === rootEntry.agent.id) {
+    return false;
+  }
+  const entryBranch = entry.project.checkout.currentBranch?.trim();
+  const rootBranch = rootEntry.project.checkout.currentBranch?.trim();
+  return (
+    entry.project.projectKey === rootEntry.project.projectKey &&
+    Boolean(entryBranch) &&
+    entryBranch === rootBranch &&
+    normalizeWorkspacePath(entry.project.checkout.mainRepoRoot) ===
+      normalizeWorkspacePath(rootEntry.project.checkout.mainRepoRoot)
+  );
+}
+
 function resolveLegacyWorkspaceKind(
   checkout: FetchAgentsEntry["project"]["checkout"],
 ): WorkspaceDescriptor["workspaceKind"] {
@@ -340,7 +386,14 @@ function resolveLegacyWorkspaceKind(
   return "checkout";
 }
 
-function resolveLegacyWorkspaceId(entry: FetchAgentsEntry): string {
+function resolveLegacyWorkspaceId(
+  entry: FetchAgentsEntry,
+  entriesByAgentId?: ReadonlyMap<string, FetchAgentsEntry>,
+): string {
+  const rootEntry = entriesByAgentId ? resolveDelegationRootEntry(entry, entriesByAgentId) : null;
+  if (rootEntry && shouldUseDelegationRootLegacyWorkspace(entry, rootEntry)) {
+    return resolveLegacyWorkspaceId(rootEntry);
+  }
   return (
     normalizeWorkspacePath(entry.project.checkout.cwd) ??
     normalizeWorkspacePath(entry.agent.cwd) ??

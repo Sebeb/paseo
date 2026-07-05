@@ -9,7 +9,6 @@ export interface SubagentRow {
   title: Agent["title"];
   workspaceId: Agent["workspaceId"] | null;
   workspaceName: string | null;
-  chatTitle: string | null;
   status: Agent["status"];
   requiresAttention: Agent["requiresAttention"];
   createdAt: Agent["createdAt"];
@@ -24,20 +23,6 @@ interface SelectSubagentsParams {
 
 const EMPTY_SUBAGENT_ROWS: SubagentRow[] = [];
 
-function resolveSubagentChatTitle(title: Agent["title"]): string | null {
-  if (typeof title !== "string") {
-    return null;
-  }
-  const normalized = title.trim();
-  if (!normalized) {
-    return null;
-  }
-  if (normalized.toLowerCase() === "new agent") {
-    return null;
-  }
-  return normalized;
-}
-
 function toSubagentRow(
   agent: Agent,
   workspaceNameById: ReadonlyMap<string, { name: string }>,
@@ -49,7 +34,6 @@ function toSubagentRow(
     title: agent.title,
     workspaceId,
     workspaceName: workspaceId ? (workspaceNameById.get(workspaceId)?.name ?? null) : null,
-    chatTitle: resolveSubagentChatTitle(agent.title),
     status: agent.status,
     requiresAttention: agent.requiresAttention,
     createdAt: agent.createdAt,

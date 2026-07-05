@@ -14,7 +14,6 @@ function row(overrides: Partial<SubagentRow> & Pick<SubagentRow, "id">): Subagen
     title: overrides.title ?? `Agent ${overrides.id}`,
     workspaceId: overrides.workspaceId === undefined ? "workspace-1" : overrides.workspaceId,
     workspaceName: overrides.workspaceName === undefined ? "main" : overrides.workspaceName,
-    chatTitle: overrides.chatTitle === undefined ? `Agent ${overrides.id}` : overrides.chatTitle,
     status: overrides.status ?? "idle",
     requiresAttention: overrides.requiresAttention ?? false,
     createdAt: overrides.createdAt ?? new Date("2026-04-20T00:00:00.000Z"),
@@ -74,49 +73,34 @@ describe("formatHeaderLabel", () => {
 });
 
 describe("formatSubagentRowSubtitle", () => {
-  it("joins workspace name and chat title when both are available", () => {
+  it("uses the workspace name when available", () => {
     expect(
       formatSubagentRowSubtitle(
         row({
           id: "a",
           workspaceName: "feature/subagents",
-          chatTitle: "Review child",
-        }),
-      ),
-    ).toBe("feature/subagents · Review child");
-  });
-
-  it("uses only the workspace name when chat title is missing", () => {
-    expect(
-      formatSubagentRowSubtitle(
-        row({
-          id: "a",
-          workspaceName: "feature/subagents",
-          chatTitle: null,
         }),
       ),
     ).toBe("feature/subagents");
   });
 
-  it("uses only the chat title when workspace name is missing", () => {
+  it("trims the workspace name", () => {
     expect(
       formatSubagentRowSubtitle(
         row({
           id: "a",
-          workspaceName: null,
-          chatTitle: "Review child",
+          workspaceName: "  feature/subagents  ",
         }),
       ),
-    ).toBe("Review child");
+    ).toBe("feature/subagents");
   });
 
-  it("returns an empty subtitle when neither value is available", () => {
+  it("returns an empty subtitle when workspace name is unavailable", () => {
     expect(
       formatSubagentRowSubtitle(
         row({
           id: "a",
           workspaceName: null,
-          chatTitle: null,
         }),
       ),
     ).toBe("");
@@ -155,22 +139,19 @@ describe("buildSubagentRowPresentationData", () => {
   });
 
   it("marks the row loading and blanks the label for the placeholder title", () => {
-    const presentation = buildSubagentRowPresentationData(
-      row({ id: "a", title: "new agent", chatTitle: null }),
-    );
+    const presentation = buildSubagentRowPresentationData(row({ id: "a", title: "new agent" }));
     expect(presentation.titleState).toBe("loading");
     expect(presentation.label).toBe("");
   });
 
-  it("uses the row subtitle for workspace and chat context", () => {
+  it("uses the workspace name as the row subtitle", () => {
     const presentation = buildSubagentRowPresentationData(
       row({
         id: "a",
         workspaceName: "feature/subagents",
-        chatTitle: "Review child",
       }),
     );
-    expect(presentation.subtitle).toBe("feature/subagents · Review child");
+    expect(presentation.subtitle).toBe("feature/subagents");
   });
 
   it("maps a running row to the running status bucket so callers render the synced loader", () => {

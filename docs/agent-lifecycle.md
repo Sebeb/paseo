@@ -69,7 +69,7 @@ Same-workspace subagents also open as nested tabs in the sidebar tab list. The c
 
 Closing a parent tab closes child tabs first, deepest child before direct child. Each child uses its normal close behavior and confirmation. If any child close is canceled, the parent tab stays open. After all child tabs close, the parent tab follows its normal root/subagent close policy.
 
-Active subagents auto-open workspace tabs by default, just like root agents. Closing one of those tabs still follows the layout-only subagent policy above; archive and detach remain explicit actions from the subagents track.
+Active subagents auto-open workspace tabs by default, just like root agents. For tab placement, a subagent created in the caller's current workspace opens in the parent's workspace even if its runtime cwd points at a subdirectory or same-branch duplicate descriptor. A subagent created in a distinct workspace (for example a different branch/worktree) opens there. Closing one of those tabs still follows the layout-only subagent policy above; archive and detach remain explicit actions from the subagents track.
 
 ## Workspace activity
 
