@@ -116,6 +116,8 @@ export interface MessageInputProps {
   beforeVoiceContent?: React.ReactNode;
   /** Content to render on the right side after voice button (e.g., realtime button, cancel button) */
   rightContent?: React.ReactNode;
+  /** Content rendered immediately after the send button, for controls visually attached to submit. */
+  afterSendContent?: React.ReactNode;
   voiceServerId?: string;
   voiceAgentId?: string;
   /** When true and there's sendable content, calls onQueue instead of onSubmit */
@@ -1164,6 +1166,7 @@ interface ResolvedMessageInputProps {
   leftContent: React.ReactNode;
   beforeVoiceContent: React.ReactNode;
   rightContent: React.ReactNode;
+  afterSendContent: React.ReactNode;
   voiceServerId: string | undefined;
   voiceAgentId: string | undefined;
   isAgentRunning: boolean;
@@ -1206,6 +1209,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
     leftContent: props.leftContent,
     beforeVoiceContent: props.beforeVoiceContent,
     rightContent: props.rightContent,
+    afterSendContent: props.afterSendContent,
     voiceServerId: props.voiceServerId,
     voiceAgentId: props.voiceAgentId,
     isAgentRunning: props.isAgentRunning ?? false,
@@ -1268,6 +1272,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       onHeightChange,
       inputWrapperStyle,
       attachmentSlot,
+      afterSendContent,
     } = resolveMessageInputProps(props);
     const { t } = useTranslation();
     const isCompact = useIsCompactFormFactor();
@@ -1897,6 +1902,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                 sendKeys={DEFAULT_SEND_KEYS}
                 sendTooltipLabel={sendTooltipLabel}
               />
+              {afterSendContent}
             </View>
           </View>
         </Animated.View>

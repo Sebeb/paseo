@@ -304,6 +304,9 @@ export class ChatScheduleLoopSession {
       const schedule = await this.scheduleService.create({
         prompt: request.prompt,
         name: request.name,
+        ...(request.delivery ? { delivery: request.delivery } : {}),
+        ...(request.images ? { images: request.images } : {}),
+        ...(request.attachments ? { attachments: request.attachments } : {}),
         cadence: request.cadence,
         target,
         maxRuns: request.maxRuns,

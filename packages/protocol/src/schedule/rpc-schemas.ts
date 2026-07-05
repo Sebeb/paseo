@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { AgentAttachmentSchema, ImageAttachmentSchema } from "../agent-attachments.js";
 import {
   ScheduleCadenceSchema,
+  ScheduleDeliverySchema,
   ScheduleRunSchema,
   ScheduleSummarySchema,
   StoredScheduleSchema,
@@ -27,6 +29,9 @@ export const ScheduleCreateRequestSchema = z.object({
   requestId: z.string(),
   prompt: z.string().min(1),
   name: z.string().optional(),
+  delivery: ScheduleDeliverySchema.optional(),
+  images: z.array(ImageAttachmentSchema).optional(),
+  attachments: z.array(AgentAttachmentSchema).optional(),
   cadence: ScheduleCadenceSchema,
   target: ScheduleCreateTargetSchema,
   maxRuns: z.number().int().positive().optional(),

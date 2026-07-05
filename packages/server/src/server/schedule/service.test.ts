@@ -134,6 +134,48 @@ describe("ScheduleService", () => {
     expect(inspected.nextRunAt).toBe("2026-01-01T00:02:00.000Z");
   });
 
+  test("keeps stale unfired one-shot schedules due after startup recovery", async () => {
+    const service = new ScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner: async (schedule) => ({
+        agentId: null,
+        output: `ran:${schedule.prompt}`,
+      }),
+    });
+
+    const created = await service.create({
+      prompt: "send later",
+      cadence: { type: "cron", expression: "0 9 2 1 5", timezone: "UTC" },
+      target: {
+        type: "new-agent",
+        config: {
+          provider: "claude",
+          cwd: tempDir,
+        },
+      },
+      maxRuns: 1,
+      runOnCreate: false,
+    });
+
+    now = new Date("2026-01-03T00:00:00.000Z");
+    await service.start();
+    await service.stop();
+
+    const recovered = await service.inspect(created.id);
+    expect(recovered.nextRunAt).toBe("2026-01-02T09:00:00.000Z");
+
+    await service.tick();
+
+    const inspected = await service.inspect(created.id);
+    expect(inspected.status).toBe("completed");
+    expect(inspected.runs[0]?.status).toBe("succeeded");
+  });
+
   test("pause and resume update persisted schedule state", async () => {
     const service = new ScheduleService({
       paseoHome: tempDir,

@@ -98,6 +98,7 @@ import type {
   AgentSessionConfig,
 } from "@getpaseo/protocol/agent-types";
 import type { MutableDaemonConfig, MutableDaemonConfigPatch } from "@getpaseo/protocol/messages";
+import type { AgentAttachment, ImageAttachmentPayload } from "@getpaseo/protocol/agent-attachments";
 import { isRelayClientWebSocketUrl } from "@getpaseo/protocol/daemon-endpoints";
 import { terminalSubscriptionKey } from "@getpaseo/protocol/terminal-subscription-key";
 import {
@@ -660,6 +661,9 @@ export interface StopLoopOptions {
 export interface CreateScheduleOptions {
   prompt: string;
   name?: string | null;
+  delivery?: "schedule-notification" | "agent-message";
+  images?: ImageAttachmentPayload[];
+  attachments?: AgentAttachment[];
   cadence:
     | {
         type: "every";
@@ -4509,6 +4513,9 @@ export class DaemonClient {
         prompt: options.prompt,
         cadence: options.cadence,
         target: options.target,
+        ...(options.delivery ? { delivery: options.delivery } : {}),
+        ...(options.images ? { images: options.images } : {}),
+        ...(options.attachments ? { attachments: options.attachments } : {}),
         ...(options.name ? { name: options.name } : {}),
         ...(typeof options.maxRuns === "number" ? { maxRuns: options.maxRuns } : {}),
         ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),

@@ -5,6 +5,7 @@ import type { Logger } from "pino";
 import { AgentManager } from "../agent/agent-manager.js";
 import type { AgentStorage } from "../agent/agent-storage.js";
 import type { AgentSessionConfig } from "../agent/agent-sdk-types.js";
+import type { AgentPromptContentBlock, AgentPromptInput } from "../agent/agent-sdk-types.js";
 import { curateAgentActivity } from "../agent/activity-curator.js";
 import { ensureAgentLoaded } from "../agent/agent-loading.js";
 import { formatSystemNotificationPrompt } from "../agent/agent-prompt.js";
@@ -51,6 +52,32 @@ function buildScheduleFireBody(schedule: StoredSchedule, runId: string): string 
     ? `Schedule "${schedule.name}" fired (id=${schedule.id}, run=${runId}).`
     : `Schedule fired (id=${schedule.id}, run=${runId}).`;
   return `${heading}\n${schedule.prompt}`;
+}
+
+function resolveScheduleDelivery(
+  schedule: StoredSchedule,
+): NonNullable<StoredSchedule["delivery"]> {
+  return schedule.delivery ?? "schedule-notification";
+}
+
+function buildScheduledAgentMessagePrompt(schedule: StoredSchedule): AgentPromptInput {
+  const normalized = schedule.prompt.trim();
+  const images = schedule.images ?? [];
+  const attachments = schedule.attachments ?? [];
+  if (images.length === 0 && attachments.length === 0) {
+    return normalized;
+  }
+  const blocks: AgentPromptContentBlock[] = [];
+  if (normalized.length > 0) {
+    blocks.push({ type: "text", text: normalized });
+  }
+  for (const image of images) {
+    blocks.push({ type: "image", data: image.data, mimeType: image.mimeType });
+  }
+  for (const attachment of attachments) {
+    blocks.push(attachment);
+  }
+  return blocks;
 }
 
 function normalizePrompt(prompt: string): string {
@@ -246,6 +273,9 @@ export class ScheduleService {
     const schedule = await this.store.create({
       name: trimOptionalName(input.name),
       prompt,
+      ...(input.delivery ? { delivery: input.delivery } : {}),
+      ...(input.images ? { images: input.images } : {}),
+      ...(input.attachments ? { attachments: input.attachments } : {}),
       cadence: input.cadence,
       target: input.target,
       status: "active",
@@ -283,6 +313,9 @@ export class ScheduleService {
           ...existing,
           name,
           prompt,
+          delivery: input.delivery ?? undefined,
+          images: input.images ?? undefined,
+          attachments: input.attachments ?? undefined,
           cadence: input.cadence,
           target: input.target,
           status: "active",
@@ -487,12 +520,15 @@ export class ScheduleService {
           updated.nextRunAt &&
           new Date(updated.nextRunAt).getTime() <= now.getTime()
         ) {
-          let nextRunAt = computeNextRunAt(updated.cadence, new Date(updated.nextRunAt));
-          while (nextRunAt.getTime() <= now.getTime()) {
-            nextRunAt = computeNextRunAt(updated.cadence, nextRunAt);
+          const isUnfiredOneShot = updated.maxRuns === 1 && countCompletedRuns(updated) === 0;
+          if (!isUnfiredOneShot) {
+            let nextRunAt = computeNextRunAt(updated.cadence, new Date(updated.nextRunAt));
+            while (nextRunAt.getTime() <= now.getTime()) {
+              nextRunAt = computeNextRunAt(updated.cadence, nextRunAt);
+            }
+            updated = { ...updated, nextRunAt: nextRunAt.toISOString() };
+            dirty = true;
           }
-          updated = { ...updated, nextRunAt: nextRunAt.toISOString() };
-          dirty = true;
         }
 
         if (dirty) {
@@ -643,7 +679,10 @@ export class ScheduleService {
     runId: string,
   ): Promise<ScheduleExecutionResult> {
     if (schedule.target.type === "agent") {
-      const wrappedPrompt = formatSystemNotificationPrompt(buildScheduleFireBody(schedule, runId));
+      const prompt =
+        resolveScheduleDelivery(schedule) === "agent-message"
+          ? buildScheduledAgentMessagePrompt(schedule)
+          : formatSystemNotificationPrompt(buildScheduleFireBody(schedule, runId));
       const record = await this.agentStorage.get(schedule.target.agentId);
       if (!record) {
         throw new ScheduleTargetGoneError(`Agent ${schedule.target.agentId} no longer exists`);
@@ -660,7 +699,7 @@ export class ScheduleService {
       if (this.agentManager.hasInFlightRun(agent.id)) {
         throw new Error(`Agent ${agent.id} already has an active run`);
       }
-      const result = await this.agentManager.runAgent(agent.id, wrappedPrompt);
+      const result = await this.agentManager.runAgent(agent.id, prompt);
       const timelineText = curateAgentActivity(result.timeline);
       return {
         agentId: agent.id,

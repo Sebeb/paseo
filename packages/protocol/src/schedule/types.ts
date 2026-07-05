@@ -1,8 +1,12 @@
 import { z } from "zod";
+import { AgentAttachmentSchema, ImageAttachmentSchema } from "../agent-attachments.js";
 import { AgentProviderSchema } from "../provider-manifest.js";
 
 export const ScheduleStatusSchema = z.enum(["active", "paused", "completed"]);
 export type ScheduleStatus = z.infer<typeof ScheduleStatusSchema>;
+
+export const ScheduleDeliverySchema = z.enum(["schedule-notification", "agent-message"]);
+export type ScheduleDelivery = z.infer<typeof ScheduleDeliverySchema>;
 
 export const ScheduleCadenceSchema = z.discriminatedUnion("type", [
   z.object({
@@ -66,6 +70,9 @@ export const StoredScheduleSchema = z.object({
   id: z.string(),
   name: z.string().nullable(),
   prompt: z.string().min(1),
+  delivery: ScheduleDeliverySchema.optional(),
+  images: z.array(ImageAttachmentSchema).optional(),
+  attachments: z.array(AgentAttachmentSchema).optional(),
   cadence: ScheduleCadenceSchema,
   target: ScheduleTargetSchema,
   status: ScheduleStatusSchema,
@@ -88,6 +95,9 @@ export type ScheduleSummary = z.infer<typeof ScheduleSummarySchema>;
 export interface CreateScheduleInput {
   name?: string | null;
   prompt: string;
+  delivery?: ScheduleDelivery | null;
+  images?: Array<z.infer<typeof ImageAttachmentSchema>> | null;
+  attachments?: Array<z.infer<typeof AgentAttachmentSchema>> | null;
   cadence: ScheduleCadence;
   target: ScheduleTarget;
   maxRuns?: number | null;
