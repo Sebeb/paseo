@@ -4,7 +4,7 @@ Branch: `feat/full-width-tables`
 
 Base: `origin/main`
 
-Anchor commit: 6fca2dbf7a9663610ba06edf88806fc223dd3ef1 - feat(app): widen markdown tables in messages
+Anchor commit: 28d52fe4d36b3cb12528bf73d71ae74e5785af50 - feat(stream): improve full-width table rendering
 
 ## Purpose
 
@@ -83,13 +83,16 @@ Assistant messages can render richer content without trapping wide content in a 
 - `useMessageLayoutMetrics()` reads the current metrics.
 - `getMessageTableLayoutMetrics(input)` clamps negative values to zero and returns `tableWidth = contentWidth + breakoutOffset * 2`.
 - `createMarkdownTableRules(input?: { tableStyle?: StyleProp<ViewStyle> })` now accepts caller-provided table style and composes it with the renderer's markdown table style.
+- `StreamRenderInput.layoutProbe?: ReactNode` lets stream strategies mount a shared, zero-height measurement probe in the same horizontal layout context as normal rows.
 
 ### Behavior
 
-- `StreamItemWrapper` in `agent-stream/view.tsx` measures both the outer row x-offset and the inner message content width. The stream stores those metrics in `MessageLayoutProvider`.
-- `AssistantMessage` reads the metrics and, when both values are positive, gives markdown tables `{ marginHorizontal: -tableBreakoutOffset, width: tableWidth }`.
+- `AgentStreamView` creates one `StreamLayoutProbe` and passes it through `StreamRenderInput.layoutProbe`; the web strategy mounts it at the top of the virtualized content container, and the native strategy mounts it before the live-head rows.
+- `StreamLayoutProbe` is non-interactive and zero-height. Its outer wrapper reuses `streamItemWrapper` to measure the row breakout offset, and its inner wrapper reuses `streamItemInner` to measure the message content width.
+- The probe reports only after both measurements are available. `AgentStreamView` converts them through `getMessageTableLayoutMetrics()` and stores them in `MessageLayoutProvider`, ignoring sub-pixel churn below `STREAM_LAYOUT_EPSILON`.
+- Normal `StreamItemWrapper` rows no longer participate in table layout measurement, so regular row mounting, recycling, and live stream churn do not repeatedly rewrite global table metrics.
+- `AssistantMessage` reads the metrics and, when both values are positive, gives markdown tables `{ alignSelf: "center", marginHorizontal: -tableBreakoutOffset, maxWidth: tableWidth }`.
 - Markdown tables remain horizontally scrollable with `nestedScrollEnabled`, but their scroll container can use the full row width available to the message, including side breakout space.
-- The table metrics update only when values materially change, using an epsilon comparison to avoid repeated state churn from small layout measurement noise.
 - The default context value is zeroed, so messages rendered outside the stream keep the old constrained table behavior.
 - Markdown image source handling resolves assistant-provided image paths into previewable sources, and markdown text rendering cooperates with find highlight ranges.
 - `file://` links are accepted by the markdown parser and passed to the assistant file-link actions, which open them in the main pane while suppressing duplicate markdown-display link handling.
