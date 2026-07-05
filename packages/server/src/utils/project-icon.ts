@@ -1,5 +1,8 @@
 import { readdir, readFile, stat } from "fs/promises";
-import { extname, join } from "path";
+import { extname, join, posix, relative, resolve } from "path";
+import { PaseoConfigRawSchema } from "@getpaseo/protocol/paseo-config-schema";
+import { readPaseoConfigJson } from "./paseo-config-file.js";
+import { isPathInsideRoot } from "./path.js";
 
 /**
  * Icon file patterns to search for, in priority order.
@@ -56,9 +59,19 @@ export const IGNORED_DIRS = [
 export interface ProjectIcon {
   data: string;
   mimeType: string;
+  path?: string;
 }
 
 const MAX_ICON_SIZE = 32 * 1024; // 32KB max
+
+export interface GetProjectIconOptions {
+  iconPath?: string;
+}
+
+interface ProjectIconCandidate {
+  fullPath: string;
+  relativePath: string;
+}
 
 interface ImageDimensions {
   width: number;
@@ -181,6 +194,72 @@ function getMimeType(filename: string): string {
       return "image/webp";
     default:
       return "application/octet-stream";
+  }
+}
+
+export function normalizeProjectIconRelativePath(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const forwardSlashes = trimmed.replace(/\\/g, "/");
+  if (
+    forwardSlashes.startsWith("/") ||
+    forwardSlashes.startsWith("//") ||
+    /^[A-Za-z]:\//u.test(forwardSlashes)
+  ) {
+    return null;
+  }
+
+  const normalized = posix.normalize(forwardSlashes);
+  if (normalized === "." || normalized === ".." || normalized.startsWith("../")) {
+    return null;
+  }
+  return normalized;
+}
+
+function toProjectRelativePath(projectDir: string, iconPath: string): string | null {
+  const normalizedRoot = resolve(projectDir);
+  const normalizedIconPath = resolve(iconPath);
+  if (!isPathInsideRoot(normalizedRoot, normalizedIconPath)) {
+    return null;
+  }
+
+  const relativePath = relative(normalizedRoot, normalizedIconPath).replace(/\\/g, "/");
+  return normalizeProjectIconRelativePath(relativePath);
+}
+
+function resolveProjectIconCandidate(
+  projectDir: string,
+  relativePath: string,
+): ProjectIconCandidate | null {
+  const normalizedRelativePath = normalizeProjectIconRelativePath(relativePath);
+  if (!normalizedRelativePath) {
+    return null;
+  }
+
+  const normalizedRoot = resolve(projectDir);
+  const fullPath = resolve(normalizedRoot, ...normalizedRelativePath.split("/"));
+  if (!isPathInsideRoot(normalizedRoot, fullPath)) {
+    return null;
+  }
+
+  return {
+    fullPath,
+    relativePath: normalizedRelativePath,
+  };
+}
+
+function readConfiguredProjectIconPath(projectDir: string): string | null {
+  try {
+    const parsed = PaseoConfigRawSchema.safeParse(readPaseoConfigJson(projectDir));
+    if (!parsed.success) {
+      return null;
+    }
+    return parsed.data.icon ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -415,20 +494,27 @@ async function findDirRecursively(
  * @param projectDir - The root directory of the project to search
  * @returns The icon data with mime type, or null if not found
  */
-export async function getProjectIcon(projectDir: string): Promise<ProjectIcon | null> {
-  const iconPath = await findProjectIcon(projectDir);
-  if (!iconPath) {
+export async function getProjectIcon(
+  projectDir: string,
+  options: GetProjectIconOptions = {},
+): Promise<ProjectIcon | null> {
+  const configuredPath = options.iconPath ?? readConfiguredProjectIconPath(projectDir);
+  const candidate =
+    configuredPath !== null && configuredPath !== undefined
+      ? resolveProjectIconCandidate(projectDir, configuredPath)
+      : await findProjectIconCandidate(projectDir);
+  if (!candidate) {
     return null;
   }
 
   try {
-    const stats = await stat(iconPath);
+    const stats = await stat(candidate.fullPath);
     if (stats.size > MAX_ICON_SIZE) {
       return null;
     }
 
-    const buffer = await readFile(iconPath);
-    const mimeType = getMimeType(iconPath);
+    const buffer = await readFile(candidate.fullPath);
+    const mimeType = getMimeType(candidate.fullPath);
 
     // Only return square images
     if (!isSquareImage(buffer, mimeType)) {
@@ -436,8 +522,20 @@ export async function getProjectIcon(projectDir: string): Promise<ProjectIcon | 
     }
 
     const data = buffer.toString("base64");
-    return { data, mimeType };
+    return { data, mimeType, path: candidate.relativePath };
   } catch {
     return null;
   }
+}
+
+async function findProjectIconCandidate(projectDir: string): Promise<ProjectIconCandidate | null> {
+  const iconPath = await findProjectIcon(projectDir);
+  if (!iconPath) {
+    return null;
+  }
+  const relativePath = toProjectRelativePath(projectDir, iconPath);
+  if (!relativePath) {
+    return null;
+  }
+  return { fullPath: iconPath, relativePath };
 }

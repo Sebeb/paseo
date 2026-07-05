@@ -21,6 +21,7 @@ export interface ProjectScriptDraft {
 }
 
 export interface ProjectConfigDraft {
+  iconPath: string;
   setupText: string;
   setupOriginalKind: LifecycleOriginalKind;
   teardownText: string;
@@ -106,7 +107,10 @@ function emptyMetadataPrompts(): Record<MetadataPromptKey, string> {
   };
 }
 
-export function configToDraft(config: PaseoConfigRaw | null | undefined): ProjectConfigDraft {
+export function configToDraft(
+  config: PaseoConfigRaw | null | undefined,
+  options: { defaultIconPath?: string | null } = {},
+): ProjectConfigDraft {
   const worktree = config?.worktree ?? {};
   const setup = projectLifecycle(worktree.setup);
   const teardown = projectLifecycle(worktree.teardown);
@@ -136,6 +140,7 @@ export function configToDraft(config: PaseoConfigRaw | null | undefined): Projec
   }
 
   return {
+    iconPath: config?.icon ?? options.defaultIconPath ?? "",
     setupText: setup.text,
     setupOriginalKind: setup.kind,
     teardownText: teardown.text,
@@ -227,6 +232,12 @@ export function applyDraftToConfig(input: ApplyDraftInput): PaseoConfigRaw {
   }
 
   const result: Record<string, unknown> = { ...baseConfig };
+  const nextIconPath = input.draft.iconPath.trim();
+  if (nextIconPath.length === 0) {
+    delete result.icon;
+  } else {
+    result.icon = nextIconPath;
+  }
   if (Object.keys(nextWorktree).length === 0) {
     delete result.worktree;
   } else {

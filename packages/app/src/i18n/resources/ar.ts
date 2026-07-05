@@ -1957,6 +1957,15 @@ export const ar: TranslationResources = {
         cancelLabel: "إلغاء إعادة التسمية",
         reset: "إعادة ضبط",
       },
+      icon: {
+        changeLabel: "Change project icon",
+        dialogTitle: "Choose project icon",
+        filterName: "Project icons",
+        dialogUnavailable: "Desktop file picker is not available.",
+        outsideProject: "Choose an icon inside this project.",
+        invalidIcon: "Choose a square icon in a supported format.",
+        selectionFailed: "Couldn't choose project icon",
+      },
       readFailures: {
         invalidTitle: "تعذر تحليل paseo.json",
         invalidDescription: "قم بإصلاح الملف على القرص، ثم أعد تحميله.",
