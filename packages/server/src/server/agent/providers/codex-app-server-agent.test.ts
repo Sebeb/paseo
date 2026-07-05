@@ -779,7 +779,12 @@ describe("Codex app-server provider", () => {
               command: "npx",
               args: ["browser-mcp"],
               env: { BROWSER: "1" },
-              tool_timeout_sec: 12,
+              startup_timeout_sec: "3.5",
+              tool_timeout_sec: "12",
+            },
+            godot: {
+              command: "godot-mcp",
+              tool_timeout_sec: "'",
             },
           },
         },
@@ -813,7 +818,11 @@ describe("Codex app-server provider", () => {
           command: "npx",
           args: ["browser-mcp"],
           env: { BROWSER: "1" },
+          startup_timeout_sec: 3.5,
           tool_timeout_sec: 12,
+        },
+        godot: {
+          command: "godot-mcp",
         },
         paseo: {
           url: "http://127.0.0.1:6767/mcp/agents?callerAgentId=agent-1",
