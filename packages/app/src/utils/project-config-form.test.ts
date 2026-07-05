@@ -6,6 +6,7 @@ import { applyDraftToConfig, configToDraft, type ProjectConfigDraft } from "./pr
 function emptyDraft(): ProjectConfigDraft {
   return {
     iconPath: "",
+    iconDisabled: false,
     setupText: "",
     setupOriginalKind: "missing",
     teardownText: "",
@@ -41,6 +42,12 @@ describe("configToDraft", () => {
       { defaultIconPath: "public/favicon.png" },
     );
     expect(draft.iconPath).toBe("assets/logo.svg");
+  });
+
+  it("treats an empty configured icon as explicitly disabled", () => {
+    const draft = configToDraft({ icon: "" }, { defaultIconPath: "public/favicon.png" });
+    expect(draft.iconPath).toBe("");
+    expect(draft.iconDisabled).toBe(true);
   });
 
   it("renders a string lifecycle command as a single textarea text and remembers the kind", () => {
@@ -204,6 +211,19 @@ describe("applyDraftToConfig", () => {
     draft.iconPath = " ";
     const withoutIcon = applyDraftToConfig({ draft, base: withIcon });
     expect(withoutIcon.icon).toBeUndefined();
+  });
+
+  it("persists an empty icon when the icon is explicitly disabled", () => {
+    const base = PaseoConfigRawSchema.parse({ icon: "public/favicon.svg" });
+    const draft = configToDraft(base);
+    draft.iconPath = "";
+    draft.iconDisabled = true;
+
+    const cleared = applyDraftToConfig({ draft, base });
+    expect(cleared.icon).toBe("");
+
+    const roundTripped = configToDraft(cleared);
+    expect(roundTripped.iconDisabled).toBe(true);
   });
 
   it("normalizes script command text into the original command kind", () => {

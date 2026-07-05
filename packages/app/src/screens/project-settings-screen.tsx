@@ -190,6 +190,16 @@ function BackToProjectsButton() {
   );
 }
 
+type PickedProjectIcon = { kind: "picked"; path: string; dataUri: string } | { kind: "cleared" };
+
+function pickedIconDataUri(pickedIcon: PickedProjectIcon): string | null {
+  return pickedIcon.kind === "picked" ? pickedIcon.dataUri : null;
+}
+
+function pickedIconPath(pickedIcon: PickedProjectIcon): string {
+  return pickedIcon.kind === "picked" ? pickedIcon.path : "";
+}
+
 interface ProjectSettingsBodyProps {
   project: ProjectSummary;
   hosts: ProjectHostEntry[];
@@ -211,7 +221,7 @@ function ProjectSettingsBody({
   const toast = useToast();
   const isLocalDaemon = useIsLocalDaemon(selectedHost.serverId);
   const supportsProjectIconOverride = useHostFeature(selectedHost.serverId, "projectIconOverride");
-  const [pickedIcon, setPickedIcon] = useState<{ path: string; dataUri: string } | null>(null);
+  const [pickedIcon, setPickedIcon] = useState<PickedProjectIcon | null>(null);
 
   const queryKey = useMemo(
     () => ["project-config", selectedHost.serverId, selectedHost.repoRoot] as const,
@@ -230,12 +240,17 @@ function ProjectSettingsBody({
     cwd: selectedHost.repoRoot,
   });
   const projectIcon = projectIconQuery.icon;
-  const projectIconDataUri = pickedIcon?.dataUri ?? projectIconToDataUri(projectIcon);
   const loadedConfig: PaseoConfigRaw | null = data?.ok ? (data.config ?? {}) : null;
   const loadedRevision: PaseoConfigRevision | null = data?.ok ? data.revision : null;
   const readError: ProjectConfigRpcError | null = data && !data.ok ? data.error : null;
   const configuredIconPath = typeof loadedConfig?.icon === "string" ? loadedConfig.icon : null;
-  const effectiveIconPath = pickedIcon?.path ?? configuredIconPath ?? projectIcon?.path ?? null;
+  const projectIconDataUri = pickedIcon
+    ? pickedIconDataUri(pickedIcon)
+    : projectIconToDataUri(projectIcon);
+  // "" (vs null) means the icon is explicitly cleared, which saves as the disable sentinel.
+  const effectiveIconPath = pickedIcon
+    ? pickedIconPath(pickedIcon)
+    : (configuredIconPath ?? projectIcon?.path ?? null);
   const canEditProjectIcon =
     isWeb && isElectronRuntime() && isLocalDaemon && supportsProjectIconOverride;
 
@@ -298,6 +313,7 @@ function ProjectSettingsBody({
       }
 
       setPickedIcon({
+        kind: "picked",
         path: result.icon.path ?? relativePath,
         dataUri,
       });
@@ -307,6 +323,13 @@ function ProjectSettingsBody({
       toast.show(message, { variant: "error" });
     }
   }, [canEditProjectIcon, client, effectiveIconPath, selectedHost.repoRoot, t, toast]);
+
+  const handleClearProjectIcon = useCallback(() => {
+    if (!canEditProjectIcon) {
+      return;
+    }
+    setPickedIcon({ kind: "cleared" });
+  }, [canEditProjectIcon]);
 
   const hasMultipleHosts = hosts.length > 1;
 
@@ -322,6 +345,7 @@ function ProjectSettingsBody({
             projectKey={project.projectKey}
             canEdit={canEditProjectIcon}
             onEdit={handlePickProjectIcon}
+            onClear={handleClearProjectIcon}
           />
           <ProjectNameEditor project={project} client={client} />
         </View>
@@ -534,8 +558,12 @@ function ProjectConfigForm({
 
   useEffect(() => {
     const nextIconPath = iconPath ?? "";
+    // "" (vs null) means the icon was explicitly cleared — persist the disable sentinel.
+    const nextIconDisabled = iconPath === "";
     setDraft((prev) =>
-      prev.iconPath === nextIconPath ? prev : { ...prev, iconPath: nextIconPath },
+      prev.iconPath === nextIconPath && prev.iconDisabled === nextIconDisabled
+        ? prev
+        : { ...prev, iconPath: nextIconPath, iconDisabled: nextIconDisabled },
     );
   }, [iconPath]);
 
@@ -1008,18 +1036,28 @@ function ProjectTitleIcon({
   projectKey,
   canEdit,
   onEdit,
+  onClear,
 }: {
   iconDataUri: string | null;
   projectName: string;
   projectKey: string;
   canEdit: boolean;
   onEdit: () => void;
+  onClear: () => void;
 }) {
   const { t } = useTranslation();
   const initial = projectName.trim().charAt(0).toUpperCase() || "?";
   const editButtonStyle = useCallback(
     ({ pressed }: PressableStateCallbackType) => [
       styles.titleIconEditButton,
+      pressed && styles.titleIconEditButtonPressed,
+    ],
+    [],
+  );
+  const clearButtonStyle = useCallback(
+    ({ pressed }: PressableStateCallbackType) => [
+      styles.titleIconEditButton,
+      styles.titleIconClearButton,
       pressed && styles.titleIconEditButtonPressed,
     ],
     [],
@@ -1044,6 +1082,18 @@ function ProjectTitleIcon({
           style={editButtonStyle}
         >
           <Pencil size={10} color={styles.titleIconEditColor.color} />
+        </Pressable>
+      ) : null}
+      {canEdit && iconDataUri ? (
+        <Pressable
+          testID="project-icon-clear-button"
+          accessibilityRole="button"
+          accessibilityLabel={t("settings.project.icon.clearLabel")}
+          onPress={onClear}
+          hitSlop={8}
+          style={clearButtonStyle}
+        >
+          <X size={10} color={styles.titleIconEditColor.color} />
         </Pressable>
       ) : null}
     </View>
@@ -1460,6 +1510,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   titleIconEditButtonPressed: {
     backgroundColor: theme.colors.surface3,
+  },
+  titleIconClearButton: {
+    top: undefined,
+    bottom: -2,
   },
   titleIconEditColor: {
     color: theme.colors.foregroundMuted,

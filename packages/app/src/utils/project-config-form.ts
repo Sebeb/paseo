@@ -22,6 +22,7 @@ export interface ProjectScriptDraft {
 
 export interface ProjectConfigDraft {
   iconPath: string;
+  iconDisabled: boolean;
   setupText: string;
   setupOriginalKind: LifecycleOriginalKind;
   teardownText: string;
@@ -141,6 +142,7 @@ export function configToDraft(
 
   return {
     iconPath: config?.icon ?? options.defaultIconPath ?? "",
+    iconDisabled: config?.icon === "",
     setupText: setup.text,
     setupOriginalKind: setup.kind,
     teardownText: teardown.text,
@@ -233,10 +235,13 @@ export function applyDraftToConfig(input: ApplyDraftInput): PaseoConfigRaw {
 
   const result: Record<string, unknown> = { ...baseConfig };
   const nextIconPath = input.draft.iconPath.trim();
-  if (nextIconPath.length === 0) {
-    delete result.icon;
-  } else {
+  if (nextIconPath.length > 0) {
     result.icon = nextIconPath;
+  } else if (input.draft.iconDisabled) {
+    // "" is the persisted "no icon" sentinel: it suppresses auto-discovery on the daemon.
+    result.icon = "";
+  } else {
+    delete result.icon;
   }
   if (Object.keys(nextWorktree).length === 0) {
     delete result.worktree;
