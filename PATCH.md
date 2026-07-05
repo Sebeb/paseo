@@ -4,7 +4,7 @@ Branch: `feat/collapse-thinking`
 
 Base: `origin/main`
 
-Anchor commit: 910b94206a43f41bb46e31e4fb33e528a3067fc0 — fix(app): keep assistant output visible between thinking groups
+Anchor commit: 1ecb7da67c8c6e2ca32cc36d28d67aa0d6425ef3 — feat(stream): mark assistant progress messages
 
 ## Purpose
 
@@ -25,7 +25,7 @@ It also updates bottom anchoring so expanding/collapsing thinking groups does no
 - Shows previews for collapsed active thinking groups when there are visible thinking messages.
 - Lets users expand a collapsed thinking group by pressing the lower half of its preview area.
 - Balances vertical spacing around a collapsed completed thinking group when it sits between the user prompt and final assistant response.
-- Keeps assistant output and plan cards outside collapsed thinking groups so visible progress and final answers remain readable between hidden work sections.
+- Keeps final assistant responses and plan cards outside collapsed thinking groups while allowing assistant progress messages to stay with the hidden work they describe.
 - Preserves normal access to tool calls and thinking content through expand/collapse controls.
 
 ## Restored Main Polish
@@ -112,15 +112,18 @@ Implementation details:
 2. Treats items between one user message and the next as that turn.
 3. Marks the final turn as the current running turn when `agentStatus === "running"` and the turn reaches the end of the stream.
 4. Delegates each turn to `buildTurnGroups`, which walks the turn in order and accumulates collapsible work items.
-5. Treats `thought`, `tool_call`, and `todo_list` items as collapsible work, except agent tool calls whose detail type is `"plan"`. Plan cards stay visible in the stream.
-6. Treats assistant messages as visible output boundaries by default. When an assistant message is encountered, the current accumulated group is emitted as completed with that assistant message as `finalAssistantItemId`, and the assistant message itself is not added to the group.
-7. In the current running turn only, keeps a trailing assistant message inside the active group when there is no later collapsible work. This preserves live assistant text in the active thinking preview until the turn completes.
-8. Starts a new group after visible assistant output when later collapsible work appears, so a single turn can produce multiple completed thinking groups separated by visible assistant messages.
-9. Flushes accumulated work as completed when a non-collapsible, non-assistant item interrupts the group.
-10. Flushes any remaining accumulated work at the end of the turn as `"active"` for the current running turn or `"completed"` otherwise.
-11. Uses the first grouped item as the anchor and builds a stable group id of `thinking:<userMessageId>:<anchorItemId>:active` or `thinking:<userMessageId>:<anchorItemId>:final`.
-12. Sets `defaultExpanded` to true only for active groups when behavior is `"completed"`.
-13. Populates both lookup maps after the group list is built.
+5. Treats `thought`, `tool_call`, `todo_list`, and assistant messages marked `presentation: "progress"` as collapsible work, except agent tool calls whose detail type is `"plan"`. Plan cards stay visible in the stream.
+6. Treats normal assistant response messages as visible output boundaries. When a response message is encountered, the current accumulated group is emitted as completed with that assistant message as `finalAssistantItemId`, and the assistant message itself is not added to the group.
+7. Keeps assistant progress messages inside the current thinking group when more non-user-facing collapsible work follows, so progress narration between tool calls collapses with those tool calls.
+8. Leaves assistant progress text visible before a `request_user_input` tool call by completing the previous group with that progress message as `finalAssistantItemId`, then grouping the user-facing tool separately.
+9. Leaves a final assistant progress message visible after completion when it is the last item in a completed turn by using it as the completed group's `finalAssistantItemId` instead of hiding it.
+10. In the current running turn only, keeps a trailing assistant message inside the active group when there is no later collapsible work. This preserves live assistant text in the active thinking preview until the turn completes.
+11. Starts a new group after visible assistant output when later collapsible work appears, so a single turn can produce multiple completed thinking groups separated by visible assistant messages.
+12. Flushes accumulated work as completed when a non-collapsible, non-assistant item interrupts the group.
+13. Flushes any remaining accumulated work at the end of the turn as `"active"` for the current running turn or `"completed"` otherwise.
+14. Uses the first grouped item as the anchor and builds a stable group id of `thinking:<userMessageId>:<anchorItemId>:active` or `thinking:<userMessageId>:<anchorItemId>:final`.
+15. Sets `defaultExpanded` to true only for active groups when behavior is `"completed"`.
+16. Populates both lookup maps after the group list is built.
 
 The behavior parameter excludes `"never"` because callers skip grouping entirely for that mode.
 
@@ -160,9 +163,59 @@ This keeps completed groups compact while letting active hidden reasoning still 
 #### Private Helpers
 
 - `findNextUserMessageIndex(items, startIndex)` returns the next user-message index or `null`.
-- `isCollapsibleWorkItem(item)` accepts `thought`, `tool_call`, and `todo_list`, but excludes agent `"plan"` tool-call detail cards.
+- `isCollapsibleWorkItem(item)` accepts `thought`, `tool_call`, `todo_list`, and assistant messages with `presentation: "progress"`, but excludes agent `"plan"` tool-call detail cards.
+- `isUserFacingToolItem(item)` detects Codex `request_user_input` tool calls, which stay visible as user-facing question prompts instead of being prefaced by hidden progress text.
+- `isNextCollapsibleWorkUserFacing(items, startIndex)` scans forward to the next collapsible work item and returns whether it is user-facing.
 - `hasLaterCollapsibleWork(items, startIndex)` checks whether a running-turn assistant message should remain grouped because no later collapsible work follows.
 - `isThinkingMessageItem(item)` narrows to `assistant_message` or `thought`.
+
+## Assistant Message Presentation
+
+The branch adds an optional assistant-message presentation marker so the app can distinguish final response text from progress narration that belongs with hidden work.
+
+### Public Surface
+
+`packages/protocol/src/agent-types.ts` and `packages/server/src/server/agent/agent-sdk-types.ts` extend assistant timeline items to:
+
+```ts
+{
+  type: "assistant_message";
+  text: string;
+  messageId?: string;
+  presentation?: "response" | "progress";
+}
+```
+
+`packages/protocol/src/messages.ts` accepts the optional `presentation` field in `AgentTimelineItemPayloadSchema` with the same `"response" | "progress"` enum. Because the field is optional, older timeline messages and older daemons continue to parse as ordinary response-style assistant messages.
+
+`packages/app/src/types/stream.ts` mirrors the field on `AssistantMessageItem`:
+
+```ts
+export interface AssistantMessageItem {
+  kind: "assistant_message";
+  id: string;
+  messageId?: string;
+  presentation?: "response" | "progress";
+  text: string;
+  timestamp: Date;
+  blockGroupId?: string;
+  blockIndex?: number;
+}
+```
+
+### App Stream Behavior
+
+`appendAssistantMessage` accepts an optional presentation argument and only coalesces assistant chunks when the previous assistant item has the same `messageId` compatibility and the same presentation. The same presentation check is applied to the "append around a live user-message interrupt" path, so progress and response text never merge into a single stream item.
+
+`reduceTimelineEvent` passes `item.presentation` from timeline events into `appendAssistantMessage`.
+
+`promoteCompletedAssistantBlocks` preserves `activeItem.presentation` when splitting a completed assistant block into block-grouped items, so long completed progress messages keep their progress classification after block promotion.
+
+### Server Stream Behavior
+
+`packages/server/src/server/agent/agent-stream-coalescer.ts` keeps text coalescing presentation-aware. Two text entries are combined only when type, provider, turn id, and assistant presentation all match.
+
+`packages/server/src/server/agent/timeline-projection.ts` keeps assistant timeline projection presentation-aware. Adjacent assistant entries with different presentation values stay separate, and merged assistant entries preserve the previous assistant presentation.
 
 ## Stream View Integration
 
@@ -262,6 +315,14 @@ Important behavior:
 
 `packages/server/src/server/agent/providers/codex-app-server-agent.ts` and its test update the generated stream/tool metadata so Codex thinking/task activity has the detail fields needed by the improved display model.
 
+The provider also marks Codex assistant messages that represent progress narration rather than final answers with `presentation: "progress"`:
+
+- Historical `threadItemToTimeline` assistant messages are emitted as progress messages.
+- `CodexAppServerAgentSession` emits both full assistant-message items and assistant-message deltas from Codex stream events as progress messages.
+- `emitAssistantSuffix` preserves the presentation marker when it emits a suffix for a pending assistant message.
+
+Out-of-band status/error assistant messages and ordinary final response messages remain unmarked, so the app treats them as normal visible assistant output.
+
 ## Appearance Settings
 
 `packages/app/src/screens/settings/appearance/appearance-section.tsx` adds the setting control for collapse-thinking mode.
@@ -285,6 +346,9 @@ Adds coverage for:
 
 - Building groups per user-message turn.
 - Keeping assistant output visible between thinking groups.
+- Keeping assistant progress messages inside thinking groups between tools.
+- Keeping assistant progress text visible before a user-facing `request_user_input` tool call.
+- Leaving final progress text visible after a completed turn.
 - Splitting completed and running-turn groups around visible assistant output.
 - Excluding agent plan cards from collapsed thinking groups.
 - Keeping trailing live assistant text inside the active running group until completion.
