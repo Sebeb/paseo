@@ -769,6 +769,62 @@ describe("Codex app-server provider", () => {
     });
   });
 
+  test("merges configured Codex MCP servers when injecting runtime MCP servers", async () => {
+    let threadStartParams: Record<string, unknown> | null = null;
+    const appServer = createFakeCodexAppServer({
+      "config/read": () => ({
+        config: {
+          mcp_servers: {
+            browser: {
+              command: "npx",
+              args: ["browser-mcp"],
+              env: { BROWSER: "1" },
+              tool_timeout_sec: 12,
+            },
+          },
+        },
+      }),
+      "thread/start": (params) => {
+        threadStartParams = params as Record<string, unknown>;
+        return { thread: { id: "thread-1" } };
+      },
+    });
+    const session = new CodexAppServerAgentSession(
+      createConfig({
+        cwd: "/workspace/project",
+        mcpServers: {
+          paseo: {
+            type: "http",
+            url: "http://127.0.0.1:6767/mcp/agents?callerAgentId=agent-1",
+            headers: { Authorization: "Bearer cap-token" },
+          },
+        },
+      }),
+      null,
+      createTestLogger(),
+      async () => appServer.child,
+    );
+
+    await session.startTurn("use available tools");
+
+    expect(threadStartParams?.config).toMatchObject({
+      mcp_servers: {
+        browser: {
+          command: "npx",
+          args: ["browser-mcp"],
+          env: { BROWSER: "1" },
+          tool_timeout_sec: 12,
+        },
+        paseo: {
+          url: "http://127.0.0.1:6767/mcp/agents?callerAgentId=agent-1",
+          http_headers: { Authorization: "Bearer cap-token" },
+        },
+      },
+    });
+    appServer.assertNoErrors();
+    await session.close();
+  });
+
   test("resumeSession does not replace a persisted Codex thread when app-server resume fails", async () => {
     const threadRequests: string[] = [];
     const appServer = createFakeCodexAppServer({

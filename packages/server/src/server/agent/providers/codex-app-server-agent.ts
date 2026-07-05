@@ -762,14 +762,7 @@ function expandCodexCustomPrompt(template: string, args: string | undefined): st
   return out;
 }
 
-interface CodexMcpServerConfig {
-  url?: string;
-  http_headers?: Record<string, string>;
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  tool_timeout_sec?: number;
-}
+type CodexMcpServerConfig = Record<string, unknown>;
 
 function toCodexMcpConfig(config: McpServerConfig): CodexMcpServerConfig {
   switch (config.type) {
@@ -793,6 +786,32 @@ function toCodexMcpConfig(config: McpServerConfig): CodexMcpServerConfig {
       const _exhaustive = config as { type: never };
       throw new Error(`Unsupported MCP config type: ${String(_exhaustive.type)}`);
     }
+  }
+}
+
+async function readCodexConfiguredMcpServers(
+  client: CodexAppServerClient,
+  logger: Logger,
+): Promise<Record<string, CodexMcpServerConfig>> {
+  try {
+    const response = toObjectRecord(await client.request("config/read", {}));
+    const config = toObjectRecord(response?.config);
+    const mcpServers = toObjectRecord(config?.mcp_servers);
+    if (!mcpServers) {
+      return {};
+    }
+
+    const result: Record<string, CodexMcpServerConfig> = {};
+    for (const [name, serverConfig] of Object.entries(mcpServers)) {
+      const record = toObjectRecord(serverConfig);
+      if (record) {
+        result[name] = record;
+      }
+    }
+    return result;
+  } catch (error) {
+    logger.debug({ error }, "Failed to read Codex MCP servers from config");
+    return {};
   }
 }
 
@@ -3275,7 +3294,7 @@ export class CodexAppServerAgentSession implements AgentSession {
       if (developerInstructions) {
         params.developerInstructions = developerInstructions;
       }
-      const codexConfig = this.buildCodexInnerConfig();
+      const codexConfig = await this.buildCodexInnerConfig();
       if (codexConfig) {
         params.config = codexConfig;
       }
@@ -3418,7 +3437,7 @@ export class CodexAppServerAgentSession implements AgentSession {
     if (developerInstructions) {
       params.developerInstructions = developerInstructions;
     }
-    const codexConfig = this.buildCodexInnerConfig();
+    const codexConfig = await this.buildCodexInnerConfig();
     if (codexConfig) {
       params.config = codexConfig;
     }
@@ -4144,7 +4163,7 @@ export class CodexAppServerAgentSession implements AgentSession {
     const preset = MODE_PRESETS[this.currentMode] ?? MODE_PRESETS[DEFAULT_CODEX_MODE_ID];
     const approvalPolicy = this.config.approvalPolicy ?? preset.approvalPolicy;
     const sandbox = this.config.sandboxMode ?? preset.sandbox;
-    const innerConfig = this.buildCodexInnerConfig();
+    const innerConfig = await this.buildCodexInnerConfig();
     const developerInstructions = composeSystemPromptParts(
       this.config.systemPrompt,
       this.config.daemonAppendSystemPrompt,
@@ -4181,10 +4200,12 @@ export class CodexAppServerAgentSession implements AgentSession {
     this.currentThreadId = threadId;
   }
 
-  private buildCodexInnerConfig(): Record<string, unknown> | null {
+  private async buildCodexInnerConfig(): Promise<Record<string, unknown> | null> {
     const innerConfig: Record<string, unknown> = {};
     if (this.config.mcpServers) {
-      const mcpServers: Record<string, CodexMcpServerConfig> = {};
+      const mcpServers: Record<string, CodexMcpServerConfig> = this.client
+        ? await readCodexConfiguredMcpServers(this.client, this.logger)
+        : {};
       for (const [name, serverConfig] of Object.entries(this.config.mcpServers)) {
         mcpServers[name] = toCodexMcpConfig(serverConfig);
       }
