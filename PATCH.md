@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: 2ceaf532b1cca8793e206e1b7ecd4f024b7515e2 — feat(sidebar): group workspace tabs by status
+Anchor commit: 49a90175d2976d3c4057dfcb7ecea8c182b23eef — feat(sidebar): surface embedded tab status
 
 ## Purpose
 
@@ -47,6 +47,8 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Shows created and updated timestamps in workspace hover cards, using absolute creation time and recent-or-absolute activity time.
 - Extracts shared desktop-only `InfoHoverCard` positioning/safe-zone behavior so workspace and embedded-tab cards use the same portal surface.
 - In sidebar tab layout, status grouping now groups embedded workspace tabs by their tab status bucket, renders matching project subtitles/icons under each tab row, and filters each embedded workspace tree to the status group being shown.
+- Workspace and project rows suppress draft-only status dots/badges so a typed draft in an embedded tab does not make the whole workspace or project look active; embedded tab rows still show draft status directly.
+- Parent embedded tab rows keep their normal tab icon visible at rest, swap the leading slot to the expand/collapse chevron only on hover/touch/compact layouts, and show a small collapsed-subtree count before the label when descendants are hidden.
 
 ## Restored Main Polish
 
@@ -240,21 +242,24 @@ Props:
 - `leading: ReactNode` — primary leading icon slot.
 - `hoverLeading?: ReactNode` — alternative leading shown when `showHoverLeading` is true.
 - `showHoverLeading?: boolean` — cross-fades `hoverLeading` over `leading` when true (original dims to opacity 0, overlay appears absolutely positioned).
+- `leadingBadge?: ReactNode` — small caller-provided badge overlaid on the lower-right of the leading slot. Status-group embedded tabs use this for the project icon so the tab icon remains the primary visual.
 - `leadingStatus?: SidebarEntryStatusKind | null` — renders a `SidebarEntryLeadingStatusBadge` over the lower-right corner of the leading slot when set.
 - `label: string` — primary text, single line with tail truncation.
+- `labelPrefix?: ReactNode` — optional non-shrinking element rendered before the label in the label row. Collapsed embedded parent tabs use this for the hidden-branch count badge.
 - `subtitle?: string | null` — secondary text below label, muted color, xs size.
 - `rightContext?: ReactNode` — trailing content slot (badges, actions).
 - `hoverRightContext?: ReactNode` — trailing content shown when `showHoverRightContext` is true.
 - `showHoverRightContext?: boolean` — switches between `rightContext` and `hoverRightContext`.
 - `shortcutBadge?: ReactNode` — absolutely positioned shortcut chip in the lower-right corner.
 
-Layout: 36 px tall row, leading slot is `iconSize.md` × `iconSize.md` with `position: relative` for the status badge overlay. Text column is flex 1, right context is flex-shrink 0 and capped at 70% width.
+Layout: 36 px tall row by default, or 46 px when a subtitle is present. The leading slot is `iconSize.md` × `iconSize.md` with `position: relative` for the status and caller badge overlays. The label row can hold a prefix plus truncating label text. Text column is flex 1, right context is flex-shrink 0 and capped at 70% width.
 
 #### `SidebarEntryStatusBadges` (exported)
 
 Renders a row of per-kind status badges for a given `SidebarTabStatusSummary`.
 
-- Calls `getVisibleSidebarEntryStatusKinds(summary)` to get the ordered list of non-zero kinds.
+- Accepts `excludeKinds?: readonly SidebarEntryStatusKind[]`.
+- Calls `getVisibleSidebarEntryStatusKinds(summary, { excludeKinds })` to get the ordered list of non-zero, non-excluded kinds.
 - Renders a `SidebarEntryStatusBadge` for each.
 - Returns null when no kinds are visible.
 
@@ -408,13 +413,13 @@ Implementation details:
 
 Returns `summary.entryCounts[kind]`.
 
-#### `getVisibleSidebarEntryStatusKinds(summary)`
+#### `getVisibleSidebarEntryStatusKinds(summary, options?)`
 
-Returns the subset of `SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER` where `entryCounts[kind] > 0`.
+Returns the subset of `SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER` where `entryCounts[kind] > 0` and the kind is not present in `options.excludeKinds`.
 
-#### `getPrimarySidebarEntryStatusKind(summary)`
+#### `getPrimarySidebarEntryStatusKind(summary, options?)`
 
-Returns the first non-zero kind in priority order: `input_required`, `failed`, `unread`, `in_progress`, `queued_messages`, `draft`. Returns null when all counts are zero.
+Returns the first non-zero, non-excluded kind in priority order: `input_required`, `failed`, `unread`, `in_progress`, `queued_messages`, `draft`. Returns null when all counts are zero after filtering.
 
 #### `getSidebarEntryStatusSortRank(summary)`
 
@@ -908,6 +913,7 @@ The active-workspace reveal effect also calls `rememberProjectWorkspaceSelection
 
 - Workspace rows now query `usePendingCheckoutBranchActionIds` using the workspace directory.
 - Workspace rows call `getWorkspaceRowRightVisibility` to decide which right-side content should occupy the stable trailing slot.
+- Workspace/project status badges and leading status dots call the status-summary helpers with `excludeKinds: ["draft"]`, so draft-only embedded tab state stays local to the tab row instead of bubbling up into the parent workspace/project row.
 - Trailing metadata is split into:
   - `WorkspaceRowTrailingMeta` for diff stat / PR hint / status badges / VC operation badges.
   - `WorkspaceRowActionControls` for hover-visible create-tab and kebab actions.
@@ -936,11 +942,13 @@ Implementation details:
 
 #### `EmbeddedWorkspaceTabRow`
 
-- Renders parent rows with an `EmbeddedTabChevronButton` instead of the tab icon.
+- Renders every row's primary leading visual as the normal `WorkspaceTabIcon`.
+- Parent rows provide an `EmbeddedTabChevronButton` as `hoverLeading`; it replaces the icon only while hovered, on native/touch platforms, or in compact layout.
 - Indents descendant rows by `24 + depth * 16`.
 - In diff mode, shows the highest-priority status as the leading overlay badge.
 - In status mode, renders subtree badges in the trailing slot using the row's aggregate `statusSummary`.
-- When `projectLine` is provided, shows the project name as the row subtitle and the 10 px project icon/fallback initial before that subtitle.
+- When `projectLine` is provided, shows the project name as the row subtitle and overlays the 10 px project icon/fallback initial as a `leadingBadge`; project-line rows use a 46 px row height and suppress the leading status dot to avoid stacking badges.
+- When a parent row is collapsed, renders an `EmbeddedTabBranchCountBadge` before the label. The count is `row.statusSummary.total`, so it includes the parent tab and hidden descendants represented by that collapsed branch.
 - Shows kebab + close controls on hover/native/compact layouts.
 - Supports middle-click close on web by attaching an `auxclick` handler directly to the row element.
 - Allows drag handles only for depth-0 main-pane rows in manual mode.
