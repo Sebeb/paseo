@@ -4,7 +4,7 @@ Branch: `feat/single-project-view`
 
 Base: `origin/main`
 
-Anchor commit: 0e17db0c36ad69caae42da7420ba63b576005f00 - feat(app): add single project sidebar view
+Anchor commit: 92db0da70e62420de0ec89d6f0c856e1842adcbc - feat(sidebar): animate selected capsule fill to sidebar background
 
 ## Single Project Sidebar Mode
 
@@ -87,7 +87,8 @@ Anchor commit: 0e17db0c36ad69caae42da7420ba63b576005f00 - feat(app): add single 
   - on native, the selected project is promoted to the leading position after a 260 ms timeout;
   - on web, the selected project is promoted immediately when the pointer is outside the rail, otherwise promotion waits until pointer leave so hover preview does not fight the user's current pointer position;
   - rail scroll animations are disabled when reduced motion is enabled.
-- `ProjectSelectorCapsule` uses the project icon when available, otherwise the same placeholder-initial logic as project rows. Its background color comes from `deriveProjectIconColor(project.projectKey)`.
+- `ProjectSelectorCapsule` uses the project icon when available, otherwise the same placeholder-initial logic as project rows. Its base background color comes from `deriveProjectIconColor(project.projectKey)`.
+- Selected capsules keep the taller tab-like shape with squared bottom corners and render an absolute `Animated.View` fill using `theme.colors.surfaceSidebar`. The fill opacity animates to `1` when selected and `0` when deselected over 180 ms with the native driver, making the active capsule visually connect to the sidebar content below it. When reduced motion is enabled, the fill opacity snaps immediately to the selected state instead of animating.
 - Capsule accessibility labels include the project name, selected state, and non-zero status counts such as unread, needs input, and failed. `accessibilityState` carries `{ selected }`.
 - Capsules show numeric badges only for actionable status buckets:
   - `attention` count is shown with a green-bordered badge;
