@@ -4,7 +4,7 @@ Branch: `feat/conversation-branching`
 
 Base: `origin/main`
 
-Anchor commit: 073df22d153870fac2dc5ed4a8d0986feaee186c - feat(app): add conversation branching controls
+Anchor commit: d75d31885f5f79dafdc14be58b3fc60dca823083 — fix(server): fork conversation branches on the source agent
 
 ## Conversation Branching Protocol
 
@@ -68,7 +68,9 @@ Implements durable conversation branching for persisted Claude and Codex session
 - `packages/server/src/server/agent/agent-sdk-types.ts`
 - `packages/server/src/server/agent/rewind/rewind.ts`
 - `packages/server/src/server/agent/providers/claude/agent.ts`
+- `packages/server/src/server/agent/providers/claude/rewind.test.ts`
 - `packages/server/src/server/agent/providers/claude/rewind.ts`
+- `packages/server/src/server/agent/providers/codex/rewind.test.ts`
 - `packages/server/src/server/agent/providers/codex/rewind.ts`
 - `packages/server/src/server/agent/providers/codex-app-server-agent.ts`
 - `packages/server/src/server/websocket-server.ts`
@@ -249,3 +251,7 @@ Protocol additions are optional or nullable where needed. Missing `supportsBranc
 - Parsing branch metadata on agent snapshots.
 - Parsing the branch create RPC request and response.
 - Parsing the branch group RPC request and response.
+
+`packages/server/src/server/agent/providers/claude/rewind.test.ts` adds coverage for resolving fork targets from Claude rewind anchors, including normal previous-assistant forks, interrupted turns with null assistant anchors, fresh-session fallbacks when no assistant message precedes the target, missing-target errors, and detection of local command transcript records stored as strings or text blocks.
+
+`packages/server/src/server/agent/providers/codex/rewind.test.ts` adds coverage for ordinal fallback when Codex message IDs cannot be resolved after a resumed thread read, rejection of out-of-range ordinal fallbacks, and fork-without-source-mutation behavior for Codex branch creation.
