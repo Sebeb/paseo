@@ -159,6 +159,7 @@ describe("paseo config schema", () => {
 
   it("raw schema preserves old-style config while accepting legacy agentTitle", () => {
     const config = {
+      icon: "public/favicon.svg",
       worktree: {
         setup: "npm install",
         teardown: ["npm run clean"],

@@ -1871,6 +1871,7 @@ export const FileExplorerRequestSchema = z.object({
 export const ProjectIconRequestSchema = z.object({
   type: z.literal("project_icon_request"),
   cwd: z.string(),
+  iconPath: z.string().optional(),
   requestId: z.string(),
 });
 
@@ -2373,6 +2374,8 @@ export const ServerInfoStatusPayloadSchema = z
         daemonSelfUpdate: z.boolean().optional(),
         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
         agentForkContext: z.boolean().optional(),
+        // COMPAT(projectIconOverride): added in v0.1.X, drop the gate when daemon floor >= v0.1.X.
+        projectIconOverride: z.boolean().optional(),
       })
       .optional(),
   })
@@ -3848,6 +3851,7 @@ export const FileExplorerResponseSchema = z.object({
 const ProjectIconSchema = z.object({
   data: z.string(),
   mimeType: z.string(),
+  path: z.string().optional(),
 });
 
 export const ProjectIconResponseSchema = z.object({

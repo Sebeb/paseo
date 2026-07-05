@@ -188,7 +188,10 @@ export class WorkspaceFilesSession {
     const { cwd, requestId } = request;
 
     try {
-      const icon = await getProjectIcon(cwd);
+      const icon =
+        request.iconPath === undefined
+          ? await getProjectIcon(cwd)
+          : await getProjectIcon(cwd, { iconPath: request.iconPath });
       this.host.emit({
         type: "project_icon_response",
         payload: {

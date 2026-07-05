@@ -1934,6 +1934,15 @@ export const zhCN: TranslationResources = {
         cancelLabel: "取消重命名",
         reset: "重置",
       },
+      icon: {
+        changeLabel: "Change project icon",
+        dialogTitle: "Choose project icon",
+        filterName: "Project icons",
+        dialogUnavailable: "Desktop file picker is not available.",
+        outsideProject: "Choose an icon inside this project.",
+        invalidIcon: "Choose a square icon in a supported format.",
+        selectionFailed: "Couldn't choose project icon",
+      },
       readFailures: {
         invalidTitle: "无法解析 paseo.json",
         invalidDescription: "修复磁盘上的文件，然后重新加载。",

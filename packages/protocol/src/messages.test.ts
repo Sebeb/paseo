@@ -297,6 +297,69 @@ describe("agent detach RPC", () => {
   });
 });
 
+describe("project icon RPC", () => {
+  test("parses an optional relative icon path on the request", () => {
+    const parsed = SessionInboundMessageSchema.parse({
+      type: "project_icon_request",
+      cwd: "/repo/app",
+      iconPath: "public/favicon.svg",
+      requestId: "req-icon",
+    });
+
+    expect(parsed).toEqual({
+      type: "project_icon_request",
+      cwd: "/repo/app",
+      iconPath: "public/favicon.svg",
+      requestId: "req-icon",
+    });
+  });
+
+  test("parses an optional relative icon path on the response icon", () => {
+    const parsed = SessionOutboundMessageSchema.parse({
+      type: "project_icon_response",
+      payload: {
+        cwd: "/repo/app",
+        icon: {
+          data: "abc",
+          mimeType: "image/svg+xml",
+          path: "public/favicon.svg",
+        },
+        error: null,
+        requestId: "req-icon",
+      },
+    });
+
+    expect(parsed).toEqual({
+      type: "project_icon_response",
+      payload: {
+        cwd: "/repo/app",
+        icon: {
+          data: "abc",
+          mimeType: "image/svg+xml",
+          path: "public/favicon.svg",
+        },
+        error: null,
+        requestId: "req-icon",
+      },
+    });
+  });
+
+  test("parses the project icon override server feature gate", () => {
+    const parsed = parseServerInfoStatusPayload({
+      status: "server_info",
+      serverId: "srv-test",
+      features: {
+        projectIconOverride: true,
+      },
+    });
+
+    if (!parsed) {
+      throw new Error("Expected server info payload to parse");
+    }
+    expect(parsed.features?.projectIconOverride).toBe(true);
+  });
+});
+
 describe("agent setting action responses", () => {
   test("parses optional provider notices on mode and thinking responses", () => {
     const mode = SessionOutboundMessageSchema.parse({

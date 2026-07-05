@@ -3744,13 +3744,14 @@ export class DaemonClient {
 
   async requestProjectIcon(
     cwd: string,
-    requestId?: string,
+    options?: { iconPath?: string; requestId?: string },
   ): Promise<ProjectIconResponse["payload"]> {
     return this.sendCorrelatedSessionRequest({
-      requestId,
+      requestId: options?.requestId,
       message: {
         type: "project_icon_request",
         cwd,
+        ...(options?.iconPath !== undefined ? { iconPath: options.iconPath } : {}),
       },
       responseType: "project_icon_response",
     });

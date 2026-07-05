@@ -5,6 +5,7 @@ import { applyDraftToConfig, configToDraft, type ProjectConfigDraft } from "./pr
 
 function emptyDraft(): ProjectConfigDraft {
   return {
+    iconPath: "",
     setupText: "",
     setupOriginalKind: "missing",
     teardownText: "",
@@ -22,6 +23,24 @@ function emptyDraft(): ProjectConfigDraft {
 describe("configToDraft", () => {
   it("returns an empty draft for null config", () => {
     expect(configToDraft(null)).toEqual(emptyDraft());
+  });
+
+  it("reads the configured project icon path", () => {
+    const draft = configToDraft({ icon: "public/favicon.svg" });
+    expect(draft.iconPath).toBe("public/favicon.svg");
+  });
+
+  it("uses the discovered icon path when the config has no explicit icon", () => {
+    const draft = configToDraft({}, { defaultIconPath: "public/favicon.png" });
+    expect(draft.iconPath).toBe("public/favicon.png");
+  });
+
+  it("prefers the configured icon path over the discovered icon path", () => {
+    const draft = configToDraft(
+      { icon: "assets/logo.svg" },
+      { defaultIconPath: "public/favicon.png" },
+    );
+    expect(draft.iconPath).toBe("assets/logo.svg");
   });
 
   it("renders a string lifecycle command as a single textarea text and remembers the kind", () => {
@@ -110,6 +129,7 @@ describe("applyDraftToConfig", () => {
 
   it("preserves unknown top-level, worktree, and script entry fields on round-trip", () => {
     const base = PaseoConfigRawSchema.parse({
+      icon: "public/favicon.svg",
       worktree: {
         setup: "npm install",
         terminals: [{ name: "dev", command: "npm run dev" }],
@@ -129,6 +149,7 @@ describe("applyDraftToConfig", () => {
     const draft = configToDraft(base);
     const next = applyDraftToConfig({ draft, base });
 
+    expect(next.icon).toBe("public/favicon.svg");
     expect((next as Record<string, unknown>).customTopLevel).toBe("preserved");
     expect((next.worktree as Record<string, unknown>).customWorktreeField).toBe("keep");
     expect((next.worktree as Record<string, unknown>).terminals).toEqual([
@@ -170,6 +191,19 @@ describe("applyDraftToConfig", () => {
     const lintEntry = scripts.lint as Record<string, unknown>;
     expect(lintEntry.command).toBe("npm run lint");
     expect(lintEntry.type).toBe("task");
+  });
+
+  it("writes and clears the project icon path", () => {
+    const base = PaseoConfigRawSchema.parse({});
+    const draft = configToDraft(base);
+    draft.iconPath = "public/favicon.svg";
+
+    const withIcon = applyDraftToConfig({ draft, base });
+    expect(withIcon.icon).toBe("public/favicon.svg");
+
+    draft.iconPath = " ";
+    const withoutIcon = applyDraftToConfig({ draft, base: withIcon });
+    expect(withoutIcon.icon).toBeUndefined();
   });
 
   it("normalizes script command text into the original command kind", () => {

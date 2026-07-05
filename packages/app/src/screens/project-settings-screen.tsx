@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, Text, TextInput, View, type PressableStateCallbackType } from "react-native";
 import { router } from "expo-router";
 import { StyleSheet } from "react-native-unistyles";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -30,10 +30,18 @@ import { SettingsTextAreaCard } from "@/components/settings-textarea";
 import { SettingsGroup } from "@/screens/settings/settings-group";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import { settingsStyles } from "@/styles/settings";
+import { getDesktopHost, isElectronRuntime } from "@/desktop/host";
+import { useIsLocalDaemon } from "@/hooks/use-is-local-daemon";
+import {
+  projectIconQueryKey,
+  projectIconToDataUri,
+  useProjectIconQuery,
+} from "@/hooks/use-project-icon-query";
 import { useProjects } from "@/hooks/use-projects";
-import { useProjectIconDataByProjectKey } from "@/projects/project-icons";
+import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeClient, useHostRuntimeSnapshot } from "@/runtime/host-runtime";
 import { useToast } from "@/contexts/toast-context";
+import { isWeb } from "@/constants/platform";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import {
   applyDraftToConfig,
@@ -45,6 +53,11 @@ import {
   type ProjectScriptDraft,
 } from "@/utils/project-config-form";
 import { buildProjectsSettingsRoute } from "@/utils/host-routes";
+import {
+  absolutePathForProjectIcon,
+  PROJECT_ICON_FILE_EXTENSIONS,
+  relativeProjectIconPathFromAbsolute,
+} from "@/utils/project-icon-path";
 import type { ProjectHostEntry, ProjectSummary } from "@/utils/projects";
 
 const SCRIPT_SERVICE_TYPE = "service";
@@ -194,6 +207,12 @@ function ProjectSettingsBody({
   client,
   isHostGone,
 }: ProjectSettingsBodyProps) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const isLocalDaemon = useIsLocalDaemon(selectedHost.serverId);
+  const supportsProjectIconOverride = useHostFeature(selectedHost.serverId, "projectIconOverride");
+  const [pickedIcon, setPickedIcon] = useState<{ path: string; dataUri: string } | null>(null);
+
   const queryKey = useMemo(
     () => ["project-config", selectedHost.serverId, selectedHost.repoRoot] as const,
     [selectedHost.serverId, selectedHost.repoRoot],
@@ -206,27 +225,88 @@ function ProjectSettingsBody({
   });
 
   const data = readQuery.data;
-  const projectIconTargets = useMemo(
-    () => [
-      {
-        serverId: selectedHost.serverId,
-        projectKey: project.projectKey,
-        iconWorkingDir: selectedHost.repoRoot,
-      },
-    ],
-    [project.projectKey, selectedHost.repoRoot, selectedHost.serverId],
-  );
-  const projectIconDataByKey = useProjectIconDataByProjectKey({
-    projects: projectIconTargets,
+  const projectIconQuery = useProjectIconQuery({
+    serverId: selectedHost.serverId,
+    cwd: selectedHost.repoRoot,
   });
-  const projectIconDataUri = projectIconDataByKey.get(project.projectKey) ?? null;
+  const projectIcon = projectIconQuery.icon;
+  const projectIconDataUri = pickedIcon?.dataUri ?? projectIconToDataUri(projectIcon);
   const loadedConfig: PaseoConfigRaw | null = data?.ok ? (data.config ?? {}) : null;
   const loadedRevision: PaseoConfigRevision | null = data?.ok ? data.revision : null;
   const readError: ProjectConfigRpcError | null = data && !data.ok ? data.error : null;
+  const configuredIconPath = typeof loadedConfig?.icon === "string" ? loadedConfig.icon : null;
+  const effectiveIconPath = pickedIcon?.path ?? configuredIconPath ?? projectIcon?.path ?? null;
+  const canEditProjectIcon =
+    isWeb && isElectronRuntime() && isLocalDaemon && supportsProjectIconOverride;
+
+  useEffect(() => {
+    setPickedIcon(null);
+  }, [project.projectKey, selectedHost.repoRoot, selectedHost.serverId]);
 
   const handleReload = useCallback(() => {
     void readQuery.refetch();
   }, [readQuery]);
+
+  const handlePickProjectIcon = useCallback(async () => {
+    if (!canEditProjectIcon) {
+      return;
+    }
+
+    const dialogOpen = getDesktopHost()?.dialog?.open;
+    if (typeof dialogOpen !== "function") {
+      toast.error(t("settings.project.icon.dialogUnavailable"));
+      return;
+    }
+
+    try {
+      const defaultPath = effectiveIconPath
+        ? absolutePathForProjectIcon(selectedHost.repoRoot, effectiveIconPath)
+        : selectedHost.repoRoot;
+      const selection = await dialogOpen({
+        directory: false,
+        multiple: false,
+        defaultPath,
+        title: t("settings.project.icon.dialogTitle"),
+        filters: [
+          {
+            name: t("settings.project.icon.filterName"),
+            extensions: PROJECT_ICON_FILE_EXTENSIONS,
+          },
+        ],
+      });
+      const selectedPath = Array.isArray(selection) ? (selection[0] ?? null) : selection;
+      if (!selectedPath) {
+        return;
+      }
+
+      const relativePath = relativeProjectIconPathFromAbsolute({
+        projectRoot: selectedHost.repoRoot,
+        selectedPath,
+      });
+      if (!relativePath) {
+        toast.show(t("settings.project.icon.outsideProject"), { variant: "error" });
+        return;
+      }
+
+      const result = await client.requestProjectIcon(selectedHost.repoRoot, {
+        iconPath: relativePath,
+      });
+      const dataUri = projectIconToDataUri(result.icon);
+      if (!result.icon || !dataUri) {
+        toast.show(t("settings.project.icon.invalidIcon"), { variant: "error" });
+        return;
+      }
+
+      setPickedIcon({
+        path: result.icon.path ?? relativePath,
+        dataUri,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t("settings.project.icon.selectionFailed");
+      toast.show(message, { variant: "error" });
+    }
+  }, [canEditProjectIcon, client, effectiveIconPath, selectedHost.repoRoot, t, toast]);
 
   const hasMultipleHosts = hosts.length > 1;
 
@@ -240,6 +320,8 @@ function ProjectSettingsBody({
             iconDataUri={projectIconDataUri}
             projectName={project.projectName}
             projectKey={project.projectKey}
+            canEdit={canEditProjectIcon}
+            onEdit={handlePickProjectIcon}
           />
           <ProjectNameEditor project={project} client={client} />
         </View>
@@ -257,6 +339,7 @@ function ProjectSettingsBody({
         onReload: handleReload,
         hasMultipleHosts,
         isHostGone,
+        iconPath: effectiveIconPath,
       })}
     </View>
   );
@@ -273,6 +356,7 @@ interface RenderContentInput {
   onReload: () => void;
   hasMultipleHosts: boolean;
   isHostGone: boolean;
+  iconPath: string | null;
 }
 
 function renderContent({
@@ -286,6 +370,7 @@ function renderContent({
   onReload,
   hasMultipleHosts,
   isHostGone,
+  iconPath,
 }: RenderContentInput) {
   if (readQuery.isLoading) {
     return (
@@ -339,6 +424,7 @@ function renderContent({
       queryKey={queryKey}
       client={client}
       onReload={onReload}
+      iconPath={iconPath}
     />
   );
 }
@@ -424,6 +510,7 @@ interface ProjectConfigFormProps {
   queryKey: readonly [string, string, string];
   client: DaemonClient;
   onReload: () => void;
+  iconPath: string | null;
 }
 
 function ProjectConfigForm({
@@ -433,14 +520,24 @@ function ProjectConfigForm({
   queryKey,
   client,
   onReload,
+  iconPath,
 }: ProjectConfigFormProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const toast = useToast();
 
-  const [draft, setDraft] = useState<ProjectConfigDraft>(() => configToDraft(baseConfig));
+  const [draft, setDraft] = useState<ProjectConfigDraft>(() =>
+    configToDraft(baseConfig, { defaultIconPath: iconPath }),
+  );
   const [writeError, setWriteError] = useState<ProjectConfigRpcError | null>(null);
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextIconPath = iconPath ?? "";
+    setDraft((prev) =>
+      prev.iconPath === nextIconPath ? prev : { ...prev, iconPath: nextIconPath },
+    );
+  }, [iconPath]);
 
   const saveMutation = useMutation({
     mutationFn: async (input: {
@@ -464,6 +561,7 @@ function ProjectConfigForm({
         });
         setWriteError(null);
         queryClient.invalidateQueries({ queryKey: ["projects"] });
+        queryClient.invalidateQueries({ queryKey: projectIconQueryKey(queryKey[1], repoRoot) });
         toast.show(t("settings.project.actions.saved"), { variant: "success" });
       } else {
         setWriteError(result.error);
@@ -908,21 +1006,47 @@ function ProjectTitleIcon({
   iconDataUri,
   projectName,
   projectKey,
+  canEdit,
+  onEdit,
 }: {
   iconDataUri: string | null;
   projectName: string;
   projectKey: string;
+  canEdit: boolean;
+  onEdit: () => void;
 }) {
+  const { t } = useTranslation();
   const initial = projectName.trim().charAt(0).toUpperCase() || "?";
+  const editButtonStyle = useCallback(
+    ({ pressed }: PressableStateCallbackType) => [
+      styles.titleIconEditButton,
+      pressed && styles.titleIconEditButtonPressed,
+    ],
+    [],
+  );
   return (
-    <ProjectIconView
-      iconDataUri={iconDataUri}
-      initial={initial}
-      projectKey={projectKey}
-      imageStyle={styles.titleIcon}
-      fallbackStyle={styles.titleIconFallback}
-      textStyle={styles.titleIconFallbackText}
-    />
+    <View style={styles.titleIconWrap}>
+      <ProjectIconView
+        iconDataUri={iconDataUri}
+        initial={initial}
+        projectKey={projectKey}
+        imageStyle={styles.titleIcon}
+        fallbackStyle={styles.titleIconFallback}
+        textStyle={styles.titleIconFallbackText}
+      />
+      {canEdit ? (
+        <Pressable
+          testID="project-icon-edit-button"
+          accessibilityRole="button"
+          accessibilityLabel={t("settings.project.icon.changeLabel")}
+          onPress={onEdit}
+          hitSlop={8}
+          style={editButtonStyle}
+        >
+          <Pencil size={10} color={styles.titleIconEditColor.color} />
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -1298,6 +1422,13 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
   },
+  titleIconWrap: {
+    width: 32,
+    height: 32,
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   titleIcon: {
     width: 28,
     height: 28,
@@ -1313,6 +1444,25 @@ const styles = StyleSheet.create((theme) => ({
   titleIconFallbackText: {
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
+  },
+  titleIconEditButton: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: theme.borderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  titleIconEditButtonPressed: {
+    backgroundColor: theme.colors.surface3,
+  },
+  titleIconEditColor: {
+    color: theme.colors.foregroundMuted,
   },
   iconColor: {
     color: theme.colors.foregroundMuted,

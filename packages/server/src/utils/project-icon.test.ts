@@ -9,6 +9,7 @@ import {
   PRIORITY_DIRS,
   IGNORED_DIRS,
   MONOREPO_PACKAGE_DIRS,
+  normalizeProjectIconRelativePath,
 } from "./project-icon.js";
 
 function createTempDir(): string {
@@ -384,6 +385,7 @@ describe("getProjectIcon", () => {
     expect(result).not.toBeNull();
     expect(result?.mimeType).toBe("image/png");
     expect(result?.data).toBe(squarePng.toString("base64"));
+    expect(result?.path).toBe("favicon.png");
   });
 
   it("returns null for non-square PNG", async () => {
@@ -407,6 +409,44 @@ describe("getProjectIcon", () => {
     const result = await getProjectIcon(tempDir);
     expect(result).not.toBeNull();
     expect(result?.mimeType).toBe("image/svg+xml");
+    expect(result?.path).toBe("favicon.svg");
+  });
+
+  it("prefers the configured paseo.json icon over automatic discovery", async () => {
+    mkdirSync(join(tempDir, "assets"));
+    writeFileSync(join(tempDir, "favicon.png"), squarePng);
+    writeFileSync(join(tempDir, "assets", "brand.svg"), "<svg></svg>");
+    writeFileSync(join(tempDir, "paseo.json"), JSON.stringify({ icon: "assets/brand.svg" }));
+
+    const result = await getProjectIcon(tempDir);
+    expect(result).not.toBeNull();
+    expect(result?.mimeType).toBe("image/svg+xml");
+    expect(result?.path).toBe("assets/brand.svg");
+  });
+
+  it("does not fall back to discovery when a configured icon is invalid", async () => {
+    writeFileSync(join(tempDir, "favicon.png"), squarePng);
+    writeFileSync(join(tempDir, "paseo.json"), JSON.stringify({ icon: "missing.svg" }));
+
+    const result = await getProjectIcon(tempDir);
+    expect(result).toBeNull();
+  });
+
+  it("validates an explicit relative icon path for preview requests", async () => {
+    mkdirSync(join(tempDir, "assets"));
+    writeFileSync(join(tempDir, "assets", "brand.svg"), "<svg></svg>");
+
+    const result = await getProjectIcon(tempDir, { iconPath: "assets/brand.svg" });
+    expect(result).not.toBeNull();
+    expect(result?.mimeType).toBe("image/svg+xml");
+    expect(result?.path).toBe("assets/brand.svg");
+  });
+
+  it("rejects explicit icon paths that escape the project root", async () => {
+    writeFileSync(join(tempDir, "favicon.png"), squarePng);
+
+    const result = await getProjectIcon(tempDir, { iconPath: "../favicon.png" });
+    expect(result).toBeNull();
   });
 
   it("returns null for files over 32KB", async () => {
@@ -420,5 +460,16 @@ describe("getProjectIcon", () => {
   it("returns null when no icon is found", async () => {
     const result = await getProjectIcon(tempDir);
     expect(result).toBeNull();
+  });
+});
+
+describe("normalizeProjectIconRelativePath", () => {
+  it("normalizes separators and rejects absolute or escaping paths", () => {
+    expect(normalizeProjectIconRelativePath("./public\\icons/../favicon.svg")).toBe(
+      "public/favicon.svg",
+    );
+    expect(normalizeProjectIconRelativePath("/tmp/favicon.svg")).toBeNull();
+    expect(normalizeProjectIconRelativePath("C:\\tmp\\favicon.svg")).toBeNull();
+    expect(normalizeProjectIconRelativePath("../favicon.svg")).toBeNull();
   });
 });

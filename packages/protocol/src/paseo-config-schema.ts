@@ -51,6 +51,7 @@ export const PaseoMetadataGenerationSchema = z
 
 export const PaseoConfigRawSchema = z
   .object({
+    icon: z.string().optional(),
     worktree: PaseoWorktreeConfigRawSchema.optional(),
     scripts: z.record(z.string(), PaseoScriptEntryRawSchema).optional(),
     metadataGeneration: PaseoMetadataGenerationSchema.optional(),
