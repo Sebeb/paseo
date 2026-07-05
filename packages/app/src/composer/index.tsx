@@ -2,6 +2,7 @@ import {
   View,
   Pressable,
   Text,
+  TextInput,
   ActivityIndicator,
   type PressableStateCallbackType,
 } from "react-native";
@@ -31,6 +32,7 @@ import {
   Github,
   Image as ImageIcon,
   Paperclip,
+  ChevronDown,
 } from "lucide-react-native";
 import Animated from "react-native-reanimated";
 import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH } from "@/constants/layout";
@@ -71,6 +73,11 @@ import {
 import { useVoiceOptional } from "@/contexts/voice-context";
 import { useToast } from "@/contexts/toast-context";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Shortcut } from "@/components/ui/shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { AutocompletePopover } from "@/components/ui/autocomplete-popover";
@@ -109,12 +116,19 @@ import { getFileTypeLabel } from "@/attachments/file-types";
 import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/combobox";
 import { AttachmentLabel, AttachmentPill, AttachmentThumbnail } from "@/components/attachment-pill";
 import { AttachmentLightbox } from "@/components/attachment-lightbox";
+import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { openExternalUrl } from "@/utils/open-external-url";
 import { useIsDictationReady } from "@/hooks/use-is-dictation-ready";
 import { useGithubSearchQuery } from "@/git/use-github-search-query";
 import { useCheckoutStatusQuery } from "@/git/use-status-query";
 import { useComposerGithubAutoAttach } from "./github/auto-attach";
 import { resolveClientSlashCommand, type ClientSlashCommand } from "@/client-slash-commands";
+import { useProviderUsage } from "@/provider-usage/use-provider-usage";
+import {
+  createScheduledComposerMessage,
+  resolveCreditRefreshTime,
+  type ScheduleSendMode,
+} from "@/composer/schedule-send";
 
 type QueuedMessage = QueuedComposerMessage;
 
@@ -123,6 +137,7 @@ type AttachmentListUpdater =
   | ((prev: UserComposerAttachment[]) => UserComposerAttachment[]);
 
 const EMPTY_ATTACHMENT_SCOPE_KEYS: readonly string[] = [];
+const SCHEDULE_SEND_SNAP_POINTS = ["55%", "85%"];
 
 function noop() {}
 const noopCallback = () => {};
@@ -233,6 +248,243 @@ function renderContextWindowMeter(
       provider={provider}
       pending={pending}
     />
+  );
+}
+
+function formatLocalDateTimeInput(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
+}
+
+function parseLocalDateTimeInput(value: string): Date | null {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function formatScheduleTime(date: Date | null): string {
+  if (!date) return "";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function ScheduleSendControl({
+  providerUsageView,
+  activeProviderId,
+  isScheduling,
+  onSchedule,
+}: {
+  providerUsageView: ReturnType<typeof useProviderUsage>["view"];
+  activeProviderId: string | null;
+  isScheduling: boolean;
+  onSchedule: (mode: ScheduleSendMode) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedMode, setSelectedMode] = useState<ScheduleSendMode["type"]>("in-hours");
+  const [hoursText, setHoursText] = useState("3");
+  const [dateTimeText, setDateTimeText] = useState(() =>
+    formatLocalDateTimeInput(new Date(Date.now() + 60 * 60 * 1000)),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const isCompact = useIsCompactFormFactor();
+
+  const creditRefresh = resolveCreditRefreshTime(providerUsageView, activeProviderId);
+  const selectedDate = parseLocalDateTimeInput(dateTimeText);
+  const parsedHours = Number.parseInt(hoursText, 10);
+  const hours = Number.isFinite(parsedHours) && parsedHours > 0 ? parsedHours : 1;
+  const canSchedule =
+    !isScheduling &&
+    (selectedMode !== "at" || Boolean(selectedDate)) &&
+    (selectedMode !== "credit-refresh" || Boolean(creditRefresh.runAt));
+
+  const triggerStyle = useCallback(
+    ({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.scheduleTrigger,
+      Boolean(hovered) && styles.scheduleTriggerHovered,
+    ],
+    [],
+  );
+  const handleSelectAt = useCallback(() => setSelectedMode("at"), []);
+  const handleSelectInHours = useCallback(() => setSelectedMode("in-hours"), []);
+  const handleSelectCreditRefresh = useCallback(() => setSelectedMode("credit-refresh"), []);
+  const handleHoursChange = useCallback(
+    (next: string) => setHoursText(next.replace(/[^0-9]/g, "")),
+    [],
+  );
+  const handleClose = useCallback(() => setOpen(false), []);
+  const handleOpen = useCallback(() => setOpen(true), []);
+  const scheduleSubmitStyle = useMemo(
+    () => [styles.scheduleSubmit, !canSchedule && styles.buttonDisabled],
+    [canSchedule],
+  );
+  const sheetHeader = useMemo(() => ({ title: "Schedule send" }), []);
+
+  const handleSchedule = useCallback(() => {
+    let mode: ScheduleSendMode;
+    if (selectedMode === "at") {
+      if (!selectedDate) {
+        setError("Enter a valid date and time");
+        return;
+      }
+      mode = { type: "at", date: selectedDate };
+    } else if (selectedMode === "in-hours") {
+      mode = { type: "in-hours", hours };
+    } else {
+      mode = { type: "credit-refresh", providerId: activeProviderId };
+    }
+    setError(null);
+    void onSchedule(mode)
+      .then(() => setOpen(false))
+      .catch((scheduleError) => {
+        setError(scheduleError instanceof Error ? scheduleError.message : String(scheduleError));
+      });
+  }, [activeProviderId, hours, onSchedule, selectedDate, selectedMode]);
+
+  const menuContent = (
+    <View style={styles.scheduleMenu}>
+      {!isCompact ? <Text style={styles.scheduleTitle}>Schedule send</Text> : null}
+      <ScheduleModeRow
+        selected={selectedMode === "at"}
+        title="At a set time"
+        detail={selectedDate ? formatScheduleTime(selectedDate) : "Invalid time"}
+        onPress={handleSelectAt}
+      >
+        <TextInput
+          value={dateTimeText}
+          onChangeText={setDateTimeText}
+          style={styles.scheduleInput}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      </ScheduleModeRow>
+      <ScheduleModeRow
+        selected={selectedMode === "in-hours"}
+        title="In hours"
+        detail={`${hours} ${hours === 1 ? "hour" : "hours"} from now`}
+        onPress={handleSelectInHours}
+      >
+        <TextInput
+          value={hoursText}
+          onChangeText={handleHoursChange}
+          keyboardType="number-pad"
+          style={styles.scheduleHoursInput}
+        />
+      </ScheduleModeRow>
+      <ScheduleModeRow
+        selected={selectedMode === "credit-refresh"}
+        title="On credit refresh"
+        detail={
+          creditRefresh.runAt
+            ? `Next refresh ${formatScheduleTime(creditRefresh.runAt)}`
+            : (creditRefresh.disabledReason ?? "Unavailable")
+        }
+        disabled={!creditRefresh.runAt}
+        onPress={handleSelectCreditRefresh}
+      />
+      {error ? <Text style={styles.scheduleError}>{error}</Text> : null}
+      <View style={styles.scheduleFooter}>
+        <Pressable style={styles.scheduleCancel} onPress={handleClose}>
+          <Text style={styles.scheduleCancelText}>Cancel</Text>
+        </Pressable>
+        <Pressable style={scheduleSubmitStyle} disabled={!canSchedule} onPress={handleSchedule}>
+          <Text style={styles.scheduleSubmitText}>
+            {isScheduling ? "Scheduling..." : "Schedule"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+
+  if (isCompact || isNative) {
+    return (
+      <>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Schedule send"
+          testID="schedule-send-trigger"
+          style={triggerStyle}
+          onPress={handleOpen}
+        >
+          <ChevronDown size={12} color={(styles.scheduleChevron as { color: string }).color} />
+        </Pressable>
+        <AdaptiveModalSheet
+          visible={open}
+          onClose={handleClose}
+          header={sheetHeader}
+          snapPoints={SCHEDULE_SEND_SNAP_POINTS}
+          testID="schedule-send-sheet"
+        >
+          {menuContent}
+        </AdaptiveModalSheet>
+      </>
+    );
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        accessibilityRole="button"
+        accessibilityLabel="Schedule send"
+        testID="schedule-send-trigger"
+        style={triggerStyle}
+      >
+        <ChevronDown size={12} color={(styles.scheduleChevron as { color: string }).color} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="end" width={320} testID="schedule-send-menu">
+        {menuContent}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ScheduleModeRow({
+  selected,
+  title,
+  detail,
+  disabled,
+  onPress,
+  children,
+}: {
+  selected: boolean;
+  title: string;
+  detail: string;
+  disabled?: boolean;
+  onPress: () => void;
+  children?: ReactNode;
+}) {
+  const accessibilityState = useMemo(
+    () => ({ selected, disabled: Boolean(disabled) }),
+    [disabled, selected],
+  );
+  const rowStyle = useMemo(
+    () => [
+      styles.scheduleModeRow,
+      selected && styles.scheduleModeRowSelected,
+      disabled && styles.buttonDisabled,
+    ],
+    [disabled, selected],
+  );
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={accessibilityState}
+      disabled={disabled}
+      onPress={onPress}
+      style={rowStyle}
+    >
+      <View style={styles.scheduleModeText}>
+        <Text style={styles.scheduleModeTitle}>{title}</Text>
+        <Text style={styles.scheduleModeDetail} numberOfLines={2}>
+          {detail}
+        </Text>
+      </View>
+      {children}
+    </Pressable>
   );
 }
 
@@ -1012,6 +1264,11 @@ export function Composer({
   const { settings: appSettings } = useAppSettings();
 
   const agentState = useSessionStore(useShallow(buildAgentStateSelector(serverId, agentId)));
+  const supportsScheduledComposerMessages = useSessionStore(
+    (state) =>
+      // COMPAT(scheduledComposerMessages): added in v0.1.105, remove gate after 2027-01-06.
+      state.sessions[serverId]?.serverInfo?.features?.scheduledComposerMessages === true,
+  );
 
   const queuedMessagesRaw = useSessionStore((state) =>
     state.sessions[serverId]?.queuedMessages?.get(agentId),
@@ -1057,6 +1314,7 @@ export function Composer({
   });
   const [cursorIndex, setCursorIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSchedulingMessage, setIsSchedulingMessage] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [isCancellingAgent, setIsCancellingAgent] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -1583,6 +1841,72 @@ export function Composer({
   );
 
   const hasSendableContent = userInput.trim().length > 0 || selectedAttachments.length > 0;
+  const canShowScheduleSend =
+    supportsScheduledComposerMessages && hasSendableContent && Boolean(client) && isConnected;
+  const providerUsage = useProviderUsage(serverId, { enabled: canShowScheduleSend });
+
+  const handleScheduleSend = useCallback(
+    async (mode: ScheduleSendMode) => {
+      if (!client) {
+        throw new Error(t("composer.errors.daemonClientDisconnected"));
+      }
+      const outgoingAttachments = buildOutgoingAttachments(attachments);
+      setIsSchedulingMessage(true);
+      setSendError(null);
+      try {
+        await createScheduledComposerMessage({
+          client,
+          agentId,
+          text: userInput,
+          attachments: outgoingAttachments,
+          mode,
+          providerUsageView: providerUsage.view,
+          encodeImages,
+        });
+        setUserInput("");
+        setSelectedAttachments([]);
+        resetSuppression();
+        clearSentAttachments(outgoingAttachments);
+        clearDraft("sent");
+      } finally {
+        setIsSchedulingMessage(false);
+      }
+    },
+    [
+      agentId,
+      attachments,
+      buildOutgoingAttachments,
+      clearDraft,
+      clearSentAttachments,
+      client,
+      providerUsage.view,
+      resetSuppression,
+      setSelectedAttachments,
+      setUserInput,
+      t,
+      userInput,
+    ],
+  );
+
+  const scheduleSendControl = useMemo(() => {
+    if (!canShowScheduleSend) {
+      return null;
+    }
+    return (
+      <ScheduleSendControl
+        activeProviderId={agentState.provider}
+        providerUsageView={providerUsage.view}
+        isScheduling={isSchedulingMessage}
+        onSchedule={handleScheduleSend}
+      />
+    );
+  }, [
+    agentState.provider,
+    canShowScheduleSend,
+    handleScheduleSend,
+    isSchedulingMessage,
+    providerUsage.view,
+  ]);
 
   // Handle keyboard navigation for command autocomplete.
   const handleCommandKeyPress = useCallback(
@@ -1957,6 +2281,7 @@ export function Composer({
                 leftContent={leftContent}
                 beforeVoiceContent={beforeVoiceContent}
                 rightContent={rightContent}
+                afterSendContent={scheduleSendControl}
                 voiceServerId={serverId}
                 voiceAgentId={agentId}
                 isAgentRunning={isAgentRunning}
@@ -2104,6 +2429,117 @@ const styles = StyleSheet.create((theme: Theme) => ({
   realtimeVoiceButtonActive: {
     backgroundColor: theme.colors.palette.green[600],
     borderColor: theme.colors.palette.green[800],
+  },
+  scheduleTrigger: {
+    width: 16,
+    height: 24,
+    borderTopRightRadius: theme.borderRadius.full,
+    borderBottomRightRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.accent,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    paddingRight: 2,
+    marginLeft: -theme.spacing[2],
+    opacity: 0.86,
+  },
+  scheduleTriggerHovered: {
+    opacity: 1,
+  },
+  scheduleChevron: {
+    color: theme.colors.accentForeground,
+  },
+  scheduleMenu: {
+    gap: theme.spacing[3],
+    padding: theme.spacing[3],
+  },
+  scheduleTitle: {
+    color: theme.colors.popoverForeground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+  },
+  scheduleModeRow: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[3],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+    borderRadius: theme.borderRadius.md,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+  },
+  scheduleModeRowSelected: {
+    borderColor: theme.colors.borderAccent,
+    backgroundColor: theme.colors.surface3,
+  },
+  scheduleModeText: {
+    flex: 1,
+    minWidth: 0,
+    gap: theme.spacing[1],
+  },
+  scheduleModeTitle: {
+    color: theme.colors.popoverForeground,
+    fontSize: theme.fontSize.sm,
+  },
+  scheduleModeDetail: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  scheduleInput: {
+    width: 148,
+    minHeight: 34,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
+    color: theme.colors.foreground,
+    paddingHorizontal: theme.spacing[2],
+    fontSize: theme.fontSize.xs,
+  },
+  scheduleHoursInput: {
+    width: 48,
+    minHeight: 34,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
+    color: theme.colors.foreground,
+    textAlign: "center",
+    paddingHorizontal: theme.spacing[2],
+    fontSize: theme.fontSize.sm,
+  },
+  scheduleError: {
+    color: theme.colors.palette.red[300],
+    fontSize: theme.fontSize.xs,
+  },
+  scheduleFooter: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  scheduleCancel: {
+    minHeight: 34,
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing[3],
+  },
+  scheduleCancelText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+  },
+  scheduleSubmit: {
+    minHeight: 34,
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing[3],
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.accent,
+  },
+  scheduleSubmitText: {
+    color: theme.colors.accentForeground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
   },
   iconButtonHovered: {
     backgroundColor: theme.colors.surface2,

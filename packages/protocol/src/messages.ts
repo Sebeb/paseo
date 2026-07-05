@@ -54,6 +54,29 @@ import {
   LoopStopResponseSchema,
 } from "./loop/rpc-schemas.js";
 import {
+  AgentAttachmentSchema,
+  AgentAttachmentsSchema,
+  GitHubIssueAttachmentSchema,
+  GitHubPrAttachmentSchema,
+  ImageAttachmentSchema,
+  ReviewAttachmentCommentSchema,
+  ReviewAttachmentContextLineSchema,
+  ReviewAttachmentSchema,
+  TextAttachmentSchema,
+  UploadedFileAttachmentSchema,
+} from "./agent-attachments.js";
+export {
+  AgentAttachmentSchema,
+  GitHubIssueAttachmentSchema,
+  GitHubPrAttachmentSchema,
+  ImageAttachmentSchema,
+  ReviewAttachmentCommentSchema,
+  ReviewAttachmentContextLineSchema,
+  ReviewAttachmentSchema,
+  TextAttachmentSchema,
+  UploadedFileAttachmentSchema,
+};
+import {
   BrowserAutomationExecuteRequestSchema,
   BrowserAutomationExecuteResponseSchema,
 } from "./browser-automation/rpc-schemas.js";
@@ -836,105 +859,6 @@ export const SetVoiceModeMessageSchema = z.object({
   enabled: z.boolean(),
   agentId: z.string().optional(),
   requestId: z.string().optional(),
-});
-
-export const GitHubPrAttachmentSchema = z.object({
-  type: z.literal("github_pr"),
-  mimeType: z.literal("application/github-pr"),
-  number: z.number().int().positive(),
-  title: z.string(),
-  url: z.string(),
-  body: z.string().nullable().optional(),
-  baseRefName: z.string().nullable().optional(),
-  headRefName: z.string().nullable().optional(),
-});
-
-export const GitHubIssueAttachmentSchema = z.object({
-  type: z.literal("github_issue"),
-  mimeType: z.literal("application/github-issue"),
-  number: z.number().int().positive(),
-  title: z.string(),
-  url: z.string(),
-  body: z.string().nullable().optional(),
-});
-
-export const TextAttachmentSchema = z
-  .object({
-    type: z.literal("text"),
-    mimeType: z.literal("text/plain"),
-    contextKind: z.string().optional(),
-    title: z.string().nullable().optional(),
-    text: z.string(),
-  })
-  .transform(({ contextKind, ...attachment }) => ({
-    ...attachment,
-    ...(contextKind === "chat_history" ? { contextKind } : {}),
-  }));
-
-export const ReviewAttachmentContextLineSchema = z.object({
-  oldLineNumber: z.number().int().positive().nullable(),
-  newLineNumber: z.number().int().positive().nullable(),
-  type: z.enum(["add", "remove", "context"]),
-  content: z.string(),
-});
-
-export const ReviewAttachmentCommentSchema = z.object({
-  filePath: z.string(),
-  side: z.enum(["old", "new"]),
-  lineNumber: z.number().int().positive(),
-  body: z.string(),
-  context: z.object({
-    hunkHeader: z.string(),
-    targetLine: ReviewAttachmentContextLineSchema,
-    lines: z.array(ReviewAttachmentContextLineSchema),
-  }),
-});
-
-export const ReviewAttachmentSchema = z.object({
-  type: z.literal("review"),
-  mimeType: z.literal("application/paseo-review"),
-  cwd: z.string(),
-  mode: z.enum(["uncommitted", "base"]),
-  baseRef: z.string().nullable().optional(),
-  comments: z.array(ReviewAttachmentCommentSchema),
-});
-
-export const UploadedFileAttachmentSchema = z.object({
-  type: z.literal("uploaded_file"),
-  id: z.string(),
-  fileName: z.string(),
-  mimeType: z.string(),
-  size: z.number().int().nonnegative(),
-  path: z.string(),
-});
-
-export const AgentAttachmentSchema = z.discriminatedUnion("type", [
-  GitHubPrAttachmentSchema,
-  GitHubIssueAttachmentSchema,
-  TextAttachmentSchema,
-  ReviewAttachmentSchema,
-  UploadedFileAttachmentSchema,
-]);
-
-function normalizeAgentAttachments(input: unknown): AgentAttachment[] {
-  if (!Array.isArray(input)) {
-    return [];
-  }
-  const normalized: AgentAttachment[] = [];
-  for (const item of input) {
-    const parsed = AgentAttachmentSchema.safeParse(item);
-    if (parsed.success) {
-      normalized.push(parsed.data);
-    }
-  }
-  return normalized;
-}
-
-const AgentAttachmentsSchema = z.unknown().transform(normalizeAgentAttachments).optional();
-
-const ImageAttachmentSchema = z.object({
-  data: z.string(), // base64 encoded image
-  mimeType: z.string(), // e.g., "image/jpeg", "image/png"
 });
 
 export const SendAgentMessageSchema = z.object({
@@ -2359,6 +2283,8 @@ export const ServerInfoStatusPayloadSchema = z
         worktreeRestore: z.boolean().optional(),
         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
         providerUsageList: z.boolean().optional(),
+        // COMPAT(scheduledComposerMessages): added in v0.1.105, remove gate after 2027-01-06.
+        scheduledComposerMessages: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: z.boolean().optional(),
         // COMPAT(daemonDiagnostics): added in v0.1.100, remove gate after 2026-12-25 once daemon floor >= v0.1.100.

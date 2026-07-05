@@ -16,7 +16,11 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { settingsStyles } from "@/styles/settings";
 import type { Theme } from "@/styles/theme";
 import type { ScheduleDerivedState } from "@/schedules/schedule-derivation";
-import { formatCadence, formatNextRun, resolveScheduleTitle } from "@/utils/schedule-format";
+import {
+  formatNextRun,
+  formatScheduleCadence,
+  resolveScheduleTitle,
+} from "@/utils/schedule-format";
 import { formatTimeAgo } from "@/utils/time";
 import type { ScheduleSummary } from "@getpaseo/protocol/schedule/types";
 
@@ -97,7 +101,7 @@ function buildMeta(
   singleHost: boolean,
 ): string {
   const parts = [
-    formatCadence(schedule.cadence),
+    formatScheduleCadence(schedule),
     `Created ${formatTimeAgo(new Date(schedule.createdAt))}`,
     schedule.lastRunAt ? `Last run ${formatTimeAgo(new Date(schedule.lastRunAt))}` : "Never run",
   ];

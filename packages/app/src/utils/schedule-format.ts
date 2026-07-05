@@ -85,6 +85,21 @@ export function formatCadence(cadence: ScheduleCadence): string {
   return describeCron(cadence.expression) ?? cadence.expression;
 }
 
+export function formatScheduleCadence(schedule: ScheduleSummary): string {
+  if (schedule.delivery === "agent-message" && schedule.maxRuns === 1 && schedule.nextRunAt) {
+    const runAt = new Date(schedule.nextRunAt);
+    if (!Number.isNaN(runAt.getTime())) {
+      return `Once at ${runAt.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })}`;
+    }
+  }
+  return formatCadence(schedule.cadence);
+}
+
 /**
  * Humanize a handful of common 5-field cron shapes. Returns null when the
  * expression is valid but not one of the recognized patterns (callers fall

@@ -1,0 +1,104 @@
+import { z } from "zod";
+
+export const GitHubPrAttachmentSchema = z.object({
+  type: z.literal("github_pr"),
+  mimeType: z.literal("application/github-pr"),
+  number: z.number().int().positive(),
+  title: z.string(),
+  url: z.string(),
+  body: z.string().nullable().optional(),
+  baseRefName: z.string().nullable().optional(),
+  headRefName: z.string().nullable().optional(),
+});
+
+export const GitHubIssueAttachmentSchema = z.object({
+  type: z.literal("github_issue"),
+  mimeType: z.literal("application/github-issue"),
+  number: z.number().int().positive(),
+  title: z.string(),
+  url: z.string(),
+  body: z.string().nullable().optional(),
+});
+
+export const TextAttachmentSchema = z
+  .object({
+    type: z.literal("text"),
+    mimeType: z.literal("text/plain"),
+    contextKind: z.string().optional(),
+    title: z.string().nullable().optional(),
+    text: z.string(),
+  })
+  .transform(({ contextKind, ...attachment }) => ({
+    ...attachment,
+    ...(contextKind === "chat_history" ? { contextKind } : {}),
+  }));
+
+export const ReviewAttachmentContextLineSchema = z.object({
+  oldLineNumber: z.number().int().positive().nullable(),
+  newLineNumber: z.number().int().positive().nullable(),
+  type: z.enum(["add", "remove", "context"]),
+  content: z.string(),
+});
+
+export const ReviewAttachmentCommentSchema = z.object({
+  filePath: z.string(),
+  side: z.enum(["old", "new"]),
+  lineNumber: z.number().int().positive(),
+  body: z.string(),
+  context: z.object({
+    hunkHeader: z.string(),
+    targetLine: ReviewAttachmentContextLineSchema,
+    lines: z.array(ReviewAttachmentContextLineSchema),
+  }),
+});
+
+export const ReviewAttachmentSchema = z.object({
+  type: z.literal("review"),
+  mimeType: z.literal("application/paseo-review"),
+  cwd: z.string(),
+  mode: z.enum(["uncommitted", "base"]),
+  baseRef: z.string().nullable().optional(),
+  comments: z.array(ReviewAttachmentCommentSchema),
+});
+
+export const UploadedFileAttachmentSchema = z.object({
+  type: z.literal("uploaded_file"),
+  id: z.string(),
+  fileName: z.string(),
+  mimeType: z.string(),
+  size: z.number().int().nonnegative(),
+  path: z.string(),
+});
+
+export const AgentAttachmentSchema = z.discriminatedUnion("type", [
+  GitHubPrAttachmentSchema,
+  GitHubIssueAttachmentSchema,
+  TextAttachmentSchema,
+  ReviewAttachmentSchema,
+  UploadedFileAttachmentSchema,
+]);
+
+export type AgentAttachment = z.infer<typeof AgentAttachmentSchema>;
+
+export function normalizeAgentAttachments(input: unknown): AgentAttachment[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  const normalized: AgentAttachment[] = [];
+  for (const item of input) {
+    const parsed = AgentAttachmentSchema.safeParse(item);
+    if (parsed.success) {
+      normalized.push(parsed.data);
+    }
+  }
+  return normalized;
+}
+
+export const AgentAttachmentsSchema = z.unknown().transform(normalizeAgentAttachments).optional();
+
+export const ImageAttachmentSchema = z.object({
+  data: z.string(),
+  mimeType: z.string(),
+});
+
+export type ImageAttachmentPayload = z.infer<typeof ImageAttachmentSchema>;
