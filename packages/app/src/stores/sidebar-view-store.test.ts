@@ -39,6 +39,8 @@ describe("sidebar view store", () => {
   beforeEach(() => {
     useSidebarViewStore.setState({
       groupMode: "project",
+      singleProjectViewEnabled: false,
+      singleProjectViewProjectKey: null,
       hostFilters: [],
     });
   });
@@ -89,6 +91,8 @@ describe("sidebar view store", () => {
       }),
     ).toEqual({
       groupMode: "status",
+      singleProjectViewEnabled: false,
+      singleProjectViewProjectKey: null,
       hostFilters: [],
     });
   });
@@ -101,6 +105,8 @@ describe("sidebar view store", () => {
       }),
     ).toEqual({
       groupMode: "status",
+      singleProjectViewEnabled: false,
+      singleProjectViewProjectKey: null,
       hostFilters: ["host-a"],
     });
   });
@@ -109,11 +115,29 @@ describe("sidebar view store", () => {
     expect(
       migrateSidebarViewState({
         groupMode: "status",
+        singleProjectViewEnabled: true,
+        singleProjectViewProjectKey: "project-a",
         hostFilters: ["host-a", "host-b"],
       }),
     ).toEqual({
       groupMode: "status",
+      singleProjectViewEnabled: true,
+      singleProjectViewProjectKey: "project-a",
       hostFilters: ["host-a", "host-b"],
+    });
+  });
+
+  it("stores single project view preferences independently from group mode", () => {
+    const store = useSidebarViewStore.getState();
+
+    store.setSingleProjectViewEnabled(true);
+    store.setSingleProjectViewProjectKey("project-a");
+    store.setGroupMode("status");
+
+    expect(useSidebarViewStore.getState()).toMatchObject({
+      groupMode: "status",
+      singleProjectViewEnabled: true,
+      singleProjectViewProjectKey: "project-a",
     });
   });
 

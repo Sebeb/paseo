@@ -75,7 +75,11 @@ import {
 import type { ShortcutKey } from "@/utils/format-shortcut";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
-import { SidebarWorkspaceList } from "./sidebar-workspace-list";
+import {
+  SidebarSelectedProjectHeaderActions,
+  SidebarWorkspaceList,
+} from "./sidebar-workspace-list";
+import { resolveSingleProjectViewProject } from "@/utils/sidebar-single-project-view";
 
 const MIN_CHAT_WIDTH = 400;
 
@@ -91,6 +95,11 @@ interface SidebarSharedProps {
   statusWorkspacePlacements: SidebarStatusWorkspacePlacement[];
   projects: SidebarProjectEntry[];
   projectNamesByKey: Map<string, string>;
+  singleProjectViewEnabled: boolean;
+  selectedSingleProject: SidebarProjectEntry | null;
+  headerProjectName: string | null;
+  handleSingleProjectSelect: (projectKey: string) => void;
+  handleSingleProjectHover: (projectName: string | null) => void;
   isInitialLoad: boolean;
   isRevalidating: boolean;
   isManualRefresh: boolean;
@@ -167,6 +176,73 @@ export const LeftSidebar = memo(function LeftSidebar({
     useSidebarShortcutModel({ projects });
 
   const groupMode = useSidebarViewStore((state) => state.groupMode);
+  const singleProjectViewSettingEnabled = useSidebarViewStore(
+    (state) => state.singleProjectViewEnabled,
+  );
+  const singleProjectViewProjectKey = useSidebarViewStore(
+    (state) => state.singleProjectViewProjectKey,
+  );
+  const setSingleProjectViewProjectKey = useSidebarViewStore(
+    (state) => state.setSingleProjectViewProjectKey,
+  );
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const [hoveredSingleProjectName, setHoveredSingleProjectName] = useState<string | null>(null);
+  const singleProjectViewEnabled = groupMode === "project" && singleProjectViewSettingEnabled;
+  const activeSingleProject = useMemo(
+    () =>
+      activeWorkspaceSelection
+        ? findProjectForWorkspaceSelection(projects, activeWorkspaceSelection)
+        : null,
+    [activeWorkspaceSelection, projects],
+  );
+  const activeWorkspaceSelectionKey = activeWorkspaceSelection
+    ? `${activeWorkspaceSelection.serverId}:${activeWorkspaceSelection.workspaceId}`
+    : "";
+  const syncedActiveWorkspaceSelectionKeyRef = useRef("");
+
+  useEffect(() => {
+    if (!singleProjectViewEnabled) {
+      syncedActiveWorkspaceSelectionKeyRef.current = "";
+      return;
+    }
+    if (!activeSingleProject) {
+      return;
+    }
+    if (syncedActiveWorkspaceSelectionKeyRef.current === activeWorkspaceSelectionKey) {
+      return;
+    }
+    syncedActiveWorkspaceSelectionKeyRef.current = activeWorkspaceSelectionKey;
+    setSingleProjectViewProjectKey(activeSingleProject.projectKey);
+  }, [
+    activeSingleProject,
+    activeWorkspaceSelectionKey,
+    setSingleProjectViewProjectKey,
+    singleProjectViewEnabled,
+  ]);
+
+  const selectedSingleProject = useMemo(
+    () =>
+      singleProjectViewEnabled
+        ? resolveSingleProjectViewProject({
+            projects,
+            activeWorkspaceSelection,
+            storedProjectKey: singleProjectViewProjectKey,
+          })
+        : null,
+    [activeWorkspaceSelection, projects, singleProjectViewEnabled, singleProjectViewProjectKey],
+  );
+  const headerProjectName = singleProjectViewEnabled
+    ? (hoveredSingleProjectName ?? selectedSingleProject?.projectName ?? null)
+    : null;
+  const handleSingleProjectSelect = useCallback(
+    (projectKey: string) => {
+      setSingleProjectViewProjectKey(projectKey);
+    },
+    [setSingleProjectViewProjectKey],
+  );
+  const handleSingleProjectHover = useCallback((projectName: string | null) => {
+    setHoveredSingleProjectName(projectName);
+  }, []);
 
   const [isManualRefresh, setIsManualRefresh] = useState(false);
 
@@ -260,6 +336,11 @@ export const LeftSidebar = memo(function LeftSidebar({
     statusWorkspacePlacements,
     projects,
     projectNamesByKey,
+    singleProjectViewEnabled,
+    selectedSingleProject,
+    headerProjectName,
+    handleSingleProjectSelect,
+    handleSingleProjectHover,
     isInitialLoad,
     isRevalidating,
     isManualRefresh,
@@ -432,6 +513,23 @@ function HeaderIconTooltipContent({
   );
 }
 
+function findProjectForWorkspaceSelection(
+  projects: SidebarProjectEntry[],
+  selection: { serverId: string; workspaceId: string },
+): SidebarProjectEntry | null {
+  for (const project of projects) {
+    const hasWorkspace = project.workspaces.some(
+      (workspace) =>
+        workspace.serverId === selection.serverId &&
+        workspace.workspaceId === selection.workspaceId,
+    );
+    if (hasWorkspace) {
+      return project;
+    }
+  }
+  return null;
+}
+
 const SidebarNewWorkspaceHeaderRow = memo(function SidebarNewWorkspaceHeaderRow({
   label,
   testID,
@@ -558,6 +656,11 @@ function MobileSidebar({
   statusWorkspacePlacements,
   projects,
   projectNamesByKey,
+  singleProjectViewEnabled,
+  selectedSingleProject,
+  headerProjectName,
+  handleSingleProjectSelect,
+  handleSingleProjectHover,
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
@@ -786,7 +889,12 @@ function MobileSidebar({
                 variant="compact"
               />
             </View>
-            <WorkspacesSectionHeader />
+            <WorkspacesSectionHeader
+              title={headerProjectName ?? "Workspaces"}
+              projectTitle={singleProjectViewEnabled}
+              selectedProject={singleProjectViewEnabled ? selectedSingleProject : null}
+              onSelectedProjectWorkspacePress={closeSidebar}
+            />
             <Pressable
               style={styles.mobileCloseButton}
               onPress={closeSidebar}
@@ -815,6 +923,10 @@ function MobileSidebar({
                 onToggleProjectCollapsed={toggleProjectCollapsed}
                 shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
                 groupMode={groupMode}
+                singleProjectViewEnabled={singleProjectViewEnabled}
+                singleProjectViewProject={selectedSingleProject}
+                onSingleProjectSelected={handleSingleProjectSelect}
+                onSingleProjectHover={handleSingleProjectHover}
                 statusWorkspacePlacements={statusWorkspacePlacements}
                 projects={projects}
                 projectNamesByKey={projectNamesByKey}
@@ -847,6 +959,11 @@ function DesktopSidebar({
   statusWorkspacePlacements,
   projects,
   projectNamesByKey,
+  singleProjectViewEnabled,
+  selectedSingleProject,
+  headerProjectName,
+  handleSingleProjectSelect,
+  handleSingleProjectHover,
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
@@ -959,7 +1076,11 @@ function DesktopSidebar({
             />
           </View>
         </View>
-        <WorkspacesSectionHeader />
+        <WorkspacesSectionHeader
+          title={headerProjectName ?? "Workspaces"}
+          projectTitle={singleProjectViewEnabled}
+          selectedProject={singleProjectViewEnabled ? selectedSingleProject : null}
+        />
 
         {isInitialLoad ? (
           <SidebarAgentListSkeleton />
@@ -969,6 +1090,10 @@ function DesktopSidebar({
             onToggleProjectCollapsed={toggleProjectCollapsed}
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
             groupMode={groupMode}
+            singleProjectViewEnabled={singleProjectViewEnabled}
+            singleProjectViewProject={selectedSingleProject}
+            onSingleProjectSelected={handleSingleProjectSelect}
+            onSingleProjectHover={handleSingleProjectHover}
             statusWorkspacePlacements={statusWorkspacePlacements}
             projects={projects}
             projectNamesByKey={projectNamesByKey}
@@ -999,7 +1124,17 @@ function DesktopSidebar({
   );
 }
 
-function WorkspacesSectionHeader() {
+function WorkspacesSectionHeader({
+  title,
+  projectTitle = false,
+  selectedProject = null,
+  onSelectedProjectWorkspacePress,
+}: {
+  title: string;
+  projectTitle?: boolean;
+  selectedProject?: SidebarProjectEntry | null;
+  onSelectedProjectWorkspacePress?: () => void;
+}) {
   const { theme } = useUnistyles();
   const setCommandCenterOpen = useKeyboardShortcutsStore((state) => state.setCommandCenterOpen);
   const commandCenterKeys = useShortcutKeys("toggle-command-center");
@@ -1011,11 +1146,23 @@ function WorkspacesSectionHeader() {
     ],
     [],
   );
+  const titleStyle = useMemo(
+    () => [styles.workspacesSectionTitle, projectTitle && styles.workspacesProjectTitle],
+    [projectTitle],
+  );
 
   return (
     <View style={styles.workspacesSectionHeader}>
-      <Text style={styles.workspacesSectionTitle}>Workspaces</Text>
+      <Text style={titleStyle} numberOfLines={1}>
+        {title}
+      </Text>
       <View style={styles.workspacesSectionActions}>
+        {selectedProject ? (
+          <SidebarSelectedProjectHeaderActions
+            project={selectedProject}
+            onWorkspacePress={onSelectedProjectWorkspacePress}
+          />
+        ) : null}
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
             <Pressable
@@ -1106,11 +1253,18 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
+    flex: 1,
+    minWidth: 0,
+  },
+  workspacesProjectTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
   },
   workspacesSectionActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
+    flexShrink: 0,
   },
   workspacesHeaderIconButton: {
     width: 28,

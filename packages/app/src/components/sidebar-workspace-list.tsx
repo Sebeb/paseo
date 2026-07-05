@@ -1,4 +1,6 @@
 import {
+  AccessibilityInfo,
+  Animated,
   View,
   Text,
   Pressable,
@@ -128,6 +130,11 @@ import {
   getIsElectron,
 } from "@/constants/platform";
 import { getDesktopHost } from "@/desktop/host";
+import {
+  getProjectStatusCountsFromStatuses,
+  orderSingleProjectViewProjects,
+} from "@/utils/sidebar-single-project-view";
+import { deriveProjectIconColor } from "@/utils/project-icon-color";
 
 const workspaceKeyExtractor = (workspace: SidebarWorkspacePlacement) => workspace.workspaceKey;
 
@@ -235,6 +242,10 @@ interface SidebarWorkspaceListProps {
   onToggleProjectCollapsed: (projectKey: string) => void;
   shortcutIndexByWorkspaceKey: Map<string, number>;
   groupMode: "project" | "status";
+  singleProjectViewEnabled?: boolean;
+  singleProjectViewProject?: SidebarProjectEntry | null;
+  onSingleProjectSelected?: (projectKey: string) => void;
+  onSingleProjectHover?: (projectName: string | null) => void;
   isRefreshing?: boolean;
   onRefresh?: () => void;
   onWorkspacePress?: () => void;
@@ -632,6 +643,148 @@ function ProjectKebabMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function useProjectRemoveAction({
+  project,
+  displayName,
+}: {
+  project: SidebarProjectEntry | null;
+  displayName: string;
+}) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const [isRemovingProject, setIsRemovingProject] = useState(false);
+
+  const handleRemoveProject = useCallback(() => {
+    if (isRemovingProject || !project) {
+      return;
+    }
+
+    void (async () => {
+      const confirmed = await confirmDialog({
+        title: t("sidebar.project.confirmations.removeTitle"),
+        message: t("sidebar.project.confirmations.removeMessage", { projectName: displayName }),
+        confirmLabel: t("sidebar.project.confirmations.removeConfirm"),
+        cancelLabel: t("sidebar.project.confirmations.cancel"),
+        destructive: true,
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      setIsRemovingProject(true);
+      const readiness = getCurrentProjectRemoveReadiness({
+        projectKey: project.projectKey,
+        hosts: project.hosts,
+      });
+      if (readiness.kind === "needs_host_update") {
+        toast.error(t("sidebar.project.toasts.updateHostToRemove"));
+        setIsRemovingProject(false);
+        return;
+      }
+
+      void removeProjectFromHosts({
+        projectKey: project.projectKey,
+        targets: readiness.targets,
+        getClient: (serverId) => getHostRuntimeStore().getClient(serverId),
+      })
+        .then((outcome) => {
+          if (outcome.kind === "host_disconnected") {
+            toast.error(t("sidebar.project.toasts.hostDisconnected"));
+            return null;
+          }
+          if (outcome.kind === "failed") {
+            toast.error(t("sidebar.project.toasts.removeFailed"));
+          }
+          return null;
+        })
+        .catch((error) => {
+          toast.error(
+            error instanceof Error ? error.message : t("sidebar.project.toasts.removeFailed"),
+          );
+        })
+        .finally(() => {
+          setIsRemovingProject(false);
+        });
+    })();
+  }, [isRemovingProject, displayName, t, toast, project]);
+
+  return {
+    isRemovingProject,
+    removeProjectStatus: isRemovingProject ? ("pending" as const) : ("idle" as const),
+    handleRemoveProject,
+  };
+}
+
+export function SidebarSelectedProjectHeaderActions({
+  project,
+  onWorkspacePress,
+}: {
+  project: SidebarProjectEntry | null;
+  onWorkspacePress?: () => void;
+}) {
+  const hosts = useHosts();
+  const serverIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
+  const supportsMultiplicityByServerId = useHostFeatureMap(serverIds, "workspaceMultiplicity");
+  const rowModel = useMemo(
+    () =>
+      project
+        ? buildSidebarProjectRowModel({
+            project,
+            collapsed: false,
+            supportsMultiplicityByServerId,
+          })
+        : null,
+    [project, supportsMultiplicityByServerId],
+  );
+  const { isRemovingProject, removeProjectStatus, handleRemoveProject } = useProjectRemoveAction({
+    project,
+    displayName: project?.projectName ?? "",
+  });
+
+  const worktreeTarget =
+    rowModel?.trailingAction.kind === "new_workspace" ? rowModel.trailingAction.target : null;
+  const handleBeginWorkspaceSetup = useCallback(() => {
+    if (!project || !worktreeTarget) {
+      return;
+    }
+    onWorkspacePress?.();
+    router.navigate(
+      buildNewWorkspaceRoute({
+        serverId: worktreeTarget.serverId,
+        sourceDirectory: worktreeTarget.iconWorkingDir,
+        displayName: project.projectName,
+        projectId: project.projectKey,
+      }) as Href,
+    );
+  }, [onWorkspacePress, project, worktreeTarget]);
+
+  if (!project) {
+    return null;
+  }
+
+  return (
+    <View style={styles.singleProjectHeaderActions}>
+      {worktreeTarget ? (
+        <NewWorktreeButton
+          displayName={project.projectName}
+          onPress={handleBeginWorkspaceSetup}
+          visible
+          showShortcutHint={false}
+          testID={`sidebar-single-project-new-workspace-${project.projectKey}`}
+        />
+      ) : null}
+      <View style={isRemovingProject ? styles.projectKebabButtonHidden : undefined}>
+        <ProjectKebabMenu
+          projectKey={project.projectKey}
+          projectPath={project.iconWorkingDir}
+          onRemoveProject={handleRemoveProject}
+          removeProjectStatus={removeProjectStatus}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -1986,63 +2139,10 @@ function ProjectBlock({
     [onWorkspaceReorder, project.projectKey],
   );
 
-  const toast = useToast();
-  const { t } = useTranslation();
-  const [isRemovingProject, setIsRemovingProject] = useState(false);
-
-  const handleRemoveProject = useCallback(() => {
-    if (isRemovingProject) {
-      return;
-    }
-
-    void (async () => {
-      const confirmed = await confirmDialog({
-        title: t("sidebar.project.confirmations.removeTitle"),
-        message: t("sidebar.project.confirmations.removeMessage", { projectName: displayName }),
-        confirmLabel: t("sidebar.project.confirmations.removeConfirm"),
-        cancelLabel: t("sidebar.project.confirmations.cancel"),
-        destructive: true,
-      });
-      if (!confirmed) {
-        return;
-      }
-
-      setIsRemovingProject(true);
-      const readiness = getCurrentProjectRemoveReadiness({
-        projectKey: project.projectKey,
-        hosts: project.hosts,
-      });
-      if (readiness.kind === "needs_host_update") {
-        toast.error(t("sidebar.project.toasts.updateHostToRemove"));
-        setIsRemovingProject(false);
-        return;
-      }
-
-      void removeProjectFromHosts({
-        projectKey: project.projectKey,
-        targets: readiness.targets,
-        getClient: (serverId) => getHostRuntimeStore().getClient(serverId),
-      })
-        .then((outcome) => {
-          if (outcome.kind === "host_disconnected") {
-            toast.error(t("sidebar.project.toasts.hostDisconnected"));
-            return null;
-          }
-          if (outcome.kind === "failed") {
-            toast.error(t("sidebar.project.toasts.removeFailed"));
-          }
-          return null;
-        })
-        .catch((error) => {
-          toast.error(
-            error instanceof Error ? error.message : t("sidebar.project.toasts.removeFailed"),
-          );
-        })
-        .finally(() => {
-          setIsRemovingProject(false);
-        });
-    })();
-  }, [isRemovingProject, displayName, t, toast, project.projectKey, project.hosts]);
+  const { isRemovingProject, removeProjectStatus, handleRemoveProject } = useProjectRemoveAction({
+    project,
+    displayName,
+  });
 
   const handleToggleCollapsed = useCallback(() => {
     onToggleCollapsed(project.projectKey);
@@ -2099,7 +2199,7 @@ function ProjectBlock({
         isArchiving={isRemovingProject}
         menuController={null}
         onRemoveProject={handleRemoveProject}
-        removeProjectStatus={isRemovingProject ? "pending" : "idle"}
+        removeProjectStatus={removeProjectStatus}
         dragHandleProps={dragHandleProps}
       />
 
@@ -2173,6 +2273,10 @@ export function SidebarWorkspaceList({
   onToggleProjectCollapsed,
   shortcutIndexByWorkspaceKey,
   groupMode,
+  singleProjectViewEnabled = false,
+  singleProjectViewProject = null,
+  onSingleProjectSelected,
+  onSingleProjectHover,
   isRefreshing: _isRefreshing = false,
   onRefresh: _onRefresh,
   onWorkspacePress,
@@ -2206,6 +2310,7 @@ export function SidebarWorkspaceList({
     ) : (
       <ProjectModeList
         projects={projects}
+        statusWorkspacePlacements={statusWorkspacePlacements}
         collapsedProjectKeys={collapsedProjectKeys}
         onToggleProjectCollapsed={onToggleProjectCollapsed}
         shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
@@ -2217,6 +2322,10 @@ export function SidebarWorkspaceList({
         hostLabelByServerId={hostLabelByServerId}
         showHostLabels={showHostLabels}
         supportsMultiplicityByServerId={supportsMultiplicityByServerId}
+        singleProjectViewEnabled={singleProjectViewEnabled}
+        singleProjectViewProject={singleProjectViewProject}
+        onSingleProjectSelected={onSingleProjectSelected}
+        onSingleProjectHover={onSingleProjectHover}
       />
     );
 
@@ -2255,6 +2364,7 @@ function SidebarStatusModeWrapper({
 
 function ProjectModeList({
   projects,
+  statusWorkspacePlacements,
   collapsedProjectKeys,
   onToggleProjectCollapsed,
   shortcutIndexByWorkspaceKey,
@@ -2266,10 +2376,15 @@ function ProjectModeList({
   hostLabelByServerId,
   showHostLabels,
   supportsMultiplicityByServerId,
+  singleProjectViewEnabled = false,
+  singleProjectViewProject = null,
+  onSingleProjectSelected,
+  onSingleProjectHover,
 }: Omit<
   SidebarWorkspaceListProps,
   "statusWorkspacePlacements" | "projectNamesByKey" | "groupMode" | "isRefreshing" | "onRefresh"
 > & {
+  statusWorkspacePlacements: SidebarStatusWorkspacePlacement[];
   pathname: string;
   hostLabelByServerId: ReadonlyMap<string, string>;
   showHostLabels: boolean;
@@ -2281,6 +2396,17 @@ function ProjectModeList({
     new Map(),
   );
   const showShortcutBadges = useShowShortcutBadges();
+  const reduceMotionEnabled = useReduceMotionEnabled();
+  const statusByWorkspaceKey = useMemo(
+    () =>
+      new Map(
+        statusWorkspacePlacements.map((workspace) => [
+          workspace.workspaceKey,
+          workspace.statusBucket,
+        ]),
+      ),
+    [statusWorkspacePlacements],
+  );
 
   const getProjectOrder = useSidebarOrderStore((state) => state.getProjectOrder);
   const setProjectOrder = useSidebarOrderStore((state) => state.setProjectOrder);
@@ -2485,39 +2611,88 @@ function ProjectModeList({
     ],
   );
 
+  const selectedSingleProject =
+    singleProjectViewEnabled && singleProjectViewProject ? singleProjectViewProject : null;
+  const selectedSingleProjectRowModel = useMemo(
+    () =>
+      selectedSingleProject
+        ? buildSidebarProjectRowModel({
+            project: selectedSingleProject,
+            collapsed: false,
+            supportsMultiplicityByServerId,
+          })
+        : null,
+    [selectedSingleProject, supportsMultiplicityByServerId],
+  );
+
+  let contentBody: ReactElement;
+  if (projects.length === 0) {
+    contentBody = (
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyTitle} testID="sidebar-project-empty-state">
+          {t("sidebar.project.empty.title")}
+        </Text>
+        <Text style={styles.emptyText}>{t("sidebar.project.empty.description")}</Text>
+        <Button variant="ghost" size="sm" leftIcon={Plus} onPress={onAddProject}>
+          {t("sidebar.actions.addProject")}
+        </Button>
+      </View>
+    );
+  } else if (selectedSingleProject) {
+    contentBody = (
+      <SingleProjectWorkspaceBody
+        project={selectedSingleProject}
+        rowModel={selectedSingleProjectRowModel}
+        showShortcutBadges={showShortcutBadges}
+        shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+        onWorkspacePress={onWorkspacePress}
+        onWorkspaceReorder={handleWorkspaceReorder}
+        hostLabelByServerId={hostLabelByServerId}
+        showHostLabels={showHostLabels}
+        selectionEnabled={selectionEnabled}
+        activeWorkspaceSelection={activeWorkspaceSelection}
+        creatingWorkspaceIds={creatingWorkspaceIds}
+        parentGestureRef={parentGestureRef}
+      />
+    );
+  } else {
+    contentBody = (
+      <DraggableList
+        testID="sidebar-project-list"
+        data={projects}
+        keyExtractor={projectKeyExtractor}
+        renderItem={renderProject}
+        onDragEnd={handleProjectDragEnd}
+        extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+        scrollEnabled={false}
+        useDragHandle
+        nestable={platformIsNative}
+        simultaneousGestureRef={parentGestureRef}
+        containerStyle={styles.projectListContainer}
+      />
+    );
+  }
+
   const content = (
     <>
-      {projects.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyTitle} testID="sidebar-project-empty-state">
-            {t("sidebar.project.empty.title")}
-          </Text>
-          <Text style={styles.emptyText}>{t("sidebar.project.empty.description")}</Text>
-          <Button variant="ghost" size="sm" leftIcon={Plus} onPress={onAddProject}>
-            {t("sidebar.actions.addProject")}
-          </Button>
-        </View>
-      ) : (
-        <DraggableList
-          testID="sidebar-project-list"
-          data={projects}
-          keyExtractor={projectKeyExtractor}
-          renderItem={renderProject}
-          onDragEnd={handleProjectDragEnd}
-          extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
-          scrollEnabled={false}
-          useDragHandle
-          nestable={platformIsNative}
-          simultaneousGestureRef={parentGestureRef}
-          containerStyle={styles.projectListContainer}
-        />
-      )}
+      {contentBody}
       {listFooterComponent}
     </>
   );
 
   return (
     <View style={styles.container}>
+      {selectedSingleProject ? (
+        <SidebarProjectSelectorBar
+          projects={projects}
+          selectedProjectKey={selectedSingleProject.projectKey}
+          iconDataByProjectKey={projectIconByProjectKey}
+          statusByWorkspaceKey={statusByWorkspaceKey}
+          reduceMotionEnabled={reduceMotionEnabled}
+          onSelectProject={onSingleProjectSelected}
+          onHoverProject={onSingleProjectHover}
+        />
+      ) : null}
       {platformIsNative ? (
         <NestableScrollContainer
           {...nativeScrollGestureProps}
@@ -2542,6 +2717,481 @@ function ProjectModeList({
   );
 }
 
+function SingleProjectWorkspaceBody({
+  project,
+  rowModel,
+  showShortcutBadges,
+  shortcutIndexByWorkspaceKey,
+  onWorkspacePress,
+  onWorkspaceReorder,
+  hostLabelByServerId,
+  showHostLabels,
+  selectionEnabled,
+  activeWorkspaceSelection,
+  creatingWorkspaceIds,
+  parentGestureRef,
+}: {
+  project: SidebarProjectEntry;
+  rowModel: ReturnType<typeof buildSidebarProjectRowModel> | null;
+  showShortcutBadges: boolean;
+  shortcutIndexByWorkspaceKey: Map<string, number>;
+  onWorkspacePress?: () => void;
+  onWorkspaceReorder: (projectKey: string, workspaces: SidebarWorkspacePlacement[]) => void;
+  hostLabelByServerId: ReadonlyMap<string, string>;
+  showHostLabels: boolean;
+  selectionEnabled: boolean;
+  activeWorkspaceSelection: ActiveWorkspaceSelection | null;
+  creatingWorkspaceIds: ReadonlySet<string>;
+  parentGestureRef?: MutableRefObject<GestureType | undefined>;
+}) {
+  const renderWorkspaceRow = useCallback(
+    (
+      item: SidebarWorkspacePlacement,
+      input?: {
+        drag?: () => void;
+        isDragging?: boolean;
+        dragHandleProps?: DraggableListDragHandleProps;
+      },
+    ) => (
+      <MemoWorkspaceRowItem
+        workspace={item}
+        subtitle={showHostLabels ? (hostLabelByServerId.get(item.serverId) ?? item.serverId) : null}
+        shortcutNumber={shortcutIndexByWorkspaceKey.get(item.workspaceKey) ?? null}
+        showShortcutBadge={showShortcutBadges}
+        canCopyBranchName={project.projectKind === "git"}
+        isCreating={creatingWorkspaceIds.has(item.workspaceId)}
+        selectionEnabled={selectionEnabled}
+        activeWorkspaceSelection={activeWorkspaceSelection}
+        onWorkspacePress={onWorkspacePress}
+        drag={input?.drag}
+        isDragging={input?.isDragging}
+        dragHandleProps={input?.dragHandleProps}
+      />
+    ),
+    [
+      activeWorkspaceSelection,
+      creatingWorkspaceIds,
+      hostLabelByServerId,
+      onWorkspacePress,
+      project.projectKind,
+      selectionEnabled,
+      shortcutIndexByWorkspaceKey,
+      showHostLabels,
+      showShortcutBadges,
+    ],
+  );
+
+  const renderWorkspace = useCallback(
+    ({
+      item,
+      drag,
+      isActive,
+      dragHandleProps,
+    }: DraggableRenderItemInfo<SidebarWorkspacePlacement>) =>
+      renderWorkspaceRow(item, {
+        drag,
+        isDragging: isActive,
+        dragHandleProps,
+      }),
+    [renderWorkspaceRow],
+  );
+
+  const handleWorkspaceDragEnd = useCallback(
+    (workspaces: SidebarWorkspacePlacement[]) => {
+      onWorkspaceReorder(project.projectKey, workspaces);
+    },
+    [onWorkspaceReorder, project.projectKey],
+  );
+
+  if (project.workspaces.length === 0 && rowModel?.trailingAction.kind === "new_workspace") {
+    return (
+      <NewWorkspaceGhostRow
+        project={project}
+        displayName={project.projectName}
+        worktreeTarget={rowModel.trailingAction.target}
+        onWorkspacePress={onWorkspacePress}
+      />
+    );
+  }
+
+  return (
+    <DraggableList
+      testID={`sidebar-single-project-workspace-list-${project.projectKey}`}
+      data={project.workspaces}
+      keyExtractor={workspaceKeyExtractor}
+      renderItem={renderWorkspace}
+      onDragEnd={handleWorkspaceDragEnd}
+      extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+      scrollEnabled={false}
+      useDragHandle
+      nestable={platformIsNative}
+      simultaneousGestureRef={parentGestureRef}
+      containerStyle={styles.workspaceListContainer}
+    />
+  );
+}
+
+function SidebarProjectSelectorBar({
+  projects,
+  selectedProjectKey,
+  iconDataByProjectKey,
+  statusByWorkspaceKey,
+  reduceMotionEnabled,
+  onSelectProject,
+  onHoverProject,
+}: {
+  projects: SidebarProjectEntry[];
+  selectedProjectKey: string;
+  iconDataByProjectKey: ReadonlyMap<string, string | null>;
+  statusByWorkspaceKey: ReadonlyMap<string, SidebarStateBucket>;
+  reduceMotionEnabled: boolean;
+  onSelectProject?: (projectKey: string) => void;
+  onHoverProject?: (projectName: string | null) => void;
+}) {
+  const scrollRef = useRef<ScrollView | null>(null);
+  const [leadingProjectKey, setLeadingProjectKey] = useState(selectedProjectKey);
+  const [canFadeLeft, setCanFadeLeft] = useState(false);
+  const [canFadeRight, setCanFadeRight] = useState(false);
+  const pendingLeadingProjectKeyRef = useRef<string | null>(null);
+  const pointerInsideRef = useRef(false);
+  const touchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const orderedProjects = useMemo(
+    () =>
+      orderSingleProjectViewProjects({
+        projects,
+        selectedProjectKey: leadingProjectKey,
+      }),
+    [leadingProjectKey, projects],
+  );
+
+  const flushPendingLeadingProject = useCallback(() => {
+    const pendingProjectKey = pendingLeadingProjectKeyRef.current;
+    if (!pendingProjectKey) return;
+    pendingLeadingProjectKeyRef.current = null;
+    setLeadingProjectKey(pendingProjectKey);
+    scrollRef.current?.scrollTo({ x: 0, animated: !reduceMotionEnabled });
+  }, [reduceMotionEnabled]);
+
+  useEffect(() => {
+    if (pendingLeadingProjectKeyRef.current) {
+      return;
+    }
+    setLeadingProjectKey(selectedProjectKey);
+    scrollRef.current?.scrollTo({ x: 0, animated: !reduceMotionEnabled });
+  }, [reduceMotionEnabled, selectedProjectKey]);
+
+  useEffect(() => {
+    return () => {
+      if (touchTimeoutRef.current) {
+        clearTimeout(touchTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handlePointerEnter = useCallback(() => {
+    pointerInsideRef.current = true;
+  }, []);
+
+  const handlePointerLeave = useCallback(() => {
+    pointerInsideRef.current = false;
+    onHoverProject?.(null);
+    flushPendingLeadingProject();
+  }, [flushPendingLeadingProject, onHoverProject]);
+
+  const handleSelectProject = useCallback(
+    (projectKey: string) => {
+      onSelectProject?.(projectKey);
+      if (projectKey === leadingProjectKey) {
+        scrollRef.current?.scrollTo({ x: 0, animated: !reduceMotionEnabled });
+        return;
+      }
+      pendingLeadingProjectKeyRef.current = projectKey;
+      if (platformIsNative) {
+        if (touchTimeoutRef.current) {
+          clearTimeout(touchTimeoutRef.current);
+        }
+        touchTimeoutRef.current = setTimeout(flushPendingLeadingProject, 260);
+        return;
+      }
+      if (!pointerInsideRef.current) {
+        flushPendingLeadingProject();
+      }
+    },
+    [flushPendingLeadingProject, leadingProjectKey, onSelectProject, reduceMotionEnabled],
+  );
+
+  const handleScroll = useCallback(
+    (event: {
+      nativeEvent: {
+        contentOffset: { x: number };
+        layoutMeasurement: { width: number };
+        contentSize: { width: number };
+      };
+    }) => {
+      const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
+      setCanFadeLeft(contentOffset.x > 1);
+      setCanFadeRight(contentOffset.x + layoutMeasurement.width < contentSize.width - 1);
+    },
+    [],
+  );
+
+  return (
+    <View
+      style={styles.projectSelectorBar}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
+      testID="sidebar-single-project-selector"
+    >
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.projectSelectorContent}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
+        {orderedProjects.map((project) => (
+          <ProjectSelectorCapsule
+            key={project.projectKey}
+            project={project}
+            iconDataUri={iconDataByProjectKey.get(project.projectKey) ?? null}
+            statusByWorkspaceKey={statusByWorkspaceKey}
+            selected={project.projectKey === selectedProjectKey}
+            reduceMotionEnabled={reduceMotionEnabled}
+            onSelect={handleSelectProject}
+            onHoverProject={onHoverProject}
+          />
+        ))}
+      </ScrollView>
+      {canFadeLeft ? <View pointerEvents="none" style={styles.projectSelectorFadeLeft} /> : null}
+      {canFadeRight ? <View pointerEvents="none" style={styles.projectSelectorFadeRight} /> : null}
+    </View>
+  );
+}
+
+function ProjectSelectorCapsule({
+  project,
+  iconDataUri,
+  statusByWorkspaceKey,
+  selected,
+  reduceMotionEnabled,
+  onSelect,
+  onHoverProject,
+}: {
+  project: SidebarProjectEntry;
+  iconDataUri: string | null;
+  statusByWorkspaceKey: ReadonlyMap<string, SidebarStateBucket>;
+  selected: boolean;
+  reduceMotionEnabled: boolean;
+  onSelect: (projectKey: string) => void;
+  onHoverProject?: (projectName: string | null) => void;
+}) {
+  const counts = useMemo(
+    () =>
+      getProjectStatusCountsFromStatuses({
+        workspaceKeys: project.workspaces.map((workspace) => workspace.workspaceKey),
+        statusByWorkspaceKey,
+      }),
+    [project, statusByWorkspaceKey],
+  );
+  const glowOpacity = useRef(new Animated.Value(0)).current;
+  const previousCountsRef = useRef(counts);
+  const [glowBucket, setGlowBucket] = useState<"attention" | "needs_input" | "failed" | null>(null);
+  const placeholderLabel = projectIconPlaceholderLabelFromDisplayName(project.projectName);
+  const placeholderInitial = placeholderLabel.charAt(0).toUpperCase();
+
+  useEffect(() => {
+    const previous = previousCountsRef.current;
+    previousCountsRef.current = counts;
+    if (reduceMotionEnabled) return;
+
+    let nextGlowBucket: typeof glowBucket = null;
+    if (counts.failed > previous.failed) {
+      nextGlowBucket = "failed";
+    } else if (counts.needsInput > previous.needsInput) {
+      nextGlowBucket = "needs_input";
+    } else if (counts.attention > previous.attention) {
+      nextGlowBucket = "attention";
+    }
+    if (!nextGlowBucket) return;
+
+    setGlowBucket(nextGlowBucket);
+    glowOpacity.setValue(0);
+    Animated.sequence([
+      Animated.timing(glowOpacity, {
+        toValue: 0.32,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+      Animated.timing(glowOpacity, {
+        toValue: 0,
+        duration: 560,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [counts, glowBucket, glowOpacity, reduceMotionEnabled]);
+
+  const handlePress = useCallback(
+    () => onSelect(project.projectKey),
+    [onSelect, project.projectKey],
+  );
+  const handlePointerEnter = useCallback(() => {
+    if (!selected) {
+      onHoverProject?.(project.projectName);
+    }
+  }, [onHoverProject, project.projectName, selected]);
+  const handlePointerLeave = useCallback(() => {
+    if (!selected) {
+      onHoverProject?.(null);
+    }
+  }, [onHoverProject, selected]);
+  const pressableStyle = useCallback(
+    ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.projectSelectorCapsule,
+      {
+        backgroundColor: deriveProjectIconColor(project.projectKey),
+      },
+      selected && styles.projectSelectorCapsuleSelected,
+      (hovered || pressed) && !selected && styles.projectSelectorCapsuleHovered,
+    ],
+    [project.projectKey, selected],
+  );
+  const hasBadges = counts.attention > 0 || counts.needsInput > 0 || counts.failed > 0;
+  const accessibilityLabel = [
+    project.projectName,
+    selected ? "selected" : null,
+    counts.attention > 0 ? `${counts.attention} unread` : null,
+    counts.needsInput > 0 ? `${counts.needsInput} need input` : null,
+    counts.failed > 0 ? `${counts.failed} failed` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const accessibilityState = useMemo(() => ({ selected }), [selected]);
+  const glowStyle = useMemo(
+    () =>
+      glowBucket
+        ? [
+            styles.projectSelectorCapsuleGlow,
+            getProjectSelectorGlowStyle(glowBucket),
+            { opacity: glowOpacity },
+          ]
+        : null,
+    [glowBucket, glowOpacity],
+  );
+
+  return (
+    <View
+      style={styles.projectSelectorCapsuleHoverTarget}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
+    >
+      <Pressable
+        accessibilityRole={platformIsWeb ? undefined : "button"}
+        accessibilityLabel={accessibilityLabel}
+        accessibilityState={accessibilityState}
+        testID={`sidebar-single-project-capsule-${project.projectKey}`}
+        onPress={handlePress}
+        style={pressableStyle}
+      >
+        {glowStyle ? <Animated.View pointerEvents="none" style={glowStyle} /> : null}
+        <View style={styles.projectSelectorIconSlot}>
+          <ProjectIcon
+            iconDataUri={iconDataUri}
+            placeholderInitial={placeholderInitial}
+            projectKey={project.projectKey}
+          />
+        </View>
+        {hasBadges ? <ProjectSelectorStatusBadges counts={counts} /> : null}
+      </Pressable>
+    </View>
+  );
+}
+
+function ProjectSelectorStatusBadges({
+  counts,
+}: {
+  counts: ReturnType<typeof getProjectStatusCountsFromStatuses>;
+}) {
+  return (
+    <View style={styles.projectSelectorBadges}>
+      {counts.attention > 0 ? (
+        <ProjectSelectorStatusBadge bucket="attention" count={counts.attention} />
+      ) : null}
+      {counts.needsInput > 0 ? (
+        <ProjectSelectorStatusBadge bucket="needs_input" count={counts.needsInput} />
+      ) : null}
+      {counts.failed > 0 ? (
+        <ProjectSelectorStatusBadge bucket="failed" count={counts.failed} />
+      ) : null}
+    </View>
+  );
+}
+
+function ProjectSelectorStatusBadge({
+  bucket,
+  count,
+}: {
+  bucket: "attention" | "needs_input" | "failed";
+  count: number;
+}) {
+  const badgeStyle = useMemo(
+    () => [styles.projectSelectorStatusBadge, getProjectSelectorBadgeStyle(bucket)],
+    [bucket],
+  );
+  return (
+    <View style={badgeStyle}>
+      <Text style={styles.projectSelectorStatusBadgeText}>{count}</Text>
+    </View>
+  );
+}
+
+function getProjectSelectorBadgeStyle(bucket: "attention" | "needs_input" | "failed") {
+  switch (bucket) {
+    case "attention":
+      return styles.projectSelectorStatusBadgeAttention;
+    case "needs_input":
+      return styles.projectSelectorStatusBadgeNeedsInput;
+    case "failed":
+      return styles.projectSelectorStatusBadgeFailed;
+  }
+}
+
+function getProjectSelectorGlowStyle(bucket: "attention" | "needs_input" | "failed") {
+  switch (bucket) {
+    case "attention":
+      return styles.projectSelectorCapsuleGlowAttention;
+    case "needs_input":
+      return styles.projectSelectorCapsuleGlowNeedsInput;
+    case "failed":
+      return styles.projectSelectorCapsuleGlowFailed;
+  }
+}
+
+function useReduceMotionEnabled(): boolean {
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) {
+        setReduceMotionEnabled(enabled);
+      }
+      return null;
+    });
+    const subscription = AccessibilityInfo.addEventListener?.(
+      "reduceMotionChanged",
+      setReduceMotionEnabled,
+    );
+    return () => {
+      mounted = false;
+      subscription?.remove();
+    };
+  }, []);
+
+  return reduceMotionEnabled;
+}
+
 const styles = StyleSheet.create((theme) => ({
   container: {
     flex: 1,
@@ -2556,6 +3206,122 @@ const styles = StyleSheet.create((theme) => ({
   },
   projectListContainer: {
     width: "100%",
+  },
+  projectSelectorBar: {
+    position: "relative",
+    minHeight: 44,
+    backgroundColor: theme.colors.surfaceSidebarHover,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    overflow: "hidden",
+  },
+  projectSelectorContent: {
+    minHeight: 44,
+    alignItems: "flex-end",
+    gap: theme.spacing[1.5],
+    paddingTop: theme.spacing[1.5],
+    paddingHorizontal: theme.spacing[2],
+  },
+  projectSelectorCapsuleHoverTarget: {
+    position: "relative",
+  },
+  projectSelectorCapsule: {
+    position: "relative",
+    minWidth: 28,
+    height: 28,
+    paddingHorizontal: theme.spacing[1],
+    borderRadius: theme.borderRadius.full,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.spacing[1],
+    overflow: "hidden",
+    marginBottom: theme.spacing[1.5],
+  },
+  projectSelectorCapsuleSelected: {
+    height: 36,
+    minWidth: 36,
+    paddingHorizontal: theme.spacing[1.5],
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    marginBottom: 0,
+  },
+  projectSelectorCapsuleHovered: {
+    opacity: 0.88,
+  },
+  projectSelectorCapsuleGlow: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
+  projectSelectorCapsuleGlowAttention: {
+    backgroundColor: theme.colors.palette.green[500],
+  },
+  projectSelectorCapsuleGlowNeedsInput: {
+    backgroundColor: theme.colors.palette.amber[500],
+  },
+  projectSelectorCapsuleGlowFailed: {
+    backgroundColor: theme.colors.palette.red[500],
+  },
+  projectSelectorIconSlot: {
+    width: 18,
+    height: 18,
+    borderRadius: theme.borderRadius.sm,
+    overflow: "hidden",
+    flexShrink: 0,
+  },
+  projectSelectorBadges: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    flexShrink: 0,
+  },
+  projectSelectorStatusBadge: {
+    minWidth: 14,
+    height: 14,
+    paddingHorizontal: 3,
+    borderRadius: theme.borderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface0,
+  },
+  projectSelectorStatusBadgeAttention: {
+    borderWidth: 1,
+    borderColor: theme.colors.palette.green[500],
+  },
+  projectSelectorStatusBadgeNeedsInput: {
+    borderWidth: 1,
+    borderColor: theme.colors.palette.amber[500],
+  },
+  projectSelectorStatusBadgeFailed: {
+    borderWidth: 1,
+    borderColor: theme.colors.palette.red[500],
+  },
+  projectSelectorStatusBadgeText: {
+    color: theme.colors.foreground,
+    fontSize: 9,
+    fontWeight: theme.fontWeight.medium,
+    lineHeight: 12,
+  },
+  projectSelectorFadeLeft: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 20,
+    backgroundColor: theme.colors.surfaceSidebarHover,
+    opacity: 0.82,
+  },
+  projectSelectorFadeRight: {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 20,
+    backgroundColor: theme.colors.surfaceSidebarHover,
+    opacity: 0.82,
   },
   projectBlock: {
     marginBottom: theme.spacing[1],
@@ -2723,6 +3489,11 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: 2,
     flexShrink: 0,
+  },
+  singleProjectHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
   },
   projectKebabButton: {
     width: 24,

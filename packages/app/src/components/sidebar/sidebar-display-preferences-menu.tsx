@@ -36,8 +36,12 @@ interface DisplayPreferenceOption<Value extends string> {
 
 export function SidebarDisplayPreferencesMenu() {
   const groupMode = useSidebarViewStore((state) => state.groupMode);
+  const singleProjectViewEnabled = useSidebarViewStore((state) => state.singleProjectViewEnabled);
   const hostFilters = useSidebarViewStore((state) => state.hostFilters);
   const setGroupMode = useSidebarViewStore((state) => state.setGroupMode);
+  const setSingleProjectViewEnabled = useSidebarViewStore(
+    (state) => state.setSingleProjectViewEnabled,
+  );
   const toggleHostFilter = useSidebarViewStore((state) => state.toggleHostFilter);
   const clearHostFilters = useSidebarViewStore((state) => state.clearHostFilters);
   const hosts = useHosts();
@@ -59,6 +63,9 @@ export function SidebarDisplayPreferencesMenu() {
     },
     [updateSettings],
   );
+  const handleToggleSingleProjectView = useCallback(() => {
+    setSingleProjectViewEnabled(!singleProjectViewEnabled);
+  }, [setSingleProjectViewEnabled, singleProjectViewEnabled]);
 
   const triggerStyle = useCallback(
     ({ hovered = false }: PressableStateCallbackType & { hovered?: boolean }) => [
@@ -94,6 +101,19 @@ export function SidebarDisplayPreferencesMenu() {
             onSelect={handleSelectMode}
           />
         ))}
+        {groupMode === "project" ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              testID="sidebar-single-project-view"
+              selected={singleProjectViewEnabled}
+              closeOnSelect={false}
+              onSelect={handleToggleSingleProjectView}
+            >
+              Single project view
+            </DropdownMenuItem>
+          </>
+        ) : null}
         {showHostFilter ? (
           <>
             <DropdownMenuSeparator />
