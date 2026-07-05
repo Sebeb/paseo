@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "fs/promises";
 import { extname, join, posix, relative, resolve } from "path";
 import { PaseoConfigRawSchema } from "@getpaseo/protocol/paseo-config-schema";
+import sharp from "sharp";
 import { readPaseoConfigJson } from "./paseo-config-file.js";
 import { isPathInsideRoot } from "./path.js";
 
@@ -62,7 +63,11 @@ export interface ProjectIcon {
   path?: string;
 }
 
-const MAX_ICON_SIZE = 32 * 1024; // 32KB max
+const MAX_SOURCE_ICON_SIZE = 10 * 1024 * 1024;
+const NORMALIZED_ICON_SIZE = 96;
+const MAX_ICON_CACHE_ENTRIES = 256;
+const PROJECT_ICON_OUTPUT_MIME_TYPE = "image/png";
+const projectIconCache = new Map<string, ProjectIcon>();
 
 export interface GetProjectIconOptions {
   iconPath?: string;
@@ -73,110 +78,7 @@ interface ProjectIconCandidate {
   relativePath: string;
 }
 
-interface ImageDimensions {
-  width: number;
-  height: number;
-}
-
-function getPngDimensions(buffer: Buffer): ImageDimensions | null {
-  // PNG header: 89 50 4E 47 0D 0A 1A 0A
-  if (buffer.length < 24) return null;
-  if (buffer[0] !== 0x89 || buffer[1] !== 0x50 || buffer[2] !== 0x4e || buffer[3] !== 0x47) {
-    return null;
-  }
-  // Width and height are at bytes 16-19 and 20-23 (big endian)
-  const width = buffer.readUInt32BE(16);
-  const height = buffer.readUInt32BE(20);
-  return { width, height };
-}
-
-function getJpegDimensions(buffer: Buffer): ImageDimensions | null {
-  // JPEG starts with FF D8 FF
-  if (buffer.length < 4) return null;
-  if (buffer[0] !== 0xff || buffer[1] !== 0xd8) return null;
-
-  let offset = 2;
-  while (offset < buffer.length - 8) {
-    if (buffer[offset] !== 0xff) {
-      offset++;
-      continue;
-    }
-
-    const marker = buffer[offset + 1];
-    // SOF0-SOF2 markers contain dimensions
-    if (marker >= 0xc0 && marker <= 0xc2) {
-      const height = buffer.readUInt16BE(offset + 5);
-      const width = buffer.readUInt16BE(offset + 7);
-      return { width, height };
-    }
-
-    // Skip to next marker
-    const length = buffer.readUInt16BE(offset + 2);
-    offset += 2 + length;
-  }
-  return null;
-}
-
-function getGifDimensions(buffer: Buffer): ImageDimensions | null {
-  // GIF header: GIF87a or GIF89a
-  if (buffer.length < 10) return null;
-  if (buffer[0] !== 0x47 || buffer[1] !== 0x49 || buffer[2] !== 0x46) return null;
-  // Width and height at bytes 6-7 and 8-9 (little endian)
-  const width = buffer.readUInt16LE(6);
-  const height = buffer.readUInt16LE(8);
-  return { width, height };
-}
-
-function getWebpDimensions(buffer: Buffer): ImageDimensions | null {
-  // WEBP: RIFF....WEBP
-  if (buffer.length < 30) return null;
-  if (buffer.toString("ascii", 0, 4) !== "RIFF") return null;
-  if (buffer.toString("ascii", 8, 12) !== "WEBP") return null;
-
-  const chunkType = buffer.toString("ascii", 12, 16);
-  if (chunkType === "VP8 ") {
-    // Lossy format - dimensions at offset 26-27 and 28-29
-    const width = buffer.readUInt16LE(26) & 0x3fff;
-    const height = buffer.readUInt16LE(28) & 0x3fff;
-    return { width, height };
-  } else if (chunkType === "VP8L") {
-    // Lossless format
-    const bits = buffer.readUInt32LE(21);
-    const width = (bits & 0x3fff) + 1;
-    const height = ((bits >> 14) & 0x3fff) + 1;
-    return { width, height };
-  }
-  return null;
-}
-
-function getImageDimensions(buffer: Buffer, mimeType: string): ImageDimensions | null {
-  switch (mimeType) {
-    case "image/png":
-      return getPngDimensions(buffer);
-    case "image/jpeg":
-      return getJpegDimensions(buffer);
-    case "image/gif":
-      return getGifDimensions(buffer);
-    case "image/webp":
-      return getWebpDimensions(buffer);
-    case "image/x-icon":
-      // ICO files are typically square, trust them
-      return { width: 1, height: 1 };
-    case "image/svg+xml":
-      // SVG can be any aspect ratio but icons are typically square, trust them
-      return { width: 1, height: 1 };
-    default:
-      return null;
-  }
-}
-
-function isSquareImage(buffer: Buffer, mimeType: string): boolean {
-  const dimensions = getImageDimensions(buffer, mimeType);
-  if (!dimensions) return false;
-  return dimensions.width === dimensions.height;
-}
-
-function getMimeType(filename: string): string {
+function getSourceMimeType(filename: string): string | null {
   const ext = extname(filename).toLowerCase();
   switch (ext) {
     case ".ico":
@@ -192,8 +94,104 @@ function getMimeType(filename: string): string {
       return "image/gif";
     case ".webp":
       return "image/webp";
+    case ".avif":
+      return "image/avif";
+    case ".bmp":
+      return "image/bmp";
+    case ".tif":
+    case ".tiff":
+      return "image/tiff";
     default:
-      return "application/octet-stream";
+      return null;
+  }
+}
+
+function extractPngFromIco(buffer: Buffer): Buffer | null {
+  if (buffer.length < 22) {
+    return null;
+  }
+  const reserved = buffer.readUInt16LE(0);
+  const type = buffer.readUInt16LE(2);
+  const count = buffer.readUInt16LE(4);
+  if (reserved !== 0 || (type !== 1 && type !== 2) || count < 1) {
+    return null;
+  }
+
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  let selected: { buffer: Buffer; score: number } | null = null;
+  for (let index = 0; index < count; index++) {
+    const entryOffset = 6 + index * 16;
+    if (entryOffset + 16 > buffer.length) {
+      return null;
+    }
+
+    const width = buffer[entryOffset] === 0 ? 256 : (buffer[entryOffset] ?? 0);
+    const height = buffer[entryOffset + 1] === 0 ? 256 : (buffer[entryOffset + 1] ?? 0);
+    const bitCount = buffer.readUInt16LE(entryOffset + 6);
+    const bytesInResource = buffer.readUInt32LE(entryOffset + 8);
+    const imageOffset = buffer.readUInt32LE(entryOffset + 12);
+    if (
+      bytesInResource === 0 ||
+      imageOffset + bytesInResource > buffer.length ||
+      imageOffset < 6 + count * 16
+    ) {
+      continue;
+    }
+
+    const imageBuffer = buffer.subarray(imageOffset, imageOffset + bytesInResource);
+    if (!imageBuffer.subarray(0, pngSignature.length).equals(pngSignature)) {
+      continue;
+    }
+
+    const score = width * height * Math.max(bitCount, 1);
+    if (!selected || score > selected.score) {
+      selected = { buffer: imageBuffer, score };
+    }
+  }
+
+  return selected?.buffer ?? null;
+}
+
+async function normalizeIconBuffer(sourceBuffer: Buffer, sourceMimeType: string): Promise<Buffer> {
+  const inputBuffer =
+    sourceMimeType === "image/x-icon"
+      ? (extractPngFromIco(sourceBuffer) ?? sourceBuffer)
+      : sourceBuffer;
+
+  return await sharp(inputBuffer, { animated: false, limitInputPixels: 128_000_000 })
+    .resize(NORMALIZED_ICON_SIZE, NORMALIZED_ICON_SIZE, {
+      fit: "contain",
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .png()
+    .toBuffer();
+}
+
+function getProjectIconCacheKey(
+  candidate: ProjectIconCandidate,
+  stats: { mtimeMs: number; size: number },
+): string {
+  return `${candidate.fullPath}:${stats.mtimeMs}:${stats.size}:${candidate.relativePath}`;
+}
+
+function readCachedProjectIcon(cacheKey: string): ProjectIcon | null {
+  const cached = projectIconCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+  projectIconCache.delete(cacheKey);
+  projectIconCache.set(cacheKey, cached);
+  return cached;
+}
+
+function writeCachedProjectIcon(cacheKey: string, icon: ProjectIcon): void {
+  projectIconCache.set(cacheKey, icon);
+  if (projectIconCache.size <= MAX_ICON_CACHE_ENTRIES) {
+    return;
+  }
+  const oldestKey = projectIconCache.keys().next().value;
+  if (oldestKey) {
+    projectIconCache.delete(oldestKey);
   }
 }
 
@@ -488,8 +486,7 @@ async function findDirRecursively(
 }
 
 /**
- * Find and read a project icon/favicon, returning it as base64.
- * Only returns square icons smaller than MAX_ICON_SIZE (32KB).
+ * Find, normalize, and read a project icon/favicon, returning it as base64 PNG data.
  *
  * @param projectDir - The root directory of the project to search
  * @returns The icon data with mime type, or null if not found
@@ -509,20 +506,30 @@ export async function getProjectIcon(
 
   try {
     const stats = await stat(candidate.fullPath);
-    if (stats.size > MAX_ICON_SIZE) {
+    if (stats.size > MAX_SOURCE_ICON_SIZE) {
       return null;
+    }
+
+    const sourceMimeType = getSourceMimeType(candidate.fullPath);
+    if (!sourceMimeType) {
+      return null;
+    }
+
+    const cacheKey = getProjectIconCacheKey(candidate, stats);
+    const cachedIcon = readCachedProjectIcon(cacheKey);
+    if (cachedIcon) {
+      return cachedIcon;
     }
 
     const buffer = await readFile(candidate.fullPath);
-    const mimeType = getMimeType(candidate.fullPath);
-
-    // Only return square images
-    if (!isSquareImage(buffer, mimeType)) {
-      return null;
-    }
-
-    const data = buffer.toString("base64");
-    return { data, mimeType, path: candidate.relativePath };
+    const normalizedBuffer = await normalizeIconBuffer(buffer, sourceMimeType);
+    const icon = {
+      data: normalizedBuffer.toString("base64"),
+      mimeType: PROJECT_ICON_OUTPUT_MIME_TYPE,
+      path: candidate.relativePath,
+    };
+    writeCachedProjectIcon(cacheKey, icon);
+    return icon;
   } catch {
     return null;
   }

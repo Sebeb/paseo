@@ -2010,7 +2010,7 @@ export const es: TranslationResources = {
         filterName: "Project icons",
         dialogUnavailable: "Desktop file picker is not available.",
         outsideProject: "Choose an icon inside this project.",
-        invalidIcon: "Choose a square icon in a supported format.",
+        invalidIcon: "Choose an image in a supported format.",
         selectionFailed: "Couldn't choose project icon",
       },
       readFailures: {

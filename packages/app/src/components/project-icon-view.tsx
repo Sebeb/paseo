@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Image,
   type ImageStyle,
@@ -27,6 +27,7 @@ export function ProjectIconView({
   fallbackStyle: StyleProp<ViewStyle>;
   textStyle: StyleProp<TextStyle>;
 }) {
+  const [hasImageError, setHasImageError] = useState(false);
   const imageSource = useMemo(() => ({ uri: iconDataUri ?? "" }), [iconDataUri]);
   const fallbackStyles = useMemo(
     () => [fallbackStyle, { backgroundColor: deriveProjectIconColor(projectKey) }],
@@ -34,8 +35,16 @@ export function ProjectIconView({
   );
   const textStyles = useMemo(() => [textStyle, WHITE_TEXT], [textStyle]);
 
-  if (iconDataUri) {
-    return <Image source={imageSource} style={imageStyle} />;
+  useEffect(() => {
+    setHasImageError(false);
+  }, [iconDataUri]);
+
+  const handleImageError = useCallback(() => {
+    setHasImageError(true);
+  }, []);
+
+  if (iconDataUri && !hasImageError) {
+    return <Image source={imageSource} style={imageStyle} onError={handleImageError} />;
   }
   return (
     <View style={fallbackStyles}>
