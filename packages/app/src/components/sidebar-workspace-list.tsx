@@ -8,10 +8,10 @@ import {
   type GestureResponderEvent,
   type PointerEvent as RNPointerEvent,
   type PressableStateCallbackType,
-  type ViewProps,
   type ViewStyle,
 } from "react-native";
 import * as Haptics from "expo-haptics";
+import equal from "fast-deep-equal";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { ProjectIconView } from "@/components/project-icon-view";
 import { GitHubIcon } from "@/components/icons/github-icon";
@@ -25,10 +25,11 @@ import {
   useState,
   useEffect,
   useRef,
+  type ComponentProps,
+  type ComponentType,
   type ReactElement,
   type ReactNode,
   type MutableRefObject,
-  type PropsWithChildren,
   type Ref,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -46,16 +47,19 @@ import { DiffStat } from "@/components/diff-stat";
 import {
   Archive,
   ArrowLeftToLine,
+  CalendarPlus,
   ArrowRightToLine,
   CircleAlert,
   CircleCheck,
   ChevronDown,
   ChevronRight,
+  Clock3,
   Copy,
   CopyX,
   ExternalLink,
   Globe,
   GitPullRequest,
+  MessageCircle,
   Settings,
   Settings2,
   MoreVertical,
@@ -165,6 +169,7 @@ import {
 } from "@/hooks/use-status-mode-workspaces";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { InfoHoverCard } from "@/components/info-hover-card";
 import { Shortcut } from "@/components/ui/shortcut";
 import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
@@ -195,7 +200,6 @@ import {
   WorkspaceTabIcon,
   WorkspaceTabPresentationResolver,
 } from "@/screens/workspace/workspace-tab-presentation";
-import { WorkspaceTabTooltipPreview } from "@/screens/workspace/workspace-tab-tooltip-preview";
 import { useWorkspaceTabClose } from "@/screens/workspace/use-workspace-tab-close";
 import {
   buildWorkspaceTabMenuEntries,
@@ -231,6 +235,9 @@ import {
 } from "@/constants/platform";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { getDesktopHost } from "@/desktop/host";
+import type { StreamItem } from "@/types/stream";
+import { formatAbsoluteDateTime, formatRecentOrAbsoluteDateTime } from "@/utils/time";
+import { useStoreWithEqualityFn } from "zustand/traditional";
 
 const workspaceKeyExtractor = (workspace: SidebarWorkspaceEntry) => workspace.workspaceKey;
 
@@ -262,6 +269,9 @@ const ThemedX = withUnistyles(X);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedGlobe = withUnistyles(Globe);
+const ThemedCalendarPlus = withUnistyles(CalendarPlus);
+const ThemedClock3 = withUnistyles(Clock3);
+const ThemedMessageCircle = withUnistyles(MessageCircle);
 
 interface EmbeddedSidebarTabItem {
   descriptor: WorkspaceTabDescriptor;
@@ -451,6 +461,59 @@ function isTabForceShown(input: {
     agent.pendingPermissions.length > 0 ||
     agent.status === "initializing" ||
     agent.status === "running"
+  );
+}
+
+interface SidebarEmbeddedTabHoverInfo {
+  createdAt: Date | null;
+  updatedAt: Date | null;
+  userInputMessageCount: number | null;
+}
+
+function countUserInputMessages(items: readonly StreamItem[]): number {
+  let count = 0;
+  for (const item of items) {
+    if (item.kind === "user_message") {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function useSidebarEmbeddedTabHoverInfo({
+  serverId,
+  tab,
+}: {
+  serverId: string;
+  tab: WorkspaceTabDescriptor;
+}): SidebarEmbeddedTabHoverInfo {
+  const agentId = tab.target.kind === "agent" ? tab.target.agentId : null;
+  return useStoreWithEqualityFn(
+    useSessionStore,
+    useCallback(
+      (state) => {
+        const tabCreatedAt = tab.createdAt ? new Date(tab.createdAt) : null;
+        if (!agentId) {
+          return {
+            createdAt: tabCreatedAt,
+            updatedAt: null,
+            userInputMessageCount: null,
+          };
+        }
+
+        const session = state.sessions[serverId];
+        const agent = session?.agents.get(agentId) ?? session?.agentDetails.get(agentId) ?? null;
+        const tail = session?.agentStreamTail.get(agentId) ?? [];
+        const head = session?.agentStreamHead.get(agentId) ?? [];
+        return {
+          createdAt: agent?.createdAt ?? tabCreatedAt,
+          updatedAt: agent?.updatedAt ?? null,
+          userInputMessageCount: countUserInputMessages(tail) + countUserInputMessages(head),
+        };
+      },
+      [agentId, serverId, tab.createdAt],
+    ),
+    equal,
   );
 }
 
@@ -2970,6 +3033,80 @@ function EmbeddedTabContextMenuContent({
   );
 }
 
+function EmbeddedTabHoverInfoRow({
+  icon: Icon,
+  label,
+  testID,
+}: {
+  icon: ComponentType<ComponentProps<typeof ThemedCalendarPlus>>;
+  label: string;
+  testID: string;
+}) {
+  return (
+    <View style={styles.embeddedTabHoverInfoRow}>
+      <Icon size={13} uniProps={foregroundMutedColorMapping} />
+      <Text style={styles.embeddedTabHoverInfoText} numberOfLines={1} testID={testID}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function EmbeddedTabHoverCardContent({
+  label,
+  subtitle,
+  tabId,
+  info,
+}: {
+  label: string;
+  subtitle: string;
+  tabId: string;
+  info: SidebarEmbeddedTabHoverInfo;
+}) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <View style={styles.embeddedTabHoverHeader}>
+        <Text style={styles.embeddedTabHoverTitle} numberOfLines={2}>
+          {label}
+        </Text>
+        {subtitle ? (
+          <Text style={styles.embeddedTabHoverSubtitle} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {info.createdAt ? (
+        <EmbeddedTabHoverInfoRow
+          icon={ThemedCalendarPlus}
+          label={t("workspace.tabs.info.created", {
+            value: formatAbsoluteDateTime(info.createdAt),
+          })}
+          testID={`sidebar-embedded-tab-created-${tabId}`}
+        />
+      ) : null}
+      {info.updatedAt ? (
+        <EmbeddedTabHoverInfoRow
+          icon={ThemedClock3}
+          label={t("workspace.tabs.info.updated", {
+            value: formatRecentOrAbsoluteDateTime(info.updatedAt),
+          })}
+          testID={`sidebar-embedded-tab-updated-${tabId}`}
+        />
+      ) : null}
+      {info.userInputMessageCount !== null ? (
+        <EmbeddedTabHoverInfoRow
+          icon={ThemedMessageCircle}
+          label={t("workspace.tabs.info.promptCount", {
+            count: info.userInputMessageCount,
+          })}
+          testID={`sidebar-embedded-tab-prompt-count-${tabId}`}
+        />
+      ) : null}
+    </>
+  );
+}
+
 function EmbeddedWorkspaceTabRow({
   row,
   serverId,
@@ -3001,6 +3138,10 @@ function EmbeddedWorkspaceTabRow({
   const isCompact = useIsCompactFormFactor();
   const [isHovered, setIsHovered] = useState(false);
   const { item } = row;
+  const hoverInfo = useSidebarEmbeddedTabHoverInfo({
+    serverId,
+    tab: item.descriptor,
+  });
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
   const handlePress = useCallback(
@@ -3081,10 +3222,6 @@ function EmbeddedWorkspaceTabRow({
       {(presentation) => {
         const label =
           presentation.titleState === "loading" ? t("workspace.tabs.loading") : presentation.label;
-        const tooltipLabel =
-          presentation.titleState === "loading"
-            ? t("workspace.tabs.loadingAgentTitle")
-            : presentation.label;
         const leadingStatus =
           badgeMode === "status" ? null : getPrimarySidebarEntryStatusKind(row.statusSummary);
         const rightContext =
@@ -3101,80 +3238,67 @@ function EmbeddedWorkspaceTabRow({
             onClose: handleClose,
           }),
         );
+        const hoverCardContent = createElement(EmbeddedTabHoverCardContent, {
+          label,
+          subtitle: presentation.subtitle,
+          tabId: item.tab.tabId,
+          info: hoverInfo,
+        });
         return (
-          <ContextMenu>
-            <Tooltip delayDuration={400} enabledOnDesktop enabledOnMobile={false}>
-              <TooltipTrigger asChild triggerRefProp="triggerRef">
-                <EmbeddedTabTooltipAnchor
-                  {...(manualSort
-                    ? (dragHandleProps?.attributes as object | undefined)
-                    : undefined)}
-                  {...(manualSort ? (dragListeners as object | undefined) : undefined)}
-                  triggerRef={handleWrapperRef}
-                  onPointerDown={manualSort ? handleDragPointerDown : undefined}
-                  onPointerEnter={handlePointerEnter}
-                  onPointerLeave={handlePointerLeave}
-                  style={styles.embeddedTabWrapper}
+          <InfoHoverCard
+            content={hoverCardContent}
+            accessibilityLabel={label}
+            testID={`sidebar-embedded-tab-hover-card-${item.tab.tabId}`}
+            isDragging={isDragging}
+          >
+            <ContextMenu>
+              <View
+                {...(manualSort ? (dragHandleProps?.attributes as object | undefined) : undefined)}
+                {...(manualSort ? (dragListeners as object | undefined) : undefined)}
+                style={styles.embeddedTabWrapper}
+                onPointerDown={manualSort ? handleDragPointerDown : undefined}
+                onPointerEnter={handlePointerEnter}
+                onPointerLeave={handlePointerLeave}
+                ref={handleWrapperRef}
+              >
+                <ContextMenuTrigger
+                  accessibilityRole="button"
+                  accessibilityLabel={label}
+                  accessibilityState={accessibilityState}
+                  onPress={handlePress}
+                  onLongPress={handleLongPress}
+                  style={rowStyle}
+                  testID={`sidebar-embedded-tab-${item.tab.tabId}`}
                 >
-                  <ContextMenuTrigger
-                    accessibilityRole="button"
-                    accessibilityLabel={label}
-                    accessibilityState={accessibilityState}
-                    onPress={handlePress}
-                    onLongPress={handleLongPress}
-                    style={rowStyle}
-                    testID={`sidebar-embedded-tab-${item.tab.tabId}`}
-                  >
-                    <SidebarEntryRowContent
-                      leading={
-                        row.childCount > 0
-                          ? createElement(EmbeddedTabChevronButton, {
-                              expanded: row.expanded,
-                              tabId: row.item.tab.tabId,
-                              onPress: handleToggleExpanded,
-                            })
-                          : createElement(WorkspaceTabIcon, {
-                              presentation,
-                              active,
-                              size: 14,
-                              showStatusBadge: false,
-                            })
-                      }
-                      leadingStatus={leadingStatus}
-                      label={label}
-                      rightContext={rightContext}
-                      hoverRightContext={hoverRightContext}
-                      showHoverRightContext={showCloseButton}
-                    />
-                  </ContextMenuTrigger>
-                </EmbeddedTabTooltipAnchor>
-              </TooltipTrigger>
-              <TooltipContent side="right" align="center" offset={8}>
-                <WorkspaceTabTooltipPreview
-                  tab={item.descriptor}
-                  presentation={presentation}
-                  tooltipLabel={tooltipLabel}
-                  orientation="vertical"
-                />
-              </TooltipContent>
-            </Tooltip>
-            <EmbeddedTabContextMenuContent tabId={item.tab.tabId} entries={menuEntries} />
-          </ContextMenu>
+                  <SidebarEntryRowContent
+                    leading={
+                      row.childCount > 0
+                        ? createElement(EmbeddedTabChevronButton, {
+                            expanded: row.expanded,
+                            tabId: row.item.tab.tabId,
+                            onPress: handleToggleExpanded,
+                          })
+                        : createElement(WorkspaceTabIcon, {
+                            presentation,
+                            active,
+                            size: 14,
+                            showStatusBadge: false,
+                          })
+                    }
+                    leadingStatus={leadingStatus}
+                    label={label}
+                    rightContext={rightContext}
+                    hoverRightContext={hoverRightContext}
+                    showHoverRightContext={showCloseButton}
+                  />
+                </ContextMenuTrigger>
+              </View>
+              <EmbeddedTabContextMenuContent tabId={item.tab.tabId} entries={menuEntries} />
+            </ContextMenu>
+          </InfoHoverCard>
         );
       }}
     </WorkspaceTabPresentationResolver>
-  );
-}
-
-function EmbeddedTabTooltipAnchor({
-  triggerRef,
-  children,
-  ...props
-}: PropsWithChildren<ViewProps & { triggerRef?: Ref<View | null> }>): ReactElement {
-  return (
-    <View {...props} ref={triggerRef}>
-      {children}
-    </View>
   );
 }
 
@@ -5686,6 +5810,35 @@ const styles = StyleSheet.create((theme) => ({
   },
   embeddedTabWrapper: {
     width: "100%",
+  },
+  embeddedTabHoverHeader: {
+    gap: 2,
+    paddingHorizontal: theme.spacing[3],
+    paddingBottom: theme.spacing[2],
+  },
+  embeddedTabHoverTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.normal,
+    lineHeight: 20,
+  },
+  embeddedTabHoverSubtitle: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  embeddedTabHoverInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1.5],
+    paddingHorizontal: theme.spacing[3],
+    paddingBottom: theme.spacing[2],
+  },
+  embeddedTabHoverInfoText: {
+    flex: 1,
+    minWidth: 0,
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.normal,
   },
   embeddedTabsVisibilityToggle: {
     minHeight: 30,
