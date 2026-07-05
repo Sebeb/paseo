@@ -144,14 +144,16 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
         <ThemedSettings2 size={14} uniProps={filterColorMapping} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" width={220} testID="sidebar-grouping-menu">
-        <DropdownMenuItem
-          testID="sidebar-auto-collapse-projects"
-          selected={autoCollapseProjects}
-          closeOnSelect={false}
-          onSelect={handleAutoCollapseProjectsSelect}
-        >
-          Auto collapse projects
-        </DropdownMenuItem>
+        {groupMode === "project" && singleProjectViewEnabled ? null : (
+          <DropdownMenuItem
+            testID="sidebar-auto-collapse-projects"
+            selected={autoCollapseProjects}
+            closeOnSelect={false}
+            onSelect={handleAutoCollapseProjectsSelect}
+          >
+            Auto collapse projects
+          </DropdownMenuItem>
+        )}
         {showWorkspaceAutoCollapse ? (
           <DropdownMenuItem
             testID="sidebar-auto-collapse-workspaces"
