@@ -4,7 +4,7 @@ Branch: `feat/project-icon-picker`
 
 Base: `origin/main`
 
-Anchor commit: b1a5218535514418bb151f8cad5ac3fb89dd9ced - feat(app): add project icon picker
+Anchor commit: 9ef7185b9dc742e7ae4f01b9a336761158599d68 - feat(projects): normalize project icons
 
 ## Purpose
 
@@ -278,11 +278,14 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 **Files**
 
 - `packages/app/src/screens/project-settings-screen.tsx`
+- `packages/app/src/components/project-icon-view.tsx`
 - `packages/app/src/utils/project-icon-path.ts`
 - `packages/app/src/utils/project-config-form.ts`
 - `packages/client/src/daemon-client.ts`
 - `packages/protocol/src/messages.ts`
 - `packages/protocol/src/paseo-config-schema.ts`
+- `package-lock.json`
+- `packages/server/package.json`
 - `packages/server/src/server/session/files/workspace-files-session.ts`
 - `packages/server/src/server/websocket-server.ts`
 - `packages/server/src/utils/project-icon.ts`
@@ -293,14 +296,14 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 - `ProjectConfigDraft` includes `iconPath: string`.
 - `configToDraft(config, { defaultIconPath?: string | null })` seeds the editable icon path from `config.icon` or a daemon-discovered default.
 - `applyDraftToConfig({ draft, base })` writes trimmed `draft.iconPath` to `config.icon` or deletes `icon` when empty.
-- `PROJECT_ICON_FILE_EXTENSIONS = ["ico", "png", "svg", "jpg", "jpeg", "gif", "webp"]`.
+- `PROJECT_ICON_FILE_EXTENSIONS = ["ico", "png", "svg", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "tif", "tiff"]`.
 - `normalizeProjectIconRelativePath(value): string | null` rejects empty, absolute, drive-rooted, UNC, and escaping `..` paths, normalizes slashes, and returns a clean project-relative path.
 - `absolutePathForProjectIcon(projectRoot, relativeIconPath): string` builds a platform-shaped absolute path for dialog defaults.
 - `relativeProjectIconPathFromAbsolute({ projectRoot, selectedPath }): string | null` returns a normalized relative path only when the selected absolute path is inside the project root.
 - `ProjectIconRequestSchema` accepts optional `iconPath?: string`.
 - `DaemonClient.requestProjectIcon(cwd, { iconPath?, requestId? })` sends `project_icon_request` and waits for `project_icon_response`.
 - `server_info.features.projectIconOverride?: boolean` gates the picker UI with a `COMPAT(projectIconOverride)` cleanup comment.
-- `getProjectIcon(projectDir, options?: { iconPath?: string })` reads a configured or explicit project-relative icon path before auto-discovery.
+- `getProjectIcon(projectDir, options?: { iconPath?: string })` reads a configured or explicit project-relative icon path before auto-discovery and returns normalized 96x96 PNG data.
 
 **Behavior**
 
@@ -310,11 +313,15 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 - A selected file must be inside the project root. Outside selections show the localized `settings.project.icon.outsideProject` error.
 - The app calls `client.requestProjectIcon(repoRoot, { iconPath })` before accepting the choice. If the daemon returns no valid icon or no data URI can be built, the app shows `settings.project.icon.invalidIcon`.
 - A valid picked icon is previewed immediately by storing `{ path, dataUri }` in local state. The project config form receives the effective path so saving writes the new `icon` value.
+- `ProjectIconView` resets its image-error fallback state whenever `iconDataUri` changes, so a failed previous icon does not suppress a newly selected icon preview.
 - Changing project, host, or repo root clears the transient picked icon.
 - The daemon's project icon lookup first uses an explicit request `iconPath`, then `paseo.json`'s configured `icon`, then auto-discovers favicon/icon/logo files.
 - Server-side path normalization resolves configured icon paths under the project root and rejects traversal outside the root.
 - Returned icons include `path?: string`, the project-relative path chosen by either configured lookup or discovery.
-- Icon reads still enforce existing constraints: max 32 KiB, supported MIME type, and square dimensions. SVG/ICO are trusted as square; PNG/JPEG/GIF/WebP dimensions are parsed from file headers.
+- Icon reads accept ICO, PNG, SVG, JPEG, GIF, WebP, AVIF, BMP, and TIFF source files up to 10 MiB. The server uses `sharp` to render every accepted source into a transparent 96x96 PNG with `fit: "contain"` and returns `mimeType: "image/png"` regardless of source format.
+- PNG-backed ICO files are normalized by extracting the highest-scoring embedded PNG when available before passing the input to `sharp`; other ICO inputs fall through to `sharp` directly.
+- Normalized icon results are cached by absolute source path, file mtime, file size, and returned relative path. The cache keeps the most recently used 256 entries and evicts the oldest key after that.
+- Invalid configured or explicit icon paths still return no icon rather than falling back to discovery. Unsupported extensions and source files that cannot be decoded by `sharp` return no icon.
 
 ## File Explorer, Active Host, CLI, Desktop, And Supporting Polish
 
@@ -370,7 +377,7 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 - Settings storage validates persisted values by type and falls back to defaults on invalid data; legacy values migrate where possible.
 - Keyboard actions include find open/next/previous/close, route navigation, and workspace/tab movement.
 - Focus scopes include `find-in-thread` so Enter/Escape in the find input route to find behavior rather than composer or agent interruption.
-- Localization resources include stream find/thinking labels, prompt marker settings, sidebar grouping/sorting/badge strings, tab layout labels, workspace hover-card timestamps, and project icon picker copy across shipped locales.
+- Localization resources include stream find/thinking labels, prompt marker settings, sidebar grouping/sorting/badge strings, tab layout labels, workspace hover-card timestamps, and project icon picker copy across shipped locales. The invalid-icon copy asks for a supported image rather than requiring a square icon because the daemon now normalizes source aspect ratios.
 
 ## Documentation
 
@@ -399,6 +406,6 @@ Focused test coverage added or updated on this branch includes:
 - workspace layout store actions, main pane lookup, tab close trees, tab navigation, restore closed tabs, route source-of-truth, and archive navigation
 - settings storage migrations and parsing
 - keyboard action dispatch and route shortcuts
-- project config form icon round-tripping, project icon path normalization, daemon project icon configured path handling, and project icon protocol parsing
+- project config form icon round-tripping, project icon path normalization, daemon project icon configured path handling, normalized PNG output for square and non-square images, SVG and PNG-backed ICO conversion, max source-size rejection, and project icon protocol parsing
 - protocol parsing for optional workspace metadata, title fields, prompt index feature flags, project icon override feature flags, and project icon request/response messages
 - server title generation, Codex native title refresh, timeline prompt indexing, tool-call display models, and Codex app-server client identity
