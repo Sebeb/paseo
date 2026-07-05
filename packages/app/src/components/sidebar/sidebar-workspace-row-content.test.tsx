@@ -199,6 +199,23 @@ describe("SidebarWorkspaceRowContent", () => {
     expect(queryByTestId("hidden-trailing-control")).toBeNull();
   });
 
+  it("lets trailing controls own the right context instead of stacking with the script icon", () => {
+    const { getByTestId, queryByTestId } = render(
+      <SidebarWorkspaceRowContent
+        workspace={createWorkspace({ hasRunningScripts: true })}
+        scriptIconKind="service"
+        isHovered={false}
+        isLoading={false}
+      >
+        <span data-testid="workspace-trailing-control" />
+      </SidebarWorkspaceRowContent>,
+    );
+
+    expect(getByTestId("workspace-row-right")).not.toBeNull();
+    expect(getByTestId("workspace-trailing-control")).not.toBeNull();
+    expect(queryByTestId("workspace-globe-icon")).toBeNull();
+  });
+
   it("centers trailing action overlays inside a fixed-height slot", () => {
     const { getByTestId } = render(
       <SidebarWorkspaceTrailingActionSlot>
