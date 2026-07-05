@@ -77,7 +77,11 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
   );
   const autoCollapseProjects = useSidebarViewStore((state) => state.autoCollapseProjects);
   const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
+  const singleProjectViewEnabled = useSidebarViewStore((state) => state.singleProjectViewEnabled);
   const setGroupMode = useSidebarViewStore((state) => state.setGroupMode);
+  const setSingleProjectViewEnabled = useSidebarViewStore(
+    (state) => state.setSingleProjectViewEnabled,
+  );
   const setWorkspaceSortMode = useSidebarViewStore((state) => state.setWorkspaceSortMode);
   const setAutoCollapseProjects = useSidebarViewStore((state) => state.setAutoCollapseProjects);
   const setAutoCollapseWorkspaces = useSidebarViewStore((state) => state.setAutoCollapseWorkspaces);
@@ -109,6 +113,10 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
   const handleAutoCollapseWorkspacesSelect = useCallback(() => {
     setAutoCollapseWorkspaces(!autoCollapseWorkspaces);
   }, [autoCollapseWorkspaces, setAutoCollapseWorkspaces]);
+
+  const handleSingleProjectViewSelect = useCallback(() => {
+    setSingleProjectViewEnabled(!singleProjectViewEnabled);
+  }, [setSingleProjectViewEnabled, singleProjectViewEnabled]);
 
   const handleWorkspaceTitleSourceSelect = useCallback(
     (source: WorkspaceTitleSource) => {
@@ -167,6 +175,16 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
             onSelect={handleSelect}
           />
         ))}
+        {groupMode === "project" ? (
+          <DropdownMenuItem
+            testID="sidebar-single-project-view"
+            selected={singleProjectViewEnabled}
+            closeOnSelect={false}
+            onSelect={handleSingleProjectViewSelect}
+          >
+            Single project view
+          </DropdownMenuItem>
+        ) : null}
         {showSidebarSpecificControls ? (
           <>
             <DropdownMenuSeparator />

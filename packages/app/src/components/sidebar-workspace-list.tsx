@@ -633,6 +633,8 @@ interface SidebarWorkspaceListProps {
   onToggleProjectCollapsed: (projectKey: string) => void;
   shortcutIndexByWorkspaceKey: Map<string, number>;
   groupMode: "project" | "status";
+  singleProjectViewEnabled?: boolean;
+  singleProjectViewProject?: SidebarProjectEntry | null;
   isRefreshing?: boolean;
   onRefresh?: () => void;
   onWorkspacePress?: () => void;
@@ -4983,6 +4985,8 @@ export function SidebarWorkspaceList({
   onToggleProjectCollapsed,
   shortcutIndexByWorkspaceKey,
   groupMode,
+  singleProjectViewEnabled = false,
+  singleProjectViewProject = null,
   isRefreshing: _isRefreshing = false,
   onRefresh: _onRefresh,
   onWorkspacePress,
@@ -4991,6 +4995,11 @@ export function SidebarWorkspaceList({
   parentGestureRef,
 }: SidebarWorkspaceListProps) {
   const pathname = usePathname();
+  const visibleProjects = useMemo(
+    () =>
+      singleProjectViewEnabled && singleProjectViewProject ? [singleProjectViewProject] : projects,
+    [projects, singleProjectViewEnabled, singleProjectViewProject],
+  );
 
   if (groupMode === "status") {
     return (
@@ -5005,7 +5014,7 @@ export function SidebarWorkspaceList({
 
   return (
     <ProjectModeList
-      projects={projects}
+      projects={visibleProjects}
       serverId={serverId}
       collapsedProjectKeys={collapsedProjectKeys}
       onToggleProjectCollapsed={onToggleProjectCollapsed}

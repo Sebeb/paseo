@@ -79,6 +79,7 @@ import {
   buildSettingsRoute,
   mapPathnameToServer,
 } from "@/utils/host-routes";
+import { resolveSingleProjectViewProject } from "@/utils/sidebar-single-project-view";
 import { SidebarScrollContext, useSidebarScroll } from "./sidebar/sidebar-scroll-context";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
@@ -119,6 +120,8 @@ interface SidebarSharedProps {
   isHostPickerOpen: boolean;
   setIsHostPickerOpen: Dispatch<SetStateAction<boolean>>;
   projects: SidebarProjectEntry[];
+  singleProjectViewEnabled: boolean;
+  selectedSingleProject: SidebarProjectEntry | null;
   isInitialLoad: boolean;
   isRevalidating: boolean;
   isManualRefresh: boolean;
@@ -244,6 +247,56 @@ export const LeftSidebar = memo(function LeftSidebar({
   const groupMode = useSidebarViewStore((state) =>
     activeServerId ? state.getGroupMode(activeServerId) : "project",
   );
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const singleProjectViewSettingEnabled = useSidebarViewStore(
+    (state) => state.singleProjectViewEnabled,
+  );
+  const singleProjectViewProjectKey = useSidebarViewStore(
+    (state) => state.singleProjectViewProjectKey,
+  );
+  const setSingleProjectViewProjectKey = useSidebarViewStore(
+    (state) => state.setSingleProjectViewProjectKey,
+  );
+  const singleProjectViewEnabled = groupMode === "project" && singleProjectViewSettingEnabled;
+  const selectedSingleProject = useMemo(
+    () =>
+      singleProjectViewEnabled
+        ? resolveSingleProjectViewProject({
+            projects,
+            activeWorkspaceSelection,
+            storedProjectKey: singleProjectViewProjectKey,
+          })
+        : null,
+    [activeWorkspaceSelection, projects, singleProjectViewEnabled, singleProjectViewProjectKey],
+  );
+
+  useEffect(() => {
+    if (!singleProjectViewEnabled || !activeWorkspaceSelection) {
+      return;
+    }
+    let activeProjectKey: string | null = null;
+    for (const project of projects) {
+      for (const workspace of project.workspaces) {
+        if (
+          workspace.serverId === activeWorkspaceSelection.serverId &&
+          workspace.workspaceId === activeWorkspaceSelection.workspaceId
+        ) {
+          activeProjectKey = project.projectKey;
+          break;
+        }
+      }
+      if (activeProjectKey) break;
+    }
+    if (activeProjectKey && activeProjectKey !== singleProjectViewProjectKey) {
+      setSingleProjectViewProjectKey(activeProjectKey);
+    }
+  }, [
+    activeWorkspaceSelection,
+    projects,
+    setSingleProjectViewProjectKey,
+    singleProjectViewEnabled,
+    singleProjectViewProjectKey,
+  ]);
 
   const [isManualRefresh, setIsManualRefresh] = useState(false);
 
@@ -331,6 +384,8 @@ export const LeftSidebar = memo(function LeftSidebar({
     isHostPickerOpen,
     setIsHostPickerOpen,
     projects,
+    singleProjectViewEnabled,
+    selectedSingleProject,
     isInitialLoad,
     isRevalidating,
     isManualRefresh,
@@ -624,6 +679,8 @@ function MobileSidebar({
   isHostPickerOpen,
   setIsHostPickerOpen,
   projects,
+  singleProjectViewEnabled,
+  selectedSingleProject,
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
@@ -866,6 +923,8 @@ function MobileSidebar({
                   shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
                   groupMode={groupMode}
                   projects={projects}
+                  singleProjectViewEnabled={singleProjectViewEnabled}
+                  singleProjectViewProject={selectedSingleProject}
                   isRefreshing={isManualRefresh && isRevalidating}
                   onRefresh={handleRefresh}
                   onWorkspacePress={handleWorkspacePress}
@@ -910,6 +969,8 @@ function DesktopSidebar({
   isHostPickerOpen,
   setIsHostPickerOpen,
   projects,
+  singleProjectViewEnabled,
+  selectedSingleProject,
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
@@ -1091,6 +1152,8 @@ function DesktopSidebar({
                   shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
                   groupMode={groupMode}
                   projects={projects}
+                  singleProjectViewEnabled={singleProjectViewEnabled}
+                  singleProjectViewProject={selectedSingleProject}
                   isRefreshing={isManualRefresh && isRevalidating}
                   onRefresh={handleRefresh}
                   onAddProject={handleOpenProject}

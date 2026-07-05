@@ -39,6 +39,8 @@ describe("sidebar view store", () => {
   beforeEach(() => {
     useSidebarViewStore.setState({
       groupMode: "project",
+      singleProjectViewEnabled: false,
+      singleProjectViewProjectKey: null,
       hostFilter: null,
       groupModeByServerId: {},
       workspaceSortModeByServerId: {},
@@ -151,12 +153,28 @@ describe("sidebar view store", () => {
       migrateSidebarViewState({
         groupMode: "status",
         hostFilter: "host-a",
+        singleProjectViewEnabled: true,
+        singleProjectViewProjectKey: "project-a",
         embeddedTabSortModeByServerId: { "host-a": "created" },
       }),
     ).toMatchObject({
       groupMode: "status",
       hostFilter: "host-a",
+      singleProjectViewEnabled: true,
+      singleProjectViewProjectKey: "project-a",
       embeddedTabSortModeByServerId: { "host-a": "created" },
+    });
+  });
+
+  it("stores single project view preferences independently from group mode", () => {
+    useSidebarViewStore.getState().setGroupMode("status");
+    useSidebarViewStore.getState().setSingleProjectViewEnabled(true);
+    useSidebarViewStore.getState().setSingleProjectViewProjectKey("project-a");
+
+    expect(useSidebarViewStore.getState()).toMatchObject({
+      groupMode: "status",
+      singleProjectViewEnabled: true,
+      singleProjectViewProjectKey: "project-a",
     });
   });
 
