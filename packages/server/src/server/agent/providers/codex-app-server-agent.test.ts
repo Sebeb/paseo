@@ -784,6 +784,13 @@ describe("Codex app-server provider", () => {
             },
             godot: {
               command: "godot-mcp",
+              env: { DEBUG: "true" },
+              enabled: true,
+              startup_timeout_sec: null,
+              tool_timeout_sec: null,
+            },
+            slippy: {
+              command: "slippy-mcp",
               tool_timeout_sec: "",
             },
           },
@@ -823,6 +830,11 @@ describe("Codex app-server provider", () => {
         },
         godot: {
           command: "godot-mcp",
+          env: { DEBUG: "true" },
+          enabled: true,
+        },
+        slippy: {
+          command: "slippy-mcp",
         },
         paseo: {
           url: "http://127.0.0.1:6767/mcp/agents?callerAgentId=agent-1",
@@ -830,6 +842,13 @@ describe("Codex app-server provider", () => {
         },
       },
     });
+    const mergedMcpServers = (threadStartParams?.config as Record<string, unknown> | undefined)
+      ?.mcp_servers as Record<string, Record<string, unknown>>;
+    // Unset fields come back as null from config/read; echoing null breaks
+    // Codex's JSON→TOML override conversion, so they must be dropped.
+    expect(mergedMcpServers.godot).not.toHaveProperty("startup_timeout_sec");
+    expect(mergedMcpServers.godot).not.toHaveProperty("tool_timeout_sec");
+    expect(mergedMcpServers.slippy).not.toHaveProperty("tool_timeout_sec");
     appServer.assertNoErrors();
     await session.close();
   });

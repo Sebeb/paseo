@@ -797,6 +797,16 @@ function normalizeCodexConfiguredMcpServerConfig(
 ): CodexMcpServerConfig {
   const normalized: CodexMcpServerConfig = { ...config };
 
+  // Codex `config/read` reports unset fields as null, but its JSON→TOML
+  // override conversion turns null into "" which then fails typed
+  // deserialization (e.g. `invalid type: string "", expected f64`). TOML has
+  // no null, so drop unset fields entirely before echoing the config back.
+  for (const [field, value] of Object.entries(normalized)) {
+    if (value === null) {
+      delete normalized[field];
+    }
+  }
+
   for (const field of CODEX_MCP_NUMBER_FIELDS) {
     const value = normalized[field];
     if (typeof value !== "string") {
