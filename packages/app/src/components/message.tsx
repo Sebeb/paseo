@@ -119,6 +119,7 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { isWeb, isNative } from "@/constants/platform";
 import { RewindMenu, type RewindMode } from "@/components/rewind/rewind-menu";
 import { useRewindAgentMutation } from "@/components/rewind/use-rewind-agent-mutation";
+import { buildRewindComposerImageAttachments } from "@/components/rewind/composer-restore";
 import {
   FindHighlightedText,
   FindHighlightedTextSegments,
@@ -642,9 +643,12 @@ export const UserMessage = memo(function UserMessage({
   const getMessageContent = useCallback(() => message, [message]);
   const handleRewind = useCallback(
     (input: { mode: RewindMode; rewoundText: string }) => {
-      return rewindMutation.rewindAgent(input);
+      return rewindMutation.rewindAgent({
+        ...input,
+        rewoundAttachments: buildRewindComposerImageAttachments(images),
+      });
     },
-    [rewindMutation],
+    [images, rewindMutation],
   );
   const handleBranch = useCallback(
     (input: { rewoundText: string }) => branchMutation.branchAgent(input),
