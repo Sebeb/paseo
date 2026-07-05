@@ -1743,6 +1743,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         style={scrollContainerStyle}
       >
         <div ref={handleContentRef} style={contentContainerStyle}>
+          {props.layoutProbe}
           {historyStartSlot}
           {unloadedHistorySpacerStyle ? (
             <div

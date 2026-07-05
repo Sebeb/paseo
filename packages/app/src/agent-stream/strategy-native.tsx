@@ -458,11 +458,19 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
     }
     return (
       <Fragment>
+        {props.layoutProbe}
         {liveHeadRows}
         {liveAuxiliary}
       </Fragment>
     );
-  }, [boundary, listEmptyComponent, renderLiveAuxiliary, renderLiveHeadRow, segments.liveHead]);
+  }, [
+    boundary,
+    listEmptyComponent,
+    props.layoutProbe,
+    renderLiveAuxiliary,
+    renderLiveHeadRow,
+    segments.liveHead,
+  ]);
 
   const historyFooterContent = useMemo(() => {
     if (!isLoadingOlderHistory) {
