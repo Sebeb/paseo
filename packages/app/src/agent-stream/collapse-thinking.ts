@@ -110,7 +110,19 @@ function buildTurnGroups(input: BuildTurnGroupsInput): ThinkingGroup[] {
     }
 
     if (item.kind === "assistant_message") {
-      if (input.isCurrentRunningTurn && !hasLaterCollapsibleWork(input.turnItems, index + 1)) {
+      const hasLaterWork = hasLaterCollapsibleWork(input.turnItems, index + 1);
+      if (
+        item.presentation === "progress" &&
+        !isNextCollapsibleWorkUserFacing(input.turnItems, index + 1)
+      ) {
+        if (!input.isCurrentRunningTurn && !hasLaterWork) {
+          pushGroup("completed", item);
+          continue;
+        }
+        groupItems.push(item);
+        continue;
+      }
+      if (input.isCurrentRunningTurn && !hasLaterWork) {
         groupItems.push(item);
         continue;
       }
@@ -174,6 +186,10 @@ function findNextUserMessageIndex(items: readonly StreamItem[], startIndex: numb
 }
 
 function isCollapsibleWorkItem(item: StreamItem): boolean {
+  if (item.kind === "assistant_message") {
+    return item.presentation === "progress";
+  }
+
   if (
     item.kind === "tool_call" &&
     item.payload.source === "agent" &&
@@ -183,6 +199,31 @@ function isCollapsibleWorkItem(item: StreamItem): boolean {
   }
 
   return item.kind === "thought" || item.kind === "tool_call" || item.kind === "todo_list";
+}
+
+function isUserFacingToolItem(item: StreamItem): boolean {
+  return (
+    item.kind === "tool_call" &&
+    item.payload.source === "agent" &&
+    item.payload.data.name === "request_user_input"
+  );
+}
+
+function isNextCollapsibleWorkUserFacing(
+  items: readonly StreamItem[],
+  startIndex: number,
+): boolean {
+  for (let index = startIndex; index < items.length; index += 1) {
+    const item = items[index];
+    if (!item) {
+      continue;
+    }
+    if (!isCollapsibleWorkItem(item)) {
+      continue;
+    }
+    return isUserFacingToolItem(item);
+  }
+  return false;
 }
 
 function hasLaterCollapsibleWork(items: readonly StreamItem[], startIndex: number): boolean {

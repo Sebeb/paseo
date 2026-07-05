@@ -1657,6 +1657,7 @@ describe("Codex app-server provider", () => {
           type: "assistant_message",
           text: "History loaded.",
           messageId: "message-history",
+          presentation: "progress",
         },
       },
       {
@@ -1729,6 +1730,7 @@ describe("Codex app-server provider", () => {
           type: "assistant_message",
           text: "History loaded.",
           messageId: "message-history",
+          presentation: "progress",
         },
       },
     ]);
@@ -1775,19 +1777,23 @@ describe("Codex app-server provider", () => {
       {
         type: "timeline",
         provider: "codex",
+        timestamp: undefined,
         item: {
           type: "assistant_message",
           text: "I checked the workspace.",
           messageId: "before-tool-message",
+          presentation: "progress",
         },
       },
       {
         type: "timeline",
         provider: "codex",
+        timestamp: undefined,
         item: {
           type: "assistant_message",
           text: "The tests are green.",
           messageId: "after-tool-message",
+          presentation: "progress",
         },
       },
     ]);
@@ -2457,13 +2463,23 @@ describe("Codex app-server provider", () => {
         type: "timeline",
         provider: "codex",
         turnId: "test-turn",
-        item: { type: "assistant_message", text: "Hel", messageId: "assistant-item-1" },
+        item: {
+          type: "assistant_message",
+          text: "Hel",
+          messageId: "assistant-item-1",
+          presentation: "progress",
+        },
       },
       {
         type: "timeline",
         provider: "codex",
         turnId: "test-turn",
-        item: { type: "assistant_message", text: "lo", messageId: "assistant-item-1" },
+        item: {
+          type: "assistant_message",
+          text: "lo",
+          messageId: "assistant-item-1",
+          presentation: "progress",
+        },
       },
     ]);
   });
@@ -2494,19 +2510,34 @@ describe("Codex app-server provider", () => {
         type: "timeline",
         provider: "codex",
         turnId: "test-turn",
-        item: { type: "assistant_message", text: "Hel", messageId: "assistant-item-2" },
+        item: {
+          type: "assistant_message",
+          text: "Hel",
+          messageId: "assistant-item-2",
+          presentation: "progress",
+        },
       },
       {
         type: "timeline",
         provider: "codex",
         turnId: "test-turn",
-        item: { type: "assistant_message", text: "lo", messageId: "assistant-item-2" },
+        item: {
+          type: "assistant_message",
+          text: "lo",
+          messageId: "assistant-item-2",
+          presentation: "progress",
+        },
       },
       {
         type: "timeline",
         provider: "codex",
         turnId: "test-turn",
-        item: { type: "assistant_message", text: "!", messageId: "assistant-item-2" },
+        item: {
+          type: "assistant_message",
+          text: "!",
+          messageId: "assistant-item-2",
+          presentation: "progress",
+        },
       },
     ]);
   });
@@ -2542,6 +2573,7 @@ describe("Codex app-server provider", () => {
         item: {
           type: "assistant_message",
           messageId: "assistant-item-3",
+          presentation: "progress",
           text: "I’m in the waiting phase now. The next read is intentionally delayed so we get meaningful CI state instead of churn.",
         },
       },
@@ -2552,6 +2584,7 @@ describe("Codex app-server provider", () => {
         item: {
           type: "assistant_message",
           messageId: "assistant-item-4",
+          presentation: "progress",
           text: "CI is still cooking. I’m staying on the current run rather than jumping around, because the first red job will tell us exactly whether anything else needs work.",
         },
       },

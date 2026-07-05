@@ -33,7 +33,11 @@ function userMessage(id: string, seed: number): StreamItem {
 function assistantMessage(
   id: string,
   seed: number,
-  options: { blockGroupId?: string; blockIndex?: number } = {},
+  options: {
+    blockGroupId?: string;
+    blockIndex?: number;
+    presentation?: "response" | "progress";
+  } = {},
 ): StreamItem {
   return {
     kind: "assistant_message",
@@ -42,6 +46,7 @@ function assistantMessage(
     timestamp: timestamp(seed),
     ...(options.blockGroupId ? { blockGroupId: options.blockGroupId } : {}),
     ...(options.blockIndex !== undefined ? { blockIndex: options.blockIndex } : {}),
+    ...(options.presentation ? { presentation: options.presentation } : {}),
   };
 }
 
@@ -89,6 +94,29 @@ function planToolCall(id: string, seed: number): StreamItem {
         detail: {
           type: "plan",
           text: "- Inspect\n- Implement\n- Verify",
+        },
+      },
+    },
+  };
+}
+
+function questionToolCall(id: string, seed: number): StreamItem {
+  return {
+    kind: "tool_call",
+    id,
+    timestamp: timestamp(seed),
+    payload: {
+      source: "agent",
+      data: {
+        provider: "codex",
+        callId: id,
+        name: "request_user_input",
+        status: "completed",
+        error: null,
+        detail: {
+          type: "unknown",
+          input: { questions: [] },
+          output: null,
         },
       },
     },
@@ -146,6 +174,47 @@ describe("buildCollapseThinkingGroups", () => {
     expect(index.groups.map((group) => group.status)).toEqual(["completed", "completed"]);
     expect(index.groups.map((group) => group.finalAssistantItemId)).toEqual(["progress", "final"]);
     expect(index.groupByItemId.has("progress")).toBe(false);
+    expect(index.groupByItemId.has("final")).toBe(false);
+  });
+
+  it("keeps progress assistant text inside thinking groups between tools", () => {
+    const index = buildCompletedThinkingGroups([
+      userMessage("u1", 1),
+      toolCall("tool-1", 2),
+      assistantMessage("progress", 3, { presentation: "progress" }),
+      toolCall("tool-2", 4),
+      assistantMessage("final", 5),
+    ]);
+
+    expect(index.groups).toHaveLength(1);
+    expect(index.groups[0]?.itemIds).toEqual(["tool-1", "progress", "tool-2"]);
+    expect(index.groupByItemId.has("progress")).toBe(true);
+    expect(index.groupByItemId.has("final")).toBe(false);
+  });
+
+  it("keeps progress assistant text visible before a user-facing question tool", () => {
+    const index = buildRunningThinkingGroups([
+      userMessage("u1", 1),
+      thought("t1", 2),
+      assistantMessage("question-intro", 3, { presentation: "progress" }),
+      questionToolCall("question-1", 4),
+    ]);
+
+    expect(index.groups.map((group) => group.itemIds)).toEqual([["t1"], ["question-1"]]);
+    expect(index.groups.map((group) => group.status)).toEqual(["completed", "active"]);
+    expect(index.groups[0]?.finalAssistantItemId).toBe("question-intro");
+    expect(index.groupByItemId.has("question-intro")).toBe(false);
+  });
+
+  it("leaves final progress assistant text visible after completion", () => {
+    const index = buildCompletedThinkingGroups([
+      userMessage("u1", 1),
+      toolCall("tool-1", 2),
+      assistantMessage("final", 3, { presentation: "progress" }),
+    ]);
+
+    expect(index.groups[0]?.itemIds).toEqual(["tool-1"]);
+    expect(index.groups[0]?.finalAssistantItemId).toBe("final");
     expect(index.groupByItemId.has("final")).toBe(false);
   });
 

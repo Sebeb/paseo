@@ -1701,6 +1701,7 @@ export function threadItemToTimeline(
         type: "assistant_message",
         text: typeof normalizedItem.text === "string" ? normalizedItem.text : "",
         ...(messageId ? { messageId } : {}),
+        presentation: "progress",
       };
     }
     case "plan":
@@ -4498,6 +4499,7 @@ export class CodexAppServerAgentSession implements AgentSession {
           type: "assistant_message",
           messageId: parsed.itemId,
           text,
+          presentation: "progress",
         });
         this.emitSubAgentActivityUpdate(subAgentCallId, "running");
         return;
@@ -4509,6 +4511,7 @@ export class CodexAppServerAgentSession implements AgentSession {
           type: "assistant_message",
           messageId: parsed.itemId,
           text: parsed.delta,
+          presentation: "progress",
         },
       });
       return;
@@ -4951,6 +4954,7 @@ export class CodexAppServerAgentSession implements AgentSession {
               type: timelineItem.type,
               text: suffix,
               ...(timelineItem.messageId ? { messageId: timelineItem.messageId } : {}),
+              ...(timelineItem.presentation ? { presentation: timelineItem.presentation } : {}),
             }
           : { type: timelineItem.type, text: suffix },
     });
