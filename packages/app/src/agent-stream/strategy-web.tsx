@@ -1,5 +1,4 @@
 import React, {
-  Fragment,
   type CSSProperties,
   useCallback,
   useEffect,
@@ -65,6 +64,10 @@ function scrollElementToBottom(
     top: scrollContainer.scrollHeight,
     behavior,
   });
+}
+
+function cssStringEscape(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function syncNearBottom(
@@ -268,6 +271,40 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
     syncNearBottom(scrollContainer, onNearBottomChange);
   }, [onNearBottomChange]);
+
+  const scrollToMessage = useCallback(
+    (messageId: string, viewportY: number | null = null): boolean => {
+      const scrollContainer = scrollContainerRef.current;
+      const content = contentRef.current;
+      if (!scrollContainer || !content) {
+        return false;
+      }
+      const selector = `[data-stream-message-id="${cssStringEscape(messageId)}"]`;
+      const node = content.querySelector(selector);
+      if (node instanceof HTMLElement) {
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const nodeRect = node.getBoundingClientRect();
+        const targetY = typeof viewportY === "number" ? viewportY : containerRect.top + 96;
+        scrollContainer.scrollTo({
+          top: scrollContainer.scrollTop + nodeRect.top - targetY,
+          behavior: "auto",
+        });
+        setFollowOutput(false);
+        lastKnownScrollTopRef.current = scrollContainer.scrollTop;
+        updateScrollMetrics();
+        return true;
+      }
+
+      const virtualIndex = segments.historyVirtualized.findIndex((item) => item.id === messageId);
+      if (virtualIndex >= 0) {
+        rowVirtualizer.scrollToIndex(virtualIndex, { align: "start" });
+        setFollowOutput(false);
+        return true;
+      }
+      return false;
+    },
+    [rowVirtualizer, segments.historyVirtualized, updateScrollMetrics],
+  );
 
   const handleDomScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -475,6 +512,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         cancelPendingStickToBottom();
         forceStickToBottom();
       },
+      scrollToMessage,
       prepareForViewportChange: () => {
         if (!followOutputRef.current) {
           return;
@@ -489,7 +527,13 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       }
       cancelPendingStickToBottom();
     };
-  }, [cancelPendingStickToBottom, forceStickToBottom, scheduleStickToBottom, viewportRef]);
+  }, [
+    cancelPendingStickToBottom,
+    forceStickToBottom,
+    scheduleStickToBottom,
+    scrollToMessage,
+    viewportRef,
+  ]);
 
   const contentContainerStyle = useMemo((): CSSProperties => {
     return {
@@ -533,14 +577,16 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   );
   const mountedHistoryRows = useMemo(() => {
     return segments.historyMounted.map((item, index) => (
-      <Fragment key={item.id}>
+      <div key={item.id} data-stream-message-id={item.id}>
         {renderHistoryMountedRow(item, index, segments.historyMounted)}
-      </Fragment>
+      </div>
     ));
   }, [renderHistoryMountedRow, segments.historyMounted]);
   const liveHeadRows = useMemo(() => {
     return segments.liveHead.map((item, index) => (
-      <Fragment key={item.id}>{renderLiveHeadRow(item, index, segments.liveHead)}</Fragment>
+      <div key={item.id} data-stream-message-id={item.id}>
+        {renderLiveHeadRow(item, index, segments.liveHead)}
+      </div>
     ));
   }, [renderLiveHeadRow, segments.liveHead]);
   const liveAuxiliary = useMemo(() => {
@@ -583,6 +629,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
                   <div
                     key={virtualRow.key}
                     data-index={virtualRow.index}
+                    data-stream-message-id={item.id}
                     ref={measureVirtualizedRowElement}
                     style={renderVirtualRowStyle(virtualRow.start)}
                   >

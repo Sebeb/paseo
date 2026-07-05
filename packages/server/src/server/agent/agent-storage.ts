@@ -4,7 +4,11 @@ import { z } from "zod";
 import type { Logger } from "pino";
 
 import { writeJsonFileAtomic } from "../atomic-file.js";
-import { AgentFeatureSchema, AgentStatusSchema } from "../messages.js";
+import {
+  AgentBranchingMetadataSchema,
+  AgentFeatureSchema,
+  AgentStatusSchema,
+} from "../messages.js";
 import { toStoredAgentRecord } from "./agent-projections.js";
 import type { ManagedAgent } from "./agent-manager.js";
 import type { AgentSessionConfig } from "./agent-sdk-types.js";
@@ -43,6 +47,7 @@ const STORED_AGENT_SCHEMA = z.object({
   lastUserMessageAt: z.string().nullable().optional(),
   title: z.string().nullable().optional(),
   labels: z.record(z.string(), z.string()).default({}),
+  branching: AgentBranchingMetadataSchema.optional(),
   lastStatus: AgentStatusSchema.default("closed"),
   lastModeId: z.string().nullable().optional(),
   config: SERIALIZABLE_CONFIG_SCHEMA,
@@ -212,6 +217,9 @@ export class AgentStorage {
     // would wipe it during normal persistence (including on daemon restart).
     if (existing && existing.archivedAt !== undefined) {
       record.archivedAt = existing.archivedAt;
+    }
+    if (existing?.branching !== undefined) {
+      record.branching = existing.branching;
     }
     await this.upsert(record);
   }

@@ -129,6 +129,23 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
     [onNearBottomChange],
   );
 
+  const scrollToMessage = useCallback(
+    (messageId: string): boolean => {
+      const index = historyRows.findIndex((item) => item.id === messageId);
+      if (index < 0) {
+        return false;
+      }
+      programmaticScrollEventBudgetRef.current = 3;
+      flatListRef.current?.scrollToIndex({
+        index,
+        animated: false,
+        viewPosition: 0.65,
+      });
+      return true;
+    },
+    [historyRows],
+  );
+
   const bottomAnchorController = useBottomAnchorController({
     agentId,
     routeRequest: routeBottomAnchorRequest,
@@ -205,6 +222,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
           reason,
         });
       },
+      scrollToMessage,
       prepareForViewportChange: () => {
         bottomAnchorController.prepareForStickyViewportChange();
         markNativeViewportSettling();
@@ -216,7 +234,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
         viewportRef.current = null;
       }
     };
-  }, [agentId, bottomAnchorController, markNativeViewportSettling, viewportRef]);
+  }, [agentId, bottomAnchorController, markNativeViewportSettling, scrollToMessage, viewportRef]);
 
   const handleScroll = useStableEvent((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -305,6 +323,10 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
     });
   });
 
+  const handleScrollToIndexFailed = useCallback(() => {
+    scrollToBottom(false);
+  }, [scrollToBottom]);
+
   const renderItem = useStableEvent(
     ({ item, index }: ListRenderItemInfo<StreamItem>): ReactElement | null => {
       const rendered = renderHistoryMountedRow(item, index, historyRows);
@@ -368,6 +390,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
       removeClippedSubviews={false}
       scrollEnabled={scrollEnabled}
       showsVerticalScrollIndicator
+      onScrollToIndexFailed={handleScrollToIndexFailed}
       inverted
     />
   );

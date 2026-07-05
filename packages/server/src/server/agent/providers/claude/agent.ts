@@ -277,6 +277,7 @@ const CLAUDE_CAPABILITIES: AgentCapabilityFlags = {
   supportsRewindConversation: true,
   supportsRewindFiles: true,
   supportsRewindBoth: true,
+  supportsBranchConversation: true,
 };
 
 const DEFAULT_MODES: AgentMode[] = [

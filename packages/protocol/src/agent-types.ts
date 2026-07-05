@@ -148,6 +148,33 @@ export interface AgentCapabilityFlags {
   supportsRewindConversation?: boolean;
   supportsRewindFiles?: boolean;
   supportsRewindBoth?: boolean;
+  supportsBranchConversation?: boolean;
+}
+
+export interface AgentBranchMembership {
+  groupId: string;
+  ordinal: number;
+  messageId: string | null;
+  createdAt: string;
+}
+
+export interface AgentBranchingMetadata {
+  memberships: AgentBranchMembership[];
+  pendingGroupId?: string | null;
+}
+
+export interface AgentBranchGroupMember {
+  agentId: string;
+  ordinal: number;
+  messageId: string | null;
+  createdAt: string;
+  archivedAt?: string | null;
+  title?: string | null;
+}
+
+export interface AgentBranchGroup {
+  groupId: string;
+  members: AgentBranchGroupMember[];
 }
 
 export interface AgentPersistenceHandle {

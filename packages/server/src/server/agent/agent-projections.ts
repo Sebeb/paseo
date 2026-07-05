@@ -198,6 +198,7 @@ export function buildStoredAgentPayload(
     supportsRewindConversation: false,
     supportsRewindFiles: false,
     supportsRewindBoth: false,
+    supportsBranchConversation: false,
   } as const;
 
   const createdAt = new Date(record.createdAt);
@@ -230,6 +231,7 @@ export function buildStoredAgentPayload(
     pendingPermissions: [],
     persistence,
     title: record.title ?? null,
+    ...(record.branching ? { branching: record.branching } : {}),
     requiresAttention: record.requiresAttention ?? false,
     attentionReason: record.attentionReason ?? null,
     attentionTimestamp: record.attentionTimestamp ?? null,

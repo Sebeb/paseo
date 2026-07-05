@@ -188,6 +188,8 @@ import type {
   ToolCallDetail,
   ToolCallTimelineItem,
   AgentUsage,
+  AgentBranchingMetadata,
+  AgentBranchGroup,
 } from "./agent-types.js";
 
 export const AgentStatusSchema = z.enum(AGENT_LIFECYCLE_STATUSES);
@@ -289,8 +291,36 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
     supportsRewindFiles: z.boolean().optional().default(false),
     // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
     supportsRewindBoth: z.boolean().optional().default(false),
+    // COMPAT(agentBranching): added in v0.1.X, remove gate after 2027-01-05.
+    supportsBranchConversation: z.boolean().optional().default(false),
   })
   .catchall(z.boolean());
+
+export const AgentBranchMembershipSchema = z.object({
+  groupId: z.string(),
+  ordinal: z.number().int().positive(),
+  messageId: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const AgentBranchingMetadataSchema: z.ZodType<AgentBranchingMetadata> = z.object({
+  memberships: z.array(AgentBranchMembershipSchema).default([]),
+  pendingGroupId: z.string().nullable().optional(),
+});
+
+const AgentBranchGroupMemberSchema = z.object({
+  agentId: z.string(),
+  ordinal: z.number().int().positive(),
+  messageId: z.string().nullable(),
+  createdAt: z.string(),
+  archivedAt: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+});
+
+export const AgentBranchGroupSchema: z.ZodType<AgentBranchGroup> = z.object({
+  groupId: z.string(),
+  members: z.array(AgentBranchGroupMemberSchema),
+});
 
 const AgentUsageSchema: z.ZodType<AgentUsage> = z.object({
   inputTokens: z.number().optional(),
@@ -702,6 +732,7 @@ export const AgentSnapshotPayloadSchema = z.object({
   lastError: z.string().optional(),
   title: z.string().nullable(),
   labels: z.record(z.string(), z.string()).default({}),
+  branching: AgentBranchingMetadataSchema.optional(),
   requiresAttention: z.boolean().optional(),
   attentionReason: z.enum(["finished", "error", "permission"]).nullable().optional(),
   attentionTimestamp: z.string().nullable().optional(),
@@ -1384,6 +1415,42 @@ export const AgentRewindResponseMessageSchema = z.object({
     requestId: z.string(),
     agentId: z.string(),
     ok: z.boolean(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const AgentBranchCreateRequestMessageSchema = z.object({
+  type: z.literal("agent.branch.create.request"),
+  agentId: z.string(),
+  messageId: z.string(),
+  requestId: z.string(),
+});
+
+export const AgentBranchCreateResponseMessageSchema = z.object({
+  type: z.literal("agent.branch.create.response"),
+  payload: z.object({
+    requestId: z.string(),
+    agentId: z.string(),
+    branchAgentId: z.string().nullable(),
+    group: AgentBranchGroupSchema.nullable(),
+    ok: z.boolean(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const AgentBranchGroupsRequestMessageSchema = z.object({
+  type: z.literal("agent.branch.groups.request"),
+  agentId: z.string(),
+  requestId: z.string(),
+  groupId: z.string().optional(),
+});
+
+export const AgentBranchGroupsResponseMessageSchema = z.object({
+  type: z.literal("agent.branch.groups.response"),
+  payload: z.object({
+    requestId: z.string(),
+    agentId: z.string(),
+    groups: z.array(AgentBranchGroupSchema),
     error: z.string().nullable(),
   }),
 });
@@ -2094,6 +2161,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   SetAgentFeatureRequestMessageSchema,
   AgentDetachRequestMessageSchema,
   AgentRewindRequestMessageSchema,
+  AgentBranchCreateRequestMessageSchema,
+  AgentBranchGroupsRequestMessageSchema,
   AgentPermissionResponseMessageSchema,
   CheckoutStatusRequestSchema,
   SubscribeCheckoutDiffRequestSchema,
@@ -2365,6 +2434,8 @@ export const ServerInfoStatusPayloadSchema = z
         daemonSelfUpdate: z.boolean().optional(),
         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
         agentForkContext: z.boolean().optional(),
+        // COMPAT(agentBranching): added in v0.1.X, remove gate after 2027-01-05.
+        agentBranching: z.boolean().optional(),
       })
       .optional(),
   })
@@ -4221,6 +4292,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   SetAgentFeatureResponseMessageSchema,
   AgentDetachResponseMessageSchema,
   AgentRewindResponseMessageSchema,
+  AgentBranchCreateResponseMessageSchema,
+  AgentBranchGroupsResponseMessageSchema,
   UpdateAgentResponseMessageSchema,
   ProjectRenameResponseSchema,
   ProjectRemoveResponseSchema,
@@ -4374,6 +4447,12 @@ export type SetAgentThinkingResponseMessage = z.infer<typeof SetAgentThinkingRes
 export type SetAgentFeatureResponseMessage = z.infer<typeof SetAgentFeatureResponseMessageSchema>;
 export type AgentDetachResponseMessage = z.infer<typeof AgentDetachResponseMessageSchema>;
 export type AgentRewindResponseMessage = z.infer<typeof AgentRewindResponseMessageSchema>;
+export type AgentBranchCreateResponseMessage = z.infer<
+  typeof AgentBranchCreateResponseMessageSchema
+>;
+export type AgentBranchGroupsResponseMessage = z.infer<
+  typeof AgentBranchGroupsResponseMessageSchema
+>;
 export type UpdateAgentResponseMessage = z.infer<typeof UpdateAgentResponseMessageSchema>;
 export type ProjectRenameResponse = z.infer<typeof ProjectRenameResponseSchema>;
 export type ProjectRemoveResponse = z.infer<typeof ProjectRemoveResponseSchema>;
@@ -4518,6 +4597,8 @@ export type SetAgentModelRequestMessage = z.infer<typeof SetAgentModelRequestMes
 export type SetAgentThinkingRequestMessage = z.infer<typeof SetAgentThinkingRequestMessageSchema>;
 export type SetAgentFeatureRequestMessage = z.infer<typeof SetAgentFeatureRequestMessageSchema>;
 export type AgentDetachRequestMessage = z.infer<typeof AgentDetachRequestMessageSchema>;
+export type AgentBranchCreateRequestMessage = z.infer<typeof AgentBranchCreateRequestMessageSchema>;
+export type AgentBranchGroupsRequestMessage = z.infer<typeof AgentBranchGroupsRequestMessageSchema>;
 export type AgentPermissionResponseMessage = z.infer<typeof AgentPermissionResponseMessageSchema>;
 export type CheckoutStatusRequest = z.infer<typeof CheckoutStatusRequestSchema>;
 export type CheckoutStatusResponse = z.infer<typeof CheckoutStatusResponseSchema>;
