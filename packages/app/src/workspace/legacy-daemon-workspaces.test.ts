@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { DaemonClient, FetchAgentsEntry } from "@getpaseo/client/internal/daemon-client";
+import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import { useSessionStore, type Agent } from "@/stores/session-store";
 import { deriveWorkspaceAgentVisibility } from "@/workspace-tabs/agent-visibility";
 import {
@@ -13,6 +14,9 @@ const SERVER_ID = "srv_legacy";
 function legacyAgent(input: {
   id: string;
   cwd: string;
+  parentAgentId?: string;
+  workspaceName?: string;
+  branchName?: string;
   status?: FetchAgentsEntry["agent"]["status"];
   updatedAt?: string;
 }): FetchAgentsEntry {
@@ -40,16 +44,16 @@ function legacyAgent(input: {
       pendingPermissions: [],
       persistence: null,
       title: null,
-      labels: {},
+      labels: input.parentAgentId ? { [PARENT_AGENT_ID_LABEL]: input.parentAgentId } : {},
     },
     project: {
       projectKey: "/repo",
       projectName: "repo",
-      workspaceName: "app",
+      workspaceName: input.workspaceName ?? "app",
       checkout: {
         cwd: input.cwd,
         isGit: true,
-        currentBranch: "main",
+        currentBranch: input.branchName ?? "main",
         remoteUrl: "git@example.com:repo/app.git",
         worktreeRoot: input.cwd,
         isPaseoOwnedWorktree: false,
@@ -116,6 +120,43 @@ describe("buildLegacyDaemonWorkspaceSnapshot", () => {
         workspaceId: "/repo/app",
       },
     ]);
+  });
+
+  it("collapses same-branch legacy subagents into the parent workspace row", () => {
+    const snapshot = buildLegacyDaemonWorkspaceSnapshot({
+      serverId: SERVER_ID,
+      entries: [
+        legacyAgent({ id: "parent-agent", cwd: "/repo/app", workspaceName: "main" }),
+        legacyAgent({
+          id: "child-agent",
+          cwd: "/repo/app/packages/server",
+          parentAgentId: "parent-agent",
+          workspaceName: "main",
+        }),
+      ],
+    });
+
+    expect(Array.from(snapshot.workspaces.keys())).toEqual(["/repo/app"]);
+    expect(getSnapshotAgent(snapshot, "child-agent").workspaceId).toBe("/repo/app");
+  });
+
+  it("keeps legacy subagents in a distinct workspace when they are on another branch", () => {
+    const snapshot = buildLegacyDaemonWorkspaceSnapshot({
+      serverId: SERVER_ID,
+      entries: [
+        legacyAgent({ id: "parent-agent", cwd: "/repo/app", workspaceName: "main" }),
+        legacyAgent({
+          id: "child-agent",
+          cwd: "/repo/app-feature",
+          parentAgentId: "parent-agent",
+          workspaceName: "feature",
+          branchName: "feature",
+        }),
+      ],
+    });
+
+    expect(Array.from(snapshot.workspaces.keys())).toEqual(["/repo/app", "/repo/app-feature"]);
+    expect(getSnapshotAgent(snapshot, "child-agent").workspaceId).toBe("/repo/app-feature");
   });
 
   it("keeps old-daemon agent updates attached to the path-backed workspace", () => {

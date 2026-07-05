@@ -63,7 +63,7 @@ Closing a tab on a **subagent** (any agent with `parentAgentId`) is **layout-onl
 
 The asymmetry is intentional: a subagent's home is the parent's track, not the tab. Tabs are ephemeral viewing slots; the track is the persistent record of the parent's children.
 
-Active subagents auto-open workspace tabs by default, just like root agents. Closing one of those tabs still follows the layout-only subagent policy above; archive and detach remain explicit actions from the subagents track.
+Active subagents auto-open workspace tabs by default, just like root agents. For tab placement, a subagent created in the caller's current workspace opens in the parent's workspace even if its runtime cwd points at a subdirectory or same-branch duplicate descriptor. A subagent created in a distinct workspace (for example a different branch/worktree) opens there. Closing one of those tabs still follows the layout-only subagent policy above; archive and detach remain explicit actions from the subagents track.
 
 ## Workspace activity
 

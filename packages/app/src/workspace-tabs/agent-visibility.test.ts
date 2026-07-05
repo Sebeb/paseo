@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Agent } from "@/stores/session-store";
+import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
 import {
   buildWorkspaceTabSnapshot,
   deriveWorkspaceAgentVisibility,
@@ -58,6 +58,31 @@ function makeAgent(input: {
 }
 
 const WORKSPACE_ID = "ws-1";
+
+function makeWorkspace(input: {
+  id: string;
+  projectId?: string;
+  projectRootPath?: string;
+  name?: string;
+}): WorkspaceDescriptor {
+  return {
+    id: input.id,
+    projectId: input.projectId ?? "project-1",
+    projectDisplayName: "Project",
+    projectCustomName: null,
+    projectRootPath: input.projectRootPath ?? "/repo",
+    workspaceDirectory: `/repo/${input.id}`,
+    projectKind: "git",
+    workspaceKind: "checkout",
+    name: input.name ?? "main",
+    title: null,
+    status: "done",
+    statusEnteredAt: null,
+    archivingAt: null,
+    diffStat: null,
+    scripts: [],
+  };
+}
 
 describe("workspace agent visibility", () => {
   it("keeps subagents active and known while including them in auto-open", () => {
@@ -129,6 +154,86 @@ describe("workspace agent visibility", () => {
     expect(result.activeAgentIds).toEqual(new Set(["child-agent", "parent-agent"]));
     expect(result.autoOpenAgentIds).toEqual(new Set(["child-agent", "parent-agent"]));
     expect(result.knownAgentIds).toEqual(new Set(["child-agent", "parent-agent"]));
+  });
+
+  it("treats a same-branch subagent workspace as belonging to the parent workspace", () => {
+    const parent = makeAgent({
+      id: "parent-agent",
+      cwd: "/repo",
+      workspaceId: "ws-parent",
+    });
+    const child = makeAgent({
+      id: "child-agent",
+      cwd: "/repo",
+      workspaceId: "ws-child-duplicate",
+      parentAgentId: "parent-agent",
+    });
+    const workspaces = new Map<string, WorkspaceDescriptor>([
+      ["ws-parent", makeWorkspace({ id: "ws-parent", name: "main" })],
+      ["ws-child-duplicate", makeWorkspace({ id: "ws-child-duplicate", name: "main" })],
+    ]);
+
+    const parentResult = deriveWorkspaceAgentVisibility({
+      sessionAgents: new Map<string, Agent>([
+        [parent.id, parent],
+        [child.id, child],
+      ]),
+      workspaces,
+      workspaceId: "ws-parent",
+    });
+    const duplicateResult = deriveWorkspaceAgentVisibility({
+      sessionAgents: new Map<string, Agent>([
+        [parent.id, parent],
+        [child.id, child],
+      ]),
+      workspaces,
+      workspaceId: "ws-child-duplicate",
+    });
+
+    expect(parentResult.activeAgentIds).toEqual(new Set(["parent-agent", "child-agent"]));
+    expect(parentResult.autoOpenAgentIds).toEqual(new Set(["parent-agent", "child-agent"]));
+    expect(duplicateResult.activeAgentIds).toEqual(new Set<string>());
+    expect(duplicateResult.autoOpenAgentIds).toEqual(new Set<string>());
+  });
+
+  it("keeps a subagent in its own workspace when that workspace represents a different branch", () => {
+    const parent = makeAgent({
+      id: "parent-agent",
+      cwd: "/repo",
+      workspaceId: "ws-parent",
+    });
+    const child = makeAgent({
+      id: "child-agent",
+      cwd: "/repo/.paseo/worktrees/feature",
+      workspaceId: "ws-child-feature",
+      parentAgentId: "parent-agent",
+    });
+    const workspaces = new Map<string, WorkspaceDescriptor>([
+      ["ws-parent", makeWorkspace({ id: "ws-parent", name: "main" })],
+      ["ws-child-feature", makeWorkspace({ id: "ws-child-feature", name: "feature" })],
+    ]);
+
+    const parentResult = deriveWorkspaceAgentVisibility({
+      sessionAgents: new Map<string, Agent>([
+        [parent.id, parent],
+        [child.id, child],
+      ]),
+      workspaces,
+      workspaceId: "ws-parent",
+    });
+    const childResult = deriveWorkspaceAgentVisibility({
+      sessionAgents: new Map<string, Agent>([
+        [parent.id, parent],
+        [child.id, child],
+      ]),
+      workspaces,
+      workspaceId: "ws-child-feature",
+    });
+
+    expect(parentResult.activeAgentIds).toEqual(new Set(["parent-agent"]));
+    expect(parentResult.autoOpenAgentIds).toEqual(new Set(["parent-agent"]));
+    expect(childResult.activeAgentIds).toEqual(new Set(["child-agent"]));
+    expect(childResult.autoOpenAgentIds).toEqual(new Set(["child-agent"]));
   });
 
   it("keeps archived agents out of activeAgentIds but present in knownAgentIds", () => {

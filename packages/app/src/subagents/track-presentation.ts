@@ -27,14 +27,10 @@ export function buildSubagentRowPresentationData(row: SubagentRow): SubagentRowP
 }
 
 export function formatSubagentRowSubtitle(row: SubagentRow): string {
-  const parts = [row.workspaceName, row.chatTitle].flatMap((part) => {
-    if (typeof part !== "string") {
-      return [];
-    }
-    const normalized = part.trim();
-    return normalized ? [normalized] : [];
-  });
-  return parts.join(" · ");
+  if (typeof row.workspaceName !== "string") {
+    return "";
+  }
+  return row.workspaceName.trim();
 }
 
 export function formatHeaderLabel(rows: readonly SubagentRow[]): string {

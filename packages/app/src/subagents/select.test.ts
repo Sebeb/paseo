@@ -233,14 +233,12 @@ describe("selectSubagentsForParent", () => {
         title: "Review child",
         workspaceId: "workspace-1",
         workspaceName: "feature/subagents",
-        chatTitle: "Review child",
         status: "running",
         requiresAttention: true,
         createdAt,
       },
     ]);
     expect(Object.keys(rows[0] ?? {}).sort()).toEqual([
-      "chatTitle",
       "createdAt",
       "id",
       "provider",
