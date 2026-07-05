@@ -26,6 +26,13 @@ export interface ThinkingGroupPreviewMessage {
   text: string;
 }
 
+interface BuildTurnGroupsInput {
+  userMessageId: string;
+  turnItems: readonly StreamItem[];
+  isCurrentRunningTurn: boolean;
+  behavior: Exclude<CollapseThinkingBehavior, "never">;
+}
+
 export function buildCollapseThinkingGroups(input: {
   items: readonly StreamItem[];
   behavior: Exclude<CollapseThinkingBehavior, "never">;
@@ -39,34 +46,17 @@ export function buildCollapseThinkingGroups(input: {
     const turnEndIndex = findNextUserMessageIndex(items, turnStartIndex + 1) ?? items.length;
     const turnItems = items.slice(turnStartIndex + 1, turnEndIndex);
     const isCurrentRunningTurn = agentStatus === "running" && turnEndIndex === items.length;
-    const finalAssistantIndex = isCurrentRunningTurn
-      ? null
-      : findLastAssistantMessageIndex(turnItems);
-    const finalAssistantStartIndex =
-      finalAssistantIndex === null || isCurrentRunningTurn
-        ? turnItems.length
-        : findAssistantSuffixStartIndex(turnItems);
-    const status = isCurrentRunningTurn ? "active" : "completed";
-    const defaultExpanded = status === "active" && behavior === "completed";
-    const groupItems = turnItems.filter(
-      (item, index) => index < finalAssistantStartIndex && isThinkingGroupItem(item),
-    );
-    const finalAssistantItem =
-      finalAssistantIndex === null ? null : (turnItems[finalAssistantIndex] ?? null);
+    const userMessage = items[turnStartIndex];
 
-    if (groupItems.length > 0) {
-      const userMessage = items[turnStartIndex];
-      const anchorItem = groupItems[0];
-      if (userMessage && anchorItem) {
-        groups.push({
-          id: `thinking:${userMessage.id}:${status === "active" ? "active" : "final"}`,
-          anchorItemId: anchorItem.id,
-          itemIds: groupItems.map((item) => item.id),
-          defaultExpanded,
-          status,
-          finalAssistantItemId: finalAssistantItem?.id ?? null,
-        });
-      }
+    if (userMessage) {
+      groups.push(
+        ...buildTurnGroups({
+          userMessageId: userMessage.id,
+          turnItems,
+          isCurrentRunningTurn,
+          behavior,
+        }),
+      );
     }
 
     turnStartIndex = findNextUserMessageIndex(items, turnEndIndex);
@@ -86,6 +76,59 @@ export function buildCollapseThinkingGroups(input: {
     groupByAnchorItemId,
     groupByItemId,
   };
+}
+
+function buildTurnGroups(input: BuildTurnGroupsInput): ThinkingGroup[] {
+  const groups: ThinkingGroup[] = [];
+  let groupItems: StreamItem[] = [];
+
+  const pushGroup = (
+    status: ThinkingGroup["status"],
+    finalAssistantItem: StreamItem | null,
+  ): void => {
+    const anchorItem = groupItems[0];
+    if (!anchorItem) {
+      return;
+    }
+    groups.push({
+      id: `thinking:${input.userMessageId}:${anchorItem.id}:${
+        status === "active" ? "active" : "final"
+      }`,
+      anchorItemId: anchorItem.id,
+      itemIds: groupItems.map((item) => item.id),
+      defaultExpanded: status === "active" && input.behavior === "completed",
+      status,
+      finalAssistantItemId: finalAssistantItem?.id ?? null,
+    });
+    groupItems = [];
+  };
+
+  for (let index = 0; index < input.turnItems.length; index += 1) {
+    const item = input.turnItems[index];
+    if (!item) {
+      continue;
+    }
+
+    if (item.kind === "assistant_message") {
+      if (input.isCurrentRunningTurn && !hasLaterCollapsibleWork(input.turnItems, index + 1)) {
+        groupItems.push(item);
+        continue;
+      }
+      pushGroup("completed", item);
+      continue;
+    }
+
+    if (isCollapsibleWorkItem(item)) {
+      groupItems.push(item);
+      continue;
+    }
+
+    pushGroup("completed", null);
+  }
+
+  pushGroup(input.isCurrentRunningTurn ? "active" : "completed", null);
+
+  return groups;
 }
 
 export function getThinkingGroupCounts(items: readonly StreamItem[]): ThinkingGroupCounts {
@@ -130,34 +173,30 @@ function findNextUserMessageIndex(items: readonly StreamItem[], startIndex: numb
   return null;
 }
 
-function isThinkingGroupItem(item: StreamItem): boolean {
-  return (
-    item.kind === "assistant_message" ||
-    item.kind === "thought" ||
-    item.kind === "tool_call" ||
-    item.kind === "todo_list"
-  );
+function isCollapsibleWorkItem(item: StreamItem): boolean {
+  if (
+    item.kind === "tool_call" &&
+    item.payload.source === "agent" &&
+    item.payload.data.detail.type === "plan"
+  ) {
+    return false;
+  }
+
+  return item.kind === "thought" || item.kind === "tool_call" || item.kind === "todo_list";
+}
+
+function hasLaterCollapsibleWork(items: readonly StreamItem[], startIndex: number): boolean {
+  for (let index = startIndex; index < items.length; index += 1) {
+    const item = items[index];
+    if (item && isCollapsibleWorkItem(item)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isThinkingMessageItem(
   item: StreamItem,
 ): item is Extract<StreamItem, { kind: "assistant_message" | "thought" }> {
   return item.kind === "assistant_message" || item.kind === "thought";
-}
-
-function findLastAssistantMessageIndex(items: readonly StreamItem[]): number | null {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    if (items[index]?.kind === "assistant_message") {
-      return index;
-    }
-  }
-  return null;
-}
-
-function findAssistantSuffixStartIndex(items: readonly StreamItem[]): number {
-  let index = items.length;
-  while (index > 0 && items[index - 1]?.kind === "assistant_message") {
-    index -= 1;
-  }
-  return index;
 }

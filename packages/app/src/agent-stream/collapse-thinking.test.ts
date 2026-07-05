@@ -76,6 +76,28 @@ function toolCall(id: string, seed: number): StreamItem {
   };
 }
 
+function planToolCall(id: string, seed: number): StreamItem {
+  return {
+    kind: "tool_call",
+    id,
+    timestamp: timestamp(seed),
+    payload: {
+      source: "agent",
+      data: {
+        provider: "codex",
+        callId: id,
+        name: "plan",
+        status: "completed",
+        error: null,
+        detail: {
+          type: "plan",
+          text: "- Inspect\n- Implement\n- Verify",
+        },
+      },
+    },
+  };
+}
+
 function groupItemIds(items: StreamItem[]): string[][] {
   return buildCompletedThinkingGroups(items).groups.map((group) => group.itemIds);
 }
@@ -125,7 +147,7 @@ describe("buildCollapseThinkingGroups", () => {
     expect(index.groupByItemId.has("a1")).toBe(false);
   });
 
-  it("groups intermediate assistant text when more work follows", () => {
+  it("leaves intermediate assistant output visible when more work follows", () => {
     const index = buildCompletedThinkingGroups([
       userMessage("u1", 1),
       assistantMessage("a1", 2),
@@ -133,12 +155,12 @@ describe("buildCollapseThinkingGroups", () => {
       assistantMessage("a2", 4),
     ]);
 
-    expect(index.groups[0]?.itemIds).toEqual(["a1", "t1"]);
-    expect(index.groupByItemId.has("a1")).toBe(true);
+    expect(index.groups[0]?.itemIds).toEqual(["t1"]);
+    expect(index.groupByItemId.has("a1")).toBe(false);
     expect(index.groupByItemId.has("a2")).toBe(false);
   });
 
-  it("groups progress assistant text between tool calls", () => {
+  it("splits completed thinking groups around visible assistant output", () => {
     const index = buildCompletedThinkingGroups([
       userMessage("u1", 1),
       toolCall("tool-1", 2),
@@ -147,9 +169,24 @@ describe("buildCollapseThinkingGroups", () => {
       assistantMessage("final", 5),
     ]);
 
-    expect(index.groups[0]?.itemIds).toEqual(["tool-1", "progress", "tool-2"]);
-    expect(index.groupByItemId.has("progress")).toBe(true);
+    expect(index.groups).toHaveLength(2);
+    expect(index.groups.map((group) => group.itemIds)).toEqual([["tool-1"], ["tool-2"]]);
+    expect(index.groups.map((group) => group.status)).toEqual(["completed", "completed"]);
+    expect(index.groups.map((group) => group.finalAssistantItemId)).toEqual(["progress", "final"]);
+    expect(index.groupByItemId.has("progress")).toBe(false);
     expect(index.groupByItemId.has("final")).toBe(false);
+  });
+
+  it("keeps plan cards outside collapsed thinking", () => {
+    const index = buildCompletedThinkingGroups([
+      userMessage("u1", 1),
+      thought("t1", 2),
+      planToolCall("plan-1", 3),
+      assistantMessage("final", 4),
+    ]);
+
+    expect(index.groups[0]?.itemIds).toEqual(["t1"]);
+    expect(index.groupByItemId.has("plan-1")).toBe(false);
   });
 
   it("does not group split assistant response blocks", () => {
@@ -209,18 +246,18 @@ describe("buildCollapseThinkingGroups", () => {
     ]);
 
     expect(beforeAssistant.groups[0]?.defaultExpanded).toBe(true);
-    expect(beforeAssistant.groups[0]?.id).toBe("thinking:u1:active");
+    expect(beforeAssistant.groups[0]?.id).toBe("thinking:u1:t1:active");
     expect(duringAssistant.groups[0]?.defaultExpanded).toBe(true);
-    expect(duringAssistant.groups[0]?.id).toBe("thinking:u1:active");
+    expect(duringAssistant.groups[0]?.id).toBe("thinking:u1:t1:active");
     expect(duringAssistant.groups[0]?.itemIds).toEqual(["t1", "a1"]);
     expect(duringAssistant.groupByItemId.has("a1")).toBe(true);
     expect(afterAssistant.groups[0]?.defaultExpanded).toBe(false);
-    expect(afterAssistant.groups[0]?.id).toBe("thinking:u1:final");
+    expect(afterAssistant.groups[0]?.id).toBe("thinking:u1:t1:final");
     expect(afterAssistant.groups[0]?.itemIds).toEqual(["t1"]);
     expect(afterAssistant.groupByItemId.has("a1")).toBe(false);
   });
 
-  it("keeps multiple assistant progress messages in a running turn", () => {
+  it("starts a new live thinking group after visible assistant output in a running turn", () => {
     const index = buildRunningThinkingGroups([
       userMessage("u1", 1),
       assistantMessage("progress-1", 2),
@@ -229,12 +266,55 @@ describe("buildCollapseThinkingGroups", () => {
     ]);
 
     expect(index.groups[0]).toMatchObject({
-      itemIds: ["progress-1", "tool-1", "progress-2"],
+      itemIds: ["tool-1", "progress-2"],
       status: "active",
       finalAssistantItemId: null,
     });
-    expect(index.groupByItemId.has("progress-1")).toBe(true);
+    expect(index.groupByItemId.has("progress-1")).toBe(false);
     expect(index.groupByItemId.has("progress-2")).toBe(true);
+  });
+
+  it("converts earlier running work to completed when later work follows assistant output", () => {
+    const index = buildRunningThinkingGroups([
+      userMessage("u1", 1),
+      thought("t1", 2),
+      assistantMessage("visible-output", 3),
+      toolCall("tool-1", 4),
+    ]);
+
+    expect(index.groups.map((group) => group.id)).toEqual([
+      "thinking:u1:t1:final",
+      "thinking:u1:tool-1:active",
+    ]);
+    expect(index.groups.map((group) => group.itemIds)).toEqual([["t1"], ["tool-1"]]);
+    expect(index.groups.map((group) => group.status)).toEqual(["completed", "active"]);
+    expect(index.groups.map((group) => group.finalAssistantItemId)).toEqual([
+      "visible-output",
+      null,
+    ]);
+    expect(index.groupByItemId.has("visible-output")).toBe(false);
+  });
+
+  it("keeps multiple completed assistant outputs visible between thinking groups", () => {
+    const index = buildCompletedThinkingGroups([
+      userMessage("u1", 1),
+      thought("t1", 2),
+      assistantMessage("visible-output-1", 3),
+      toolCall("tool-1", 4),
+      assistantMessage("visible-output-2", 5),
+      thought("t2", 6),
+      assistantMessage("final", 7),
+    ]);
+
+    expect(index.groups.map((group) => group.itemIds)).toEqual([["t1"], ["tool-1"], ["t2"]]);
+    expect(index.groups.map((group) => group.finalAssistantItemId)).toEqual([
+      "visible-output-1",
+      "visible-output-2",
+      "final",
+    ]);
+    expect(index.groupByItemId.has("visible-output-1")).toBe(false);
+    expect(index.groupByItemId.has("visible-output-2")).toBe(false);
+    expect(index.groupByItemId.has("final")).toBe(false);
   });
 
   it("leaves the final assistant suffix outside after the running turn completes", () => {
@@ -260,8 +340,8 @@ describe("buildCollapseThinkingGroups", () => {
     ]);
 
     expect(index.groups.map((group) => group.id)).toEqual([
-      "thinking:u1:final",
-      "thinking:u2:active",
+      "thinking:u1:t1:final",
+      "thinking:u2:progress-2:active",
     ]);
     expect(index.groups.map((group) => group.itemIds)).toEqual([["t1"], ["progress-2"]]);
   });
@@ -277,8 +357,8 @@ describe("buildCollapseThinkingGroups", () => {
     ]);
 
     expect(index.groups.map((group) => group.id)).toEqual([
-      "thinking:u1:final",
-      "thinking:u2:final",
+      "thinking:u1:t1:final",
+      "thinking:u2:tool-1:final",
     ]);
     expect(index.groups.map((group) => group.itemIds)).toEqual([["t1"], ["tool-1"]]);
   });
