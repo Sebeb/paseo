@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: cdfa833c7b6b9013a3e88714668fbe1cec27ae4f — feat(app): show workspace tab timestamps
+Anchor commit: ca90c5fc633c57b2452e6b0185e5b44895698637 — feat(app): add sidebar tab hover cards
 
 ## Purpose
 
@@ -42,9 +42,10 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Adds non-manual workspace sorting by creation time, last activity, or status urgency; manual workspace drag/drop remains available only in manual sort mode.
 - Auto-reveals the active workspace row by expanding its project, respecting project auto-collapse, and either expanding only the active workspace in workspace auto-collapse mode or uncollapsing that workspace in normal mode.
 - Remembers the last selected workspace inside each project and navigates back to it when reopening an auto-collapsed project.
-- Replaces agent tab tooltips with a detail card showing the tab label, short agent id, initial prompt, created/updated timestamps, and prompt count.
+- Replaces desktop agent tab tooltips with detail cards and adds matching embedded-sidebar tab hover cards showing the tab label, short agent id/subtitle, created/updated timestamps, and prompt count.
 - Distinguishes ancestor highlighting from direct selection so active project/workspace ancestors use a quieter row background while the selected embedded tab keeps the stronger selected treatment.
 - Shows created and updated timestamps in workspace hover cards, using absolute creation time and recent-or-absolute activity time.
+- Extracts shared desktop-only `InfoHoverCard` positioning/safe-zone behavior so workspace and embedded-tab cards use the same portal surface.
 
 ## Restored Main Polish
 
@@ -818,6 +819,7 @@ Key behavior:
 - Supports status-mode grouping via `SidebarStatusWorkspaceList`.
 - Supports drag/drop where available.
 - Uses `SidebarWorkspaceRowContent` for workspace row presentation and `SidebarEntryRowContent` for embedded tab rows.
+- Wraps embedded tab rows in the shared `InfoHoverCard` on desktop web, while native and compact layouts keep rendering the row without hover-card chrome.
 - Provides context menu actions for workspace and embedded tabs.
 - Treats non-main-pane active tabs as forced-visible embedded rows so split panes stay reachable from the sidebar.
 - Renders workspace rows through a `DraggableList` only when `workspaceSortMode === "manual"`; created/lastUpdated/status modes render a static list so drag gestures cannot rewrite a derived sort order.
@@ -891,6 +893,12 @@ Implementation details:
 - Wraps both the row and kebab surface around the same `WorkspaceTabMenuEntry[]` produced by `buildWorkspaceTabMenuEntries`.
 - Passes `surface: "vertical"` when building embedded sidebar tab menu entries so left/right bulk close commands use vertical tab semantics.
 - Applies `entry.iconRotation === "clockwise-90"` to arrow menu icons so vertical close-left/close-right affordances point in the correct visual direction. The same rotation support is used by the mobile tab dropdown.
+- Reads hover-card metadata through `useSidebarEmbeddedTabHoverInfo({ serverId, tab })`.
+- For agent tabs, `useSidebarEmbeddedTabHoverInfo` resolves the agent from `session.agents` or `session.agentDetails`, counts `user_message` stream items across `agentStreamHead` and `agentStreamTail`, uses the agent's `createdAt`/`updatedAt` when available, and falls back to the tab's `createdAt` for creation time.
+- For non-agent tabs, hover info includes only the tab creation time and leaves update/prompt count empty.
+- Uses `useStoreWithEqualityFn` and `fast-deep-equal` so unchanged hover metadata does not rerender the row.
+- `EmbeddedTabHoverCardContent` renders the tab label, presentation subtitle, absolute created time, recent-or-absolute updated time, and prompt count with `CalendarPlus`, `Clock3`, and `MessageCircle` rows. Each metadata row is omitted when its value is unavailable.
+- The hover card closes while the row is being dragged, matching workspace hover-card behavior.
 
 #### Embedded tab menus and bulk close
 
@@ -918,6 +926,7 @@ Changes:
 - Layout is now fully owned by `SidebarEntryRowContent` instead of a local flex hierarchy.
 - `WorkspaceLeadingVisual` is passed as the `leading` prop via `createElement`.
 - `scriptIconKind` and `children` are composed into a single `rightContext` `View` via `createElement` — avoiding JSX to satisfy the memo equality contract at the call sites.
+- When trailing controls are present, they own the right context and suppress the script/service icon so the slot does not stack a script icon with row actions. When no trailing controls are present, `scriptIconKind` still renders the service or command icon.
 - Shortcut badge is passed as `shortcutBadge` prop.
 - `SidebarWorkspaceTrailingActionSlot` accepts an optional `style?: StyleProp<ViewStyle>` prop and merges it with the fixed base slot style through `useMemo`. Callers use this to reserve wider trailing slots for multi-button action overlays without changing row height.
 - `SidebarWorkspaceTrailingActionBase` owns the base metadata layer visibility.
@@ -1186,12 +1195,46 @@ The branch adjusts a broad set of components so embedded sidebar tabs align with
 
 These changes are mostly spacing, hover, icon, spinner, and row-layout updates needed for consistent sidebar embedded tab presentation.
 
+### `packages/app/src/components/info-hover-card.tsx`
+
+`InfoHoverCard` is a shared desktop hover-card wrapper used by workspace rows and embedded sidebar tab rows.
+
+Public surface:
+
+```ts
+interface InfoHoverCardProps {
+  content: ReactNode;
+  accessibilityLabel: string;
+  testID: string;
+  isDragging?: boolean;
+  surfaceStyle?: StyleProp<ViewStyle>;
+}
+
+function InfoHoverCard(props: PropsWithChildren<InfoHoverCardProps>): ReactNode;
+```
+
+Behavior:
+
+- Returns `children` unchanged on native platforms and compact form factors.
+- On non-compact web, wraps children in `InfoHoverCardDesktop`.
+- Measures the trigger with `measureInWindow`.
+- Measures the floating content from its layout callback.
+- Positions the card to the right of the trigger with a 4 px offset, flips it left when it would overflow the viewport, and clamps both axes to an 8 px screen padding.
+- Renders through `Portal` using the current bottom-sheet host when present.
+- Uses `FloatingSurface` with 80 ms fade-in/fade-out animation, `accessibilityRole="menu"`, the supplied accessibility label, the supplied `testID`, and optional caller-provided `surfaceStyle`.
+- Uses `useHoverSafeZone` so moving between the trigger, the bridge, and the card content does not immediately close the card.
+- Uses a 100 ms close grace timer, cancels that timer when the pointer re-enters the safe zone, and clears timers on unmount.
+- Suppresses and closes the card while `isDragging` is true.
+- Provides the common 260 px surface styling: `surface1` background, accent border, `borderRadius.lg`, top padding, shadow/elevation, and high z-index.
+
 ### `packages/app/src/components/workspace-hover-card.tsx`
 
 Workspace hover cards now include workspace timestamps alongside branch, path, diff, PR, and check metadata.
 
 Behavior:
 
+- Uses `InfoHoverCard` for desktop web positioning, portal rendering, hover-safe-zone behavior, drag suppression, and shared surface styling.
+- Builds `WorkspaceHoverCardContent` as `content` with `createElement` and memoizes it by `workspace` and `prHint`.
 - Imports `formatAbsoluteDateTime` and `formatRecentOrAbsoluteDateTime` from `packages/app/src/utils/time.ts`.
 - Renders a non-copyable `InfoRow` for `workspace.createdAt` using a `CalendarPlus` icon and the localized `workspace.hoverCard.created` label.
 - Renders a non-copyable `InfoRow` for `workspace.activityAt` using a `Clock3` icon and the localized `workspace.hoverCard.updated` label.
