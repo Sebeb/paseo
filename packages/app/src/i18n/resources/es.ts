@@ -2006,6 +2006,7 @@ export const es: TranslationResources = {
       },
       icon: {
         changeLabel: "Change project icon",
+        clearLabel: "Reset project icon",
         dialogTitle: "Choose project icon",
         filterName: "Project icons",
         dialogUnavailable: "Desktop file picker is not available.",
