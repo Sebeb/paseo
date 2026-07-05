@@ -803,8 +803,9 @@ function normalizeCodexConfiguredMcpServerConfig(
       continue;
     }
 
-    const numberValue = Number(value.trim());
-    if (Number.isFinite(numberValue)) {
+    const trimmed = value.trim();
+    const numberValue = Number(trimmed);
+    if (trimmed.length > 0 && Number.isFinite(numberValue)) {
       normalized[field] = numberValue;
       continue;
     }
@@ -819,6 +820,20 @@ function normalizeCodexConfiguredMcpServerConfig(
   return normalized;
 }
 
+function normalizeCodexMcpServersConfig(
+  mcpServers: Record<string, unknown>,
+  logger: Logger,
+): Record<string, CodexMcpServerConfig> {
+  const result: Record<string, CodexMcpServerConfig> = {};
+  for (const [name, serverConfig] of Object.entries(mcpServers)) {
+    const record = toObjectRecord(serverConfig);
+    if (record) {
+      result[name] = normalizeCodexConfiguredMcpServerConfig(name, record, logger);
+    }
+  }
+  return result;
+}
+
 async function readCodexConfiguredMcpServers(
   client: CodexAppServerClient,
   logger: Logger,
@@ -831,14 +846,7 @@ async function readCodexConfiguredMcpServers(
       return {};
     }
 
-    const result: Record<string, CodexMcpServerConfig> = {};
-    for (const [name, serverConfig] of Object.entries(mcpServers)) {
-      const record = toObjectRecord(serverConfig);
-      if (record) {
-        result[name] = normalizeCodexConfiguredMcpServerConfig(name, record, logger);
-      }
-    }
-    return result;
+    return normalizeCodexMcpServersConfig(mcpServers, logger);
   } catch (error) {
     logger.debug({ error }, "Failed to read Codex MCP servers from config");
     return {};
@@ -4246,6 +4254,10 @@ export class CodexAppServerAgentSession implements AgentSession {
     }
     if (this.deps.customCodexConfig) {
       Object.assign(innerConfig, this.deps.customCodexConfig);
+    }
+    const mcpServers = toObjectRecord(innerConfig.mcp_servers);
+    if (mcpServers) {
+      innerConfig.mcp_servers = normalizeCodexMcpServersConfig(mcpServers, this.logger);
     }
     return Object.keys(innerConfig).length > 0 ? innerConfig : null;
   }
