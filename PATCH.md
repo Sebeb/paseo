@@ -4,7 +4,7 @@ Branch: `feat/collapse-thinking`
 
 Base: `origin/main`
 
-Anchor commit: acf221b7443cdbac63be56f5b69d7cafed4653be — fix(app): balance collapsed thinking spacing
+Anchor commit: 910b94206a43f41bb46e31e4fb33e528a3067fc0 — fix(app): keep assistant output visible between thinking groups
 
 ## Purpose
 
@@ -25,7 +25,7 @@ It also updates bottom anchoring so expanding/collapsing thinking groups does no
 - Shows previews for collapsed active thinking groups when there are visible thinking messages.
 - Lets users expand a collapsed thinking group by pressing the lower half of its preview area.
 - Balances vertical spacing around a collapsed completed thinking group when it sits between the user prompt and final assistant response.
-- Keeps final assistant messages outside the collapsed thinking group so the actual answer remains visible.
+- Keeps assistant output and plan cards outside collapsed thinking groups so visible progress and final answers remain readable between hidden work sections.
 - Preserves normal access to tool calls and thinking content through expand/collapse controls.
 
 ## Restored Main Polish
@@ -85,12 +85,12 @@ This new module contains the pure stream grouping algorithm.
 
 Represents one collapsible thinking group:
 
-- `id`: stable group id based on user message id and active/completed state.
+- `id`: stable group id based on user message id, anchor item id, and active/completed state.
 - `anchorItemId`: first item in the group; the view uses this item position to render the group header.
 - `itemIds`: ids of all stream items in the group.
 - `defaultExpanded`: whether the group starts expanded.
 - `status`: `"active"` or `"completed"`.
-- `finalAssistantItemId`: id of the final answer item, when present.
+- `finalAssistantItemId`: id of the assistant message that closed a completed group, when present.
 
 #### `ThinkingGroupIndex`
 
@@ -110,15 +110,17 @@ Implementation details:
 
 1. Finds each user-message turn boundary with `findNextUserMessageIndex`.
 2. Treats items between one user message and the next as that turn.
-3. Marks the final turn as active when `agentStatus === "running"` and the turn reaches the end of the stream.
-4. For completed turns, finds the last assistant message with `findLastAssistantMessageIndex`.
-5. Finds the start of the trailing assistant-message suffix with `findAssistantSuffixStartIndex`.
-6. Excludes that trailing assistant suffix from the collapsed thinking group so the final visible answer stays outside the group.
-7. Selects group items before the final assistant suffix where `isThinkingGroupItem` is true.
-8. Uses the first grouped item as the anchor.
-9. Builds a stable group id of `thinking:<userMessageId>:active` for active groups or `thinking:<userMessageId>:final` for completed groups.
-10. Sets `defaultExpanded` to true only for active groups when behavior is `"completed"`.
-11. Populates both lookup maps after the group list is built.
+3. Marks the final turn as the current running turn when `agentStatus === "running"` and the turn reaches the end of the stream.
+4. Delegates each turn to `buildTurnGroups`, which walks the turn in order and accumulates collapsible work items.
+5. Treats `thought`, `tool_call`, and `todo_list` items as collapsible work, except agent tool calls whose detail type is `"plan"`. Plan cards stay visible in the stream.
+6. Treats assistant messages as visible output boundaries by default. When an assistant message is encountered, the current accumulated group is emitted as completed with that assistant message as `finalAssistantItemId`, and the assistant message itself is not added to the group.
+7. In the current running turn only, keeps a trailing assistant message inside the active group when there is no later collapsible work. This preserves live assistant text in the active thinking preview until the turn completes.
+8. Starts a new group after visible assistant output when later collapsible work appears, so a single turn can produce multiple completed thinking groups separated by visible assistant messages.
+9. Flushes accumulated work as completed when a non-collapsible, non-assistant item interrupts the group.
+10. Flushes any remaining accumulated work at the end of the turn as `"active"` for the current running turn or `"completed"` otherwise.
+11. Uses the first grouped item as the anchor and builds a stable group id of `thinking:<userMessageId>:<anchorItemId>:active` or `thinking:<userMessageId>:<anchorItemId>:final`.
+12. Sets `defaultExpanded` to true only for active groups when behavior is `"completed"`.
+13. Populates both lookup maps after the group list is built.
 
 The behavior parameter excludes `"never"` because callers skip grouping entirely for that mode.
 
@@ -158,10 +160,9 @@ This keeps completed groups compact while letting active hidden reasoning still 
 #### Private Helpers
 
 - `findNextUserMessageIndex(items, startIndex)` returns the next user-message index or `null`.
-- `isThinkingGroupItem(item)` accepts `assistant_message`, `thought`, `tool_call`, and `todo_list`.
+- `isCollapsibleWorkItem(item)` accepts `thought`, `tool_call`, and `todo_list`, but excludes agent `"plan"` tool-call detail cards.
+- `hasLaterCollapsibleWork(items, startIndex)` checks whether a running-turn assistant message should remain grouped because no later collapsible work follows.
 - `isThinkingMessageItem(item)` narrows to `assistant_message` or `thought`.
-- `findLastAssistantMessageIndex(items)` scans backward for the final assistant message.
-- `findAssistantSuffixStartIndex(items)` scans backward over contiguous assistant messages to keep the final answer suffix outside the group.
 
 ## Stream View Integration
 
@@ -283,7 +284,10 @@ Adds collapse-thinking setting copy in:
 Adds coverage for:
 
 - Building groups per user-message turn.
-- Excluding final assistant answer suffixes.
+- Keeping assistant output visible between thinking groups.
+- Splitting completed and running-turn groups around visible assistant output.
+- Excluding agent plan cards from collapsed thinking groups.
+- Keeping trailing live assistant text inside the active running group until completion.
 - Handling active running turns.
 - Default-expanded behavior for active groups under `"completed"`.
 - Count generation for messages and tool calls.
