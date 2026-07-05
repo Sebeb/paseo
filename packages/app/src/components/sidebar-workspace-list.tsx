@@ -248,6 +248,9 @@ const DEFAULT_STATUS_DOT_OFFSET = 0;
 const EMPHASIZED_STATUS_DOT_OFFSET = -1;
 const EMPTY_AGENT_MAP = new Map<string, Agent>();
 const EMPTY_TAB_STATUS_SUMMARY = createEmptySidebarTabStatusSummary();
+const WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS = [
+  "draft",
+] as const satisfies readonly SidebarEntryStatusKind[];
 const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedGitPullRequest = withUnistyles(GitPullRequest);
 const ThemedGitHubIcon = withUnistyles(GitHubIcon);
@@ -1680,7 +1683,10 @@ function WorkspaceRowTrailingMeta({
     <View style={styles.workspaceDiffMetaRow}>
       {showOperationBadges ? <SidebarVcOperationBadges actionIds={pendingBranchActionIds} /> : null}
       {!showOperationBadges && showStatusSummary ? (
-        <SidebarEntryStatusBadges summary={statusSummary} />
+        <SidebarEntryStatusBadges
+          summary={statusSummary}
+          excludeKinds={WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS}
+        />
       ) : null}
       {!showOperationBadges && showDiffStat ? (
         <WorkspaceRowDiffMeta workspace={workspace} showPrHint={showPrHint} />
@@ -2612,7 +2618,10 @@ function ProjectHeaderEntryContent({
       leadingStatus={leadingStatusKind}
       rightContext={
         showStatusSummary && statusSummary && !showShortcut
-          ? createElement(SidebarEntryStatusBadges, { summary: statusSummary })
+          ? createElement(SidebarEntryStatusBadges, {
+              summary: statusSummary,
+              excludeKinds: WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS,
+            })
           : null
       }
       hoverRightContext={createElement(ProjectRowTrailingActions, {
@@ -2766,7 +2775,11 @@ function WorkspaceRowInner({
         const shouldSuppressWorkspaceStatusVisual =
           badgeMode === "status" || workspaceRightVisibility.showStatusSummary;
         const workspaceLeadingStatusKind =
-          badgeMode === "status" ? null : getPrimarySidebarEntryStatusKind(tabStatusSummary);
+          badgeMode === "status"
+            ? null
+            : getPrimarySidebarEntryStatusKind(tabStatusSummary, {
+                excludeKinds: WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS,
+              });
         return (
           <View
             {...dragAttributes}
@@ -3481,6 +3494,8 @@ function EmbeddedWorkspaceTabRow({
     [manualSort, middleClickRef, setDragActivatorNodeRef],
   );
   const showCloseButton = isHovered || platformIsNative || isCompact;
+  const showParentToggle = row.childCount > 0 && (isHovered || platformIsNative || isCompact);
+  const collapsedBranchCount = row.childCount > 0 && !row.expanded ? row.statusSummary.total : null;
   const handleToggleExpanded = useCallback(
     (event: GestureResponderEvent) => {
       event.stopPropagation();
@@ -3493,12 +3508,13 @@ function EmbeddedWorkspaceTabRow({
   const rowStyle = useCallback(
     ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.embeddedTabRow,
+      projectLine && styles.embeddedTabRowWithProjectLine,
       row.depth > 0 && { paddingLeft: 24 + row.depth * 16 },
       active && styles.sidebarRowSelected,
       isDragging && styles.embeddedTabRowDragging,
       (hovered || pressed) && styles.embeddedTabRowHovered,
     ],
-    [active, isDragging, row.depth],
+    [active, isDragging, projectLine, row.depth],
   );
   const accessibilityState = useMemo(() => ({ selected: active }), [active]);
 
@@ -3560,24 +3576,23 @@ function EmbeddedWorkspaceTabRow({
                   testID={`sidebar-embedded-tab-${item.tab.tabId}`}
                 >
                   <SidebarEntryRowContent
-                    leading={
+                    leading={createElement(WorkspaceTabIcon, {
+                      presentation,
+                      active,
+                      size: 14,
+                      showStatusBadge: false,
+                    })}
+                    hoverLeading={
                       row.childCount > 0
                         ? createElement(EmbeddedTabChevronButton, {
                             expanded: row.expanded,
                             tabId: row.item.tab.tabId,
                             onPress: handleToggleExpanded,
                           })
-                        : createElement(WorkspaceTabIcon, {
-                            presentation,
-                            active,
-                            size: 14,
-                            showStatusBadge: false,
-                          })
+                        : null
                     }
-                    leadingStatus={leadingStatus}
-                    label={label}
-                    subtitle={projectLine?.projectName ?? null}
-                    subtitleLeading={
+                    showHoverLeading={showParentToggle}
+                    leadingBadge={
                       projectLine
                         ? createElement(ProjectLineIcon, {
                             projectKey: projectLine.projectKey,
@@ -3586,6 +3601,17 @@ function EmbeddedWorkspaceTabRow({
                           })
                         : null
                     }
+                    leadingStatus={projectLine ? null : leadingStatus}
+                    label={label}
+                    labelPrefix={
+                      collapsedBranchCount
+                        ? createElement(EmbeddedTabBranchCountBadge, {
+                            tabId: item.tab.tabId,
+                            count: collapsedBranchCount,
+                          })
+                        : null
+                    }
+                    subtitle={projectLine?.projectName ?? null}
                     rightContext={rightContext}
                     hoverRightContext={hoverRightContext}
                     showHoverRightContext={showCloseButton}
@@ -3598,6 +3624,14 @@ function EmbeddedWorkspaceTabRow({
         );
       }}
     </WorkspaceTabPresentationResolver>
+  );
+}
+
+function EmbeddedTabBranchCountBadge({ tabId, count }: { tabId: string; count: number }) {
+  return (
+    <View style={styles.embeddedTabBranchCountBadge} testID={`sidebar-embedded-tab-count-${tabId}`}>
+      <Text style={styles.embeddedTabBranchCountBadgeText}>{count}</Text>
+    </View>
   );
 }
 
@@ -4696,7 +4730,9 @@ function ProjectBlock({
   const projectLeadingStatusKind =
     badgeMode === "status" || !projectStatusSummary
       ? null
-      : getPrimarySidebarEntryStatusKind(projectStatusSummary);
+      : getPrimarySidebarEntryStatusKind(projectStatusSummary, {
+          excludeKinds: WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS,
+        });
 
   const renderWorkspaceRow = useCallback(
     (
@@ -6175,6 +6211,11 @@ const styles = StyleSheet.create((theme) => ({
     width: "100%",
     userSelect: "none",
   },
+  embeddedTabRowWithProjectLine: {
+    height: 46,
+    minHeight: 46,
+    maxHeight: 46,
+  },
   embeddedTabRowHovered: {
     backgroundColor: theme.colors.surfaceSidebarHover,
   },
@@ -6188,6 +6229,21 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: 2,
     flexShrink: 0,
+  },
+  embeddedTabBranchCountBadge: {
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: theme.spacing[1],
+    borderRadius: theme.borderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface3,
+  },
+  embeddedTabBranchCountBadgeText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.medium,
+    lineHeight: 12,
   },
   embeddedTabLabel: {
     color: theme.colors.foregroundMuted,

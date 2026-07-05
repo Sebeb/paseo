@@ -35,8 +35,10 @@ export const SidebarEntryRowContent = memo(function SidebarEntryRowContent({
   leading,
   hoverLeading = null,
   showHoverLeading = false,
+  leadingBadge = null,
   leadingStatus,
   label,
+  labelPrefix = null,
   subtitle = null,
   subtitleLeading = null,
   rightContext = null,
@@ -47,8 +49,10 @@ export const SidebarEntryRowContent = memo(function SidebarEntryRowContent({
   leading: ReactNode;
   hoverLeading?: ReactNode;
   showHoverLeading?: boolean;
+  leadingBadge?: ReactNode;
   leadingStatus?: SidebarEntryStatusKind | null;
   label: string;
+  labelPrefix?: ReactNode;
   subtitle?: string | null;
   subtitleLeading?: ReactNode;
   rightContext?: ReactNode;
@@ -57,27 +61,19 @@ export const SidebarEntryRowContent = memo(function SidebarEntryRowContent({
   shortcutBadge?: ReactNode;
 }) {
   const resolvedRightContext = showHoverRightContext ? hoverRightContext : rightContext;
+  const rootStyle = subtitle ? styles.rootWithSubtitle : styles.root;
   return (
-    <View style={styles.root}>
-      <View style={styles.leadingSlot}>
-        <View style={showHoverLeading && hoverLeading ? styles.hidden : undefined}>{leading}</View>
-        {showHoverLeading && hoverLeading ? (
-          <View style={styles.leadingOverlay}>{hoverLeading}</View>
-        ) : null}
-        {leadingStatus ? <SidebarEntryLeadingStatusBadge kind={leadingStatus} /> : null}
-      </View>
+    <View style={rootStyle}>
+      <SidebarEntryLeadingSlot
+        leading={leading}
+        hoverLeading={hoverLeading}
+        showHoverLeading={showHoverLeading}
+        leadingStatus={leadingStatus}
+        leadingBadge={leadingBadge}
+      />
       <View style={styles.textColumn}>
-        <Text style={styles.label} numberOfLines={1} ellipsizeMode="tail">
-          {label}
-        </Text>
-        {subtitle ? (
-          <View style={styles.subtitleRow}>
-            {subtitleLeading ? <View style={styles.subtitleLeading}>{subtitleLeading}</View> : null}
-            <Text style={styles.subtitle} numberOfLines={1} ellipsizeMode="tail">
-              {subtitle}
-            </Text>
-          </View>
-        ) : null}
+        <SidebarEntryLabel label={label} labelPrefix={labelPrefix} />
+        <SidebarEntrySubtitle subtitle={subtitle} subtitleLeading={subtitleLeading} />
       </View>
       {resolvedRightContext ? (
         <View style={styles.rightContext}>{resolvedRightContext}</View>
@@ -91,8 +87,69 @@ export const SidebarEntryRowContent = memo(function SidebarEntryRowContent({
   );
 });
 
-export function SidebarEntryStatusBadges({ summary }: { summary: SidebarTabStatusSummary }) {
-  const kinds = getVisibleSidebarEntryStatusKinds(summary);
+function SidebarEntryLeadingSlot({
+  leading,
+  hoverLeading,
+  showHoverLeading,
+  leadingStatus,
+  leadingBadge,
+}: {
+  leading: ReactNode;
+  hoverLeading: ReactNode;
+  showHoverLeading: boolean;
+  leadingStatus?: SidebarEntryStatusKind | null;
+  leadingBadge: ReactNode;
+}) {
+  const showOverlay = showHoverLeading && hoverLeading;
+  return (
+    <View style={styles.leadingSlot}>
+      <View style={showOverlay ? styles.hidden : undefined}>{leading}</View>
+      {showOverlay ? <View style={styles.leadingOverlay}>{hoverLeading}</View> : null}
+      {leadingStatus ? <SidebarEntryLeadingStatusBadge kind={leadingStatus} /> : null}
+      {leadingBadge ? <View style={styles.leadingBadge}>{leadingBadge}</View> : null}
+    </View>
+  );
+}
+
+function SidebarEntryLabel({ label, labelPrefix }: { label: string; labelPrefix: ReactNode }) {
+  return (
+    <View style={styles.labelRow}>
+      {labelPrefix ? <View style={styles.labelPrefix}>{labelPrefix}</View> : null}
+      <Text style={styles.label} numberOfLines={1} ellipsizeMode="tail">
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function SidebarEntrySubtitle({
+  subtitle,
+  subtitleLeading,
+}: {
+  subtitle: string | null;
+  subtitleLeading: ReactNode;
+}) {
+  if (!subtitle) {
+    return null;
+  }
+  return (
+    <View style={styles.subtitleRow}>
+      {subtitleLeading ? <View style={styles.subtitleLeading}>{subtitleLeading}</View> : null}
+      <Text style={styles.subtitle} numberOfLines={1} ellipsizeMode="tail">
+        {subtitle}
+      </Text>
+    </View>
+  );
+}
+
+export function SidebarEntryStatusBadges({
+  summary,
+  excludeKinds,
+}: {
+  summary: SidebarTabStatusSummary;
+  excludeKinds?: readonly SidebarEntryStatusKind[];
+}) {
+  const kinds = getVisibleSidebarEntryStatusKinds(summary, { excludeKinds });
   if (kinds.length === 0) {
     return null;
   }
@@ -254,6 +311,17 @@ const styles = StyleSheet.create((theme) => ({
     width: "100%",
     overflow: "hidden",
   },
+  rootWithSubtitle: {
+    position: "relative",
+    height: 46,
+    minHeight: 46,
+    maxHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    width: "100%",
+    overflow: "hidden",
+  },
   leadingSlot: {
     position: "relative",
     width: theme.iconSize.md,
@@ -276,12 +344,22 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     justifyContent: "center",
   },
+  labelRow: {
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  labelPrefix: {
+    flexShrink: 0,
+  },
   label: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
     lineHeight: 20,
     minWidth: 0,
+    flexShrink: 1,
   },
   subtitle: {
     color: theme.colors.foregroundMuted,
@@ -375,6 +453,19 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.full,
     borderWidth: 1,
     borderColor: theme.colors.surface0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  leadingBadge: {
+    position: "absolute",
+    right: -3,
+    bottom: -3,
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: theme.colors.surface0,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
