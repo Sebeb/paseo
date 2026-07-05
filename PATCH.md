@@ -4,7 +4,7 @@ Branch: `feat/project-icon-picker`
 
 Base: `origin/main`
 
-Anchor commit: 9ef7185b9dc742e7ae4f01b9a336761158599d68 - feat(projects): normalize project icons
+Anchor commit: e215add946fbdc25079375dfae8f07c55c09bd68 - feat(projects): validate project path settings
 
 ## Purpose
 
@@ -293,9 +293,10 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 **Public surface**
 
 - `PaseoConfigRawSchema` accepts optional `icon: string`.
-- `ProjectConfigDraft` includes `iconPath: string`.
-- `configToDraft(config, { defaultIconPath?: string | null })` seeds the editable icon path from `config.icon` or a daemon-discovered default.
-- `applyDraftToConfig({ draft, base })` writes trimmed `draft.iconPath` to `config.icon` or deletes `icon` when empty.
+- `PickedProjectIcon = { kind: "picked"; path: string; dataUri: string } | { kind: "cleared" }` distinguishes a selected preview from an explicit reset.
+- `ProjectConfigDraft` includes `iconPath: string` and `iconDisabled: boolean`.
+- `configToDraft(config, { defaultIconPath?: string | null })` seeds the editable icon path from `config.icon` or a daemon-discovered default and sets `iconDisabled` when `config.icon === ""`.
+- `applyDraftToConfig({ draft, base })` writes trimmed `draft.iconPath` to `config.icon`, writes `icon: ""` when `draft.iconDisabled` is true, or deletes `icon` when the empty path is not an explicit disable.
 - `PROJECT_ICON_FILE_EXTENSIONS = ["ico", "png", "svg", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "tif", "tiff"]`.
 - `normalizeProjectIconRelativePath(value): string | null` rejects empty, absolute, drive-rooted, UNC, and escaping `..` paths, normalizes slashes, and returns a clean project-relative path.
 - `absolutePathForProjectIcon(projectRoot, relativeIconPath): string` builds a platform-shaped absolute path for dialog defaults.
@@ -313,6 +314,7 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 - A selected file must be inside the project root. Outside selections show the localized `settings.project.icon.outsideProject` error.
 - The app calls `client.requestProjectIcon(repoRoot, { iconPath })` before accepting the choice. If the daemon returns no valid icon or no data URI can be built, the app shows `settings.project.icon.invalidIcon`.
 - A valid picked icon is previewed immediately by storing `{ path, dataUri }` in local state. The project config form receives the effective path so saving writes the new `icon` value.
+- When editing is allowed and an icon is currently shown, `ProjectTitleIcon` renders a reset button with `settings.project.icon.clearLabel`. Pressing it stores `{ kind: "cleared" }`, hides the preview, passes `""` as the effective icon path, and marks the draft as icon-disabled so saving persists `icon: ""` rather than deleting the field.
 - `ProjectIconView` resets its image-error fallback state whenever `iconDataUri` changes, so a failed previous icon does not suppress a newly selected icon preview.
 - Changing project, host, or repo root clears the transient picked icon.
 - The daemon's project icon lookup first uses an explicit request `iconPath`, then `paseo.json`'s configured `icon`, then auto-discovers favicon/icon/logo files.
@@ -377,7 +379,7 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 - Settings storage validates persisted values by type and falls back to defaults on invalid data; legacy values migrate where possible.
 - Keyboard actions include find open/next/previous/close, route navigation, and workspace/tab movement.
 - Focus scopes include `find-in-thread` so Enter/Escape in the find input route to find behavior rather than composer or agent interruption.
-- Localization resources include stream find/thinking labels, prompt marker settings, sidebar grouping/sorting/badge strings, tab layout labels, workspace hover-card timestamps, and project icon picker copy across shipped locales. The invalid-icon copy asks for a supported image rather than requiring a square icon because the daemon now normalizes source aspect ratios.
+- Localization resources include stream find/thinking labels, prompt marker settings, sidebar grouping/sorting/badge strings, tab layout labels, workspace hover-card timestamps, and project icon picker/reset copy across shipped locales. The invalid-icon copy asks for a supported image rather than requiring a square icon because the daemon now normalizes source aspect ratios.
 
 ## Documentation
 
@@ -406,6 +408,6 @@ Focused test coverage added or updated on this branch includes:
 - workspace layout store actions, main pane lookup, tab close trees, tab navigation, restore closed tabs, route source-of-truth, and archive navigation
 - settings storage migrations and parsing
 - keyboard action dispatch and route shortcuts
-- project config form icon round-tripping, project icon path normalization, daemon project icon configured path handling, normalized PNG output for square and non-square images, SVG and PNG-backed ICO conversion, max source-size rejection, and project icon protocol parsing
+- project config form icon round-tripping and explicit disabled-icon persistence, project icon path normalization, daemon project icon configured path handling, normalized PNG output for square and non-square images, SVG and PNG-backed ICO conversion, max source-size rejection, and project icon protocol parsing
 - protocol parsing for optional workspace metadata, title fields, prompt index feature flags, project icon override feature flags, and project icon request/response messages
 - server title generation, Codex native title refresh, timeline prompt indexing, tool-call display models, and Codex app-server client identity
