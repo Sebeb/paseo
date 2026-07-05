@@ -86,6 +86,7 @@ export interface StreamRenderInput {
   pinnedBottom: number;
   onPinnedUserInputChange: (state: PinnedUserInputState | null) => void;
   pinnedUserInputOverlay: ReactNode;
+  layoutProbe?: ReactNode;
   isLoadingOlderHistory: boolean;
   hasOlderHistory: boolean;
   scrollEnabled: boolean;

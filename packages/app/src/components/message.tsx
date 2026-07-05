@@ -1722,8 +1722,9 @@ export const AssistantMessage = memo(function AssistantMessage({
       return undefined;
     }
     return {
+      alignSelf: "center",
       marginHorizontal: -tableBreakoutOffset,
-      width: tableWidth,
+      maxWidth: tableWidth,
     };
   }, [tableBreakoutOffset, tableWidth]);
 

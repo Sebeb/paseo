@@ -160,10 +160,6 @@ const PINNED_USER_INPUT_MAX_HEIGHT_COMPACT = 59;
 const PINNED_USER_INPUT_GRADIENT_HEIGHT = 15;
 const STREAM_LAYOUT_EPSILON = 0.5;
 
-const StreamLayoutReporterContext = React.createContext<
-  ((input: { breakoutOffset: number; contentWidth: number }) => void) | null
->(null);
-
 type SessionStoreSnapshot = ReturnType<typeof useSessionStore.getState>;
 
 function selectSessionClient(state: SessionStoreSnapshot, serverId: string): DaemonClient | null {
@@ -1545,6 +1541,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         });
       },
     );
+    const layoutProbe = useMemo(
+      () => <StreamLayoutProbe onReport={reportStreamLayout} />,
+      [reportStreamLayout],
+    );
     const findOverlay = (
       <FindInThreadControls
         isOpen={isFindOpen}
@@ -1617,40 +1617,39 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     return (
       <ToolCallSheetProvider>
         <MessageLayoutProvider value={messageLayoutMetrics}>
-          <StreamLayoutReporterContext.Provider value={reportStreamLayout}>
-            <View style={stylesheet.container}>
-              {findOverlay}
-              <MessageOuterSpacingProvider disableOuterSpacing>
-                {streamRenderStrategy.render({
-                  agentId,
-                  segments: renderModel.segments,
-                  promptIndex,
-                  loadedHistoryStartSeq: timelineCursor?.startSeq ?? null,
-                  expectsFullHistoryPromptIndex: serverSupportsPromptIndex,
-                  boundary,
-                  renderers,
-                  listEmptyComponent,
-                  viewportRef,
-                  routeBottomAnchorRequest,
-                  isAuthoritativeHistoryReady,
-                  onNearBottomChange: setIsNearBottom,
-                  onNearHistoryStart: loadOlder,
-                  pinUserInputsEnabled,
-                  pinnedBottom: pinnedUserInputBackdropFadeStart,
-                  onPinnedUserInputChange: handlePinnedUserInputChange,
-                  pinnedUserInputOverlay,
-                  isLoadingOlderHistory: isLoadingOlder,
-                  hasOlderHistory: hasOlder,
-                  scrollEnabled: streamScrollEnabled,
-                  listStyle: stylesheet.list,
-                  baseListContentContainerStyle: stylesheet.listContentContainer,
-                  forwardListContentContainerStyle: stylesheet.forwardListContentContainer,
-                  findIndicator,
-                })}
-              </MessageOuterSpacingProvider>
-              {scrollToBottomOverlay}
-            </View>
-          </StreamLayoutReporterContext.Provider>
+          <View style={stylesheet.container}>
+            {findOverlay}
+            <MessageOuterSpacingProvider disableOuterSpacing>
+              {streamRenderStrategy.render({
+                agentId,
+                segments: renderModel.segments,
+                promptIndex,
+                loadedHistoryStartSeq: timelineCursor?.startSeq ?? null,
+                expectsFullHistoryPromptIndex: serverSupportsPromptIndex,
+                boundary,
+                renderers,
+                listEmptyComponent,
+                viewportRef,
+                routeBottomAnchorRequest,
+                isAuthoritativeHistoryReady,
+                onNearBottomChange: setIsNearBottom,
+                onNearHistoryStart: loadOlder,
+                pinUserInputsEnabled,
+                pinnedBottom: pinnedUserInputBackdropFadeStart,
+                onPinnedUserInputChange: handlePinnedUserInputChange,
+                pinnedUserInputOverlay,
+                layoutProbe,
+                isLoadingOlderHistory: isLoadingOlder,
+                hasOlderHistory: hasOlder,
+                scrollEnabled: streamScrollEnabled,
+                listStyle: stylesheet.list,
+                baseListContentContainerStyle: stylesheet.listContentContainer,
+                forwardListContentContainerStyle: stylesheet.forwardListContentContainer,
+                findIndicator,
+              })}
+            </MessageOuterSpacingProvider>
+            {scrollToBottomOverlay}
+          </View>
         </MessageLayoutProvider>
       </ToolCallSheetProvider>
     );
@@ -2721,6 +2720,15 @@ const stylesheet = StyleSheet.create((theme) => ({
   streamItemInner: {
     width: "100%",
   },
+  layoutProbeOuter: {
+    marginTop: 0,
+    marginBottom: 0,
+  },
+  layoutProbeInner: {
+    height: 0,
+    marginTop: 0,
+    marginBottom: 0,
+  },
   emptyState: {
     flex: 1,
     alignItems: "center",
@@ -3120,18 +3128,34 @@ interface StreamItemWrapperProps {
 }
 
 function StreamItemWrapper({ gapBelow, marginTop = 0, children }: StreamItemWrapperProps) {
-  const reportLayout = useContext(StreamLayoutReporterContext);
+  const wrapperStyle = useMemo(() => [stylesheet.streamItemWrapper], []);
+  const innerStyle = useMemo(
+    () => [stylesheet.streamItemInner, { marginTop, marginBottom: gapBelow }],
+    [gapBelow, marginTop],
+  );
+  return (
+    <View style={wrapperStyle}>
+      <View style={innerStyle}>{children}</View>
+    </View>
+  );
+}
+
+function StreamLayoutProbe({
+  onReport,
+}: {
+  onReport: (input: { breakoutOffset: number; contentWidth: number }) => void;
+}) {
   const breakoutOffsetRef = useRef<number | null>(null);
   const contentWidthRef = useRef<number | null>(null);
   const flushLayoutMetrics = useCallback(() => {
-    if (!reportLayout || breakoutOffsetRef.current == null || contentWidthRef.current == null) {
+    if (breakoutOffsetRef.current == null || contentWidthRef.current == null) {
       return;
     }
-    reportLayout({
+    onReport({
       breakoutOffset: breakoutOffsetRef.current,
       contentWidth: contentWidthRef.current,
     });
-  }, [reportLayout]);
+  }, [onReport]);
   const handleOuterLayout = useCallback(
     (event: LayoutChangeEvent) => {
       breakoutOffsetRef.current = Math.max(0, event.nativeEvent.layout.x);
@@ -3146,16 +3170,17 @@ function StreamItemWrapper({ gapBelow, marginTop = 0, children }: StreamItemWrap
     },
     [flushLayoutMetrics],
   );
-  const wrapperStyle = useMemo(() => [stylesheet.streamItemWrapper], []);
-  const innerStyle = useMemo(
-    () => [stylesheet.streamItemInner, { marginTop, marginBottom: gapBelow }],
-    [gapBelow, marginTop],
+  const probeOuterStyle = useMemo(
+    () => [stylesheet.streamItemWrapper, stylesheet.layoutProbeOuter],
+    [],
+  );
+  const probeInnerStyle = useMemo(
+    () => [stylesheet.streamItemInner, stylesheet.layoutProbeInner],
+    [],
   );
   return (
-    <View style={wrapperStyle} onLayout={handleOuterLayout}>
-      <View style={innerStyle} onLayout={handleInnerLayout}>
-        {children}
-      </View>
+    <View pointerEvents="none" style={probeOuterStyle} onLayout={handleOuterLayout}>
+      <View style={probeInnerStyle} onLayout={handleInnerLayout} />
     </View>
   );
 }
