@@ -10,15 +10,19 @@ import {
 } from "@/utils/sidebar-shortcuts";
 
 export function WorkspaceShortcutTargetsSubscriber({ enabled }: { enabled: boolean }) {
-  const { workspacePlacements, projects, projectNamesByKey } = useSidebarWorkspacesList({
+  const { workspacePlacements, projects } = useSidebarWorkspacesList({
     enabled,
   });
+  const serverId = projects[0]?.serverId ?? null;
   const groupMode = useSidebarViewStore((state) => state.groupMode);
   const isStatusMode = enabled && groupMode === "status";
   const statusWorkspacePlacements = useStatusModeWorkspacePlacements({
     placements: workspacePlacements,
     enabled: isStatusMode,
   });
+  const workspaceSortMode = useSidebarViewStore((state) =>
+    enabled && serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
   const collapsedProjectKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedProjectKeys,
   );
@@ -33,7 +37,7 @@ export function WorkspaceShortcutTargetsSubscriber({ enabled }: { enabled: boole
     if (groupMode === "status") {
       return buildStatusSidebarShortcutModel({
         workspaces: statusWorkspacePlacements,
-        projectNamesByKey,
+        workspaceSortMode,
         collapsedStatusGroupKeys,
       });
     }
@@ -46,9 +50,9 @@ export function WorkspaceShortcutTargetsSubscriber({ enabled }: { enabled: boole
     collapsedProjectKeys,
     collapsedStatusGroupKeys,
     groupMode,
-    projectNamesByKey,
     projects,
     statusWorkspacePlacements,
+    workspaceSortMode,
   ]);
 
   useEffect(() => {

@@ -51,6 +51,8 @@ import {
   ArrowRightToLine,
   CircleAlert,
   CircleCheck,
+  CircleDot,
+  CircleX,
   ChevronDown,
   ChevronRight,
   Clock3,
@@ -87,6 +89,11 @@ import {
   parseHostWorkspaceRouteFromPathname,
 } from "@/utils/host-routes";
 import {
+  STATUS_BUCKET_LABELS,
+  STATUS_BUCKET_ORDER,
+  type StatusBucket,
+} from "@/hooks/sidebar-status-view-model";
+import {
   useSidebarWorkspaceEntry,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
@@ -99,12 +106,14 @@ import {
   collectAllPanes,
   collectAllTabs,
   findMainPane,
+  type SplitPane,
   useWorkspaceLayoutStore,
 } from "@/stores/workspace-layout-store";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
 import {
   useSidebarViewStore,
   type SidebarBadgeMode,
+  type SidebarEmbeddedTabSortMode,
   type SidebarEmbeddedRecentTabCount,
   type SidebarWorkspaceSortMode,
 } from "@/stores/sidebar-view-store";
@@ -228,6 +237,7 @@ import {
   type SidebarEmbeddedTabTreeRow,
 } from "@/utils/sidebar-embedded-tab-tree";
 import { sortSidebarTabItems } from "@/utils/sidebar-tab-sort";
+import type { SidebarTabSortItem } from "@/utils/sidebar-tab-sort";
 import {
   isWeb as platformIsWeb,
   isNative as platformIsNative,
@@ -261,6 +271,8 @@ const ThemedGitPullRequest = withUnistyles(GitPullRequest);
 const ThemedGitHubIcon = withUnistyles(GitHubIcon);
 const ThemedCircleAlert = withUnistyles(CircleAlert);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
+const ThemedCircleDot = withUnistyles(CircleDot);
+const ThemedCircleX = withUnistyles(CircleX);
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 const ThemedPlus = withUnistyles(Plus);
 const ThemedChevronDown = withUnistyles(ChevronDown);
@@ -279,6 +291,29 @@ interface EmbeddedSidebarTabItem {
   paneId: string;
   mainPane: boolean;
   forceShown: boolean;
+}
+
+interface EmbeddedTabProjectLine {
+  projectKey: string;
+  projectName: string;
+  iconDataUri: string | null;
+}
+
+interface StatusTabWorkspaceRow {
+  project: SidebarProjectEntry;
+  workspace: SidebarWorkspaceEntry;
+}
+
+interface StatusTabWorkspaceGroup {
+  bucket: StatusBucket;
+  rows: StatusTabWorkspaceRow[];
+}
+
+interface StatusTabWorkspaceCandidate extends SidebarTabSortItem {
+  bucket: StatusBucket;
+  project: SidebarProjectEntry;
+  workspace: SidebarWorkspaceEntry;
+  statusSummary: SidebarTabStatusSummary;
 }
 
 interface WorkspaceTabsForSummary {
@@ -443,6 +478,193 @@ function useSidebarTabStatusSummaries(input: {
   ]);
 }
 
+function resolveStatusBucketFromTabSummary(summary: SidebarTabStatusSummary): StatusBucket {
+  for (const bucket of STATUS_BUCKET_ORDER) {
+    if (summary.counts[bucket] > 0) {
+      return bucket;
+    }
+  }
+  return "done";
+}
+
+function useSidebarStatusTabWorkspaceGroups(input: {
+  projects: readonly SidebarProjectEntry[];
+  serverId: string | null;
+}): StatusTabWorkspaceGroup[] {
+  const layoutByWorkspace = useWorkspaceLayoutStore((state) => state.layoutByWorkspace);
+  const agents = useSessionStore((state) =>
+    input.serverId ? (state.sessions[input.serverId]?.agents ?? null) : null,
+  );
+  const queuedMessages = useSessionStore((state) =>
+    input.serverId ? (state.sessions[input.serverId]?.queuedMessages ?? null) : null,
+  );
+  const pendingCreatesByDraftId = useCreateFlowStore((state) => state.pendingByDraftId);
+  const setupSnapshots = useWorkspaceSetupStore((state) => state.snapshots);
+  const browsersById = useBrowserStore((state) => state.browsersById);
+  const draftRecords = useDraftStore((state) => state.drafts);
+  const tabSortMode = useSidebarViewStore((state) =>
+    input.serverId ? state.getEmbeddedTabSortMode(input.serverId) : "manual",
+  );
+  const expandedParentTabKeys = useSidebarCollapsedSectionsStore(
+    (state) => state.expandedParentTabKeys,
+  );
+  const draftInputsByKey = useMemo<Record<string, DraftInput>>(() => {
+    const inputs: Record<string, DraftInput> = {};
+    for (const [key, record] of Object.entries(draftRecords)) {
+      if (record.lifecycle === "active") {
+        inputs[key] = record.input;
+      }
+    }
+    return inputs;
+  }, [draftRecords]);
+  const queuedMessageCountsByAgentId = useMemo(
+    () =>
+      queuedMessages
+        ? new Map(
+            Array.from(queuedMessages.entries()).map(([agentId, queue]) => [agentId, queue.length]),
+          )
+        : undefined,
+    [queuedMessages],
+  );
+  const emptyTerminalsById = useMemo(() => new Map<string, SidebarTerminalStatusRecord>(), []);
+
+  return useMemo(() => {
+    const candidatesByBucket = new Map<StatusBucket, StatusTabWorkspaceCandidate[]>();
+    const agentMap = agents ?? EMPTY_AGENT_MAP;
+    for (const project of input.projects) {
+      for (const workspace of project.workspaces) {
+        const persistenceKey = buildWorkspaceTabPersistenceKey({
+          serverId: workspace.serverId,
+          workspaceId: workspace.workspaceId,
+        });
+        const workspaceLayout = persistenceKey ? (layoutByWorkspace[persistenceKey] ?? null) : null;
+        if (!workspaceLayout) {
+          continue;
+        }
+        const uiTabs = collectAllTabs(workspaceLayout.root);
+        const mainPane = findMainPane(workspaceLayout.root);
+        const panes = collectAllPanes(workspaceLayout.root);
+        const allItems = buildEmbeddedSidebarTabItems({
+          mainPane,
+          panes,
+          uiTabs,
+          agents: agentMap,
+        });
+        const statusSummariesByTabId = new Map<string, SidebarTabStatusSummary>();
+        for (const item of allItems) {
+          statusSummariesByTabId.set(
+            item.tab.tabId,
+            summarizeSidebarTabs({
+              tabs: [item.tab],
+              serverId: workspace.serverId,
+              workspaceId: workspace.workspaceId,
+              agents: agentMap,
+              pendingCreatesByDraftId,
+              setupSnapshots,
+              browsersById,
+              terminalsById: emptyTerminalsById,
+              draftInputsByKey,
+              queuedMessageCountsByAgentId,
+            }),
+          );
+        }
+        const sortedItems = sortSidebarTabItems({
+          items: allItems,
+          sortMode: tabSortMode,
+          agents: agentMap,
+          statusSummariesByTabId,
+        });
+        const treeRows = buildSidebarEmbeddedTabTreeRows({
+          workspaceKey: workspace.workspaceKey,
+          items: sortedItems,
+          parentTabIdByTabId: workspaceLayout.parentTabIdByTabId ?? null,
+          expandedParentTabKeys,
+          statusSummariesByTabId,
+        });
+        for (const row of treeRows) {
+          const bucket = resolveStatusBucketFromTabSummary(row.statusSummary);
+          const candidates = candidatesByBucket.get(bucket) ?? [];
+          candidates.push({
+            bucket,
+            project,
+            workspace,
+            tab: row.item.tab,
+            statusSummary: row.statusSummary,
+          });
+          candidatesByBucket.set(bucket, candidates);
+        }
+      }
+    }
+    return STATUS_BUCKET_ORDER.flatMap((bucket) => {
+      const candidates = candidatesByBucket.get(bucket);
+      if (!candidates || candidates.length === 0) {
+        return [];
+      }
+      const orderedCandidates = sortSidebarStatusTabWorkspaceCandidates({
+        candidates,
+        sortMode: tabSortMode,
+        agents: agentMap,
+        statusSummariesByTabId: new Map(
+          candidates.map((candidate) => [candidate.tab.tabId, candidate.statusSummary]),
+        ),
+      });
+      return [
+        {
+          bucket,
+          rows: uniqueStatusTabWorkspaceRows(orderedCandidates),
+        },
+      ];
+    });
+  }, [
+    agents,
+    browsersById,
+    draftInputsByKey,
+    emptyTerminalsById,
+    expandedParentTabKeys,
+    input.projects,
+    layoutByWorkspace,
+    pendingCreatesByDraftId,
+    queuedMessageCountsByAgentId,
+    setupSnapshots,
+    tabSortMode,
+  ]);
+}
+
+function sortSidebarStatusTabWorkspaceCandidates(input: {
+  candidates: StatusTabWorkspaceCandidate[];
+  sortMode: SidebarEmbeddedTabSortMode;
+  agents: ReadonlyMap<string, Agent> | null;
+  statusSummariesByTabId: ReadonlyMap<string, SidebarTabStatusSummary>;
+}): StatusTabWorkspaceCandidate[] {
+  if (input.sortMode === "manual") {
+    return input.candidates;
+  }
+  return sortSidebarTabItems({
+    items: input.candidates,
+    sortMode: input.sortMode,
+    agents: input.agents,
+    statusSummariesByTabId: input.statusSummariesByTabId,
+  });
+}
+
+function uniqueStatusTabWorkspaceRows(
+  candidates: readonly StatusTabWorkspaceCandidate[],
+): StatusTabWorkspaceRow[] {
+  const rows: StatusTabWorkspaceRow[] = [];
+  const seenWorkspaceKeys = new Set<string>();
+  for (const candidate of candidates) {
+    if (seenWorkspaceKeys.has(candidate.workspace.workspaceKey)) {
+      continue;
+    }
+    seenWorkspaceKeys.add(candidate.workspace.workspaceKey);
+    rows.push({
+      project: candidate.project,
+      workspace: candidate.workspace,
+    });
+  }
+  return rows;
+}
+
 function isTabForceShown(input: {
   tab: WorkspaceTab;
   activeTabId: string | null;
@@ -462,6 +684,108 @@ function isTabForceShown(input: {
     agent.status === "initializing" ||
     agent.status === "running"
   );
+}
+
+function buildEmbeddedSidebarTabItems(input: {
+  mainPane: SplitPane | null;
+  panes: readonly SplitPane[];
+  uiTabs: WorkspaceTab[];
+  agents: ReadonlyMap<string, Agent>;
+}): EmbeddedSidebarTabItem[] {
+  const paneState = deriveWorkspacePaneState({
+    pane: input.mainPane,
+    tabs: input.uiTabs,
+  });
+  const tabById = new Map(input.uiTabs.map((tab) => [tab.tabId, tab]));
+  const mainPaneItems = paneState.tabs.flatMap((entry) => {
+    const tab = tabById.get(entry.descriptor.tabId);
+    if (!tab) {
+      return [];
+    }
+    return [
+      {
+        descriptor: entry.descriptor,
+        tab,
+        paneId: input.mainPane?.id ?? "",
+        mainPane: true,
+        forceShown: isTabForceShown({
+          tab,
+          activeTabId: paneState.activeTabId,
+          agents: input.agents,
+        }),
+      },
+    ];
+  });
+  const secondaryPaneItems = input.panes.flatMap((pane) => {
+    if (!input.mainPane || pane.id === input.mainPane.id) {
+      return [];
+    }
+    const secondaryPaneState = deriveWorkspacePaneState({
+      pane,
+      tabs: input.uiTabs,
+    });
+    const activeTab = secondaryPaneState.activeTab;
+    if (!activeTab) {
+      return [];
+    }
+    const tab = tabById.get(activeTab.descriptor.tabId);
+    if (!tab) {
+      return [];
+    }
+    return [
+      {
+        descriptor: activeTab.descriptor,
+        tab,
+        paneId: pane.id,
+        mainPane: false,
+        forceShown: true,
+      },
+    ];
+  });
+  return [...mainPaneItems, ...secondaryPaneItems];
+}
+
+function filterEmbeddedTabRowsByStatus(input: {
+  rows: SidebarEmbeddedTabTreeRow<EmbeddedSidebarTabItem>[];
+  statusBucketFilter: StatusBucket | null;
+}): SidebarEmbeddedTabTreeRow<EmbeddedSidebarTabItem>[] {
+  if (!input.statusBucketFilter) {
+    return input.rows;
+  }
+  return input.rows.filter(
+    (row) => resolveStatusBucketFromTabSummary(row.statusSummary) === input.statusBucketFilter,
+  );
+}
+
+function useVisibleEmbeddedTabRows(input: {
+  rows: SidebarEmbeddedTabTreeRow<EmbeddedSidebarTabItem>[];
+  recentTabCount: SidebarEmbeddedRecentTabCount;
+  showAllTabs: boolean;
+  limitRecentTabs: boolean;
+}): {
+  visibleRows: SidebarEmbeddedTabTreeRow<EmbeddedSidebarTabItem>[];
+  shouldShowVisibilityToggle: boolean;
+} {
+  const recentVisibleRows = useMemo(
+    () =>
+      applyRecentTreeRowCount({
+        rows: input.rows,
+        recentCount: input.recentTabCount,
+      }),
+    [input.recentTabCount, input.rows],
+  );
+  const hiddenTabCount = Math.max(0, input.rows.length - recentVisibleRows.length);
+  const shouldShowVisibilityToggle =
+    input.limitRecentTabs && input.recentTabCount !== "all" && hiddenTabCount > 0;
+  const visibleRows = !input.limitRecentTabs || input.showAllTabs ? input.rows : recentVisibleRows;
+  return { visibleRows, shouldShowVisibilityToggle };
+}
+
+function shouldEnableEmbeddedTabManualSort(input: {
+  statusBucketFilter: StatusBucket | null;
+  tabSortMode: SidebarEmbeddedTabSortMode;
+}): boolean {
+  return input.statusBucketFilter === null && input.tabSortMode === "manual";
 }
 
 interface SidebarEmbeddedTabHoverInfo {
@@ -561,6 +885,9 @@ const amberColorMapping = (theme: Theme) => ({
 });
 const greenColorMapping = (theme: Theme) => ({
   color: theme.colors.palette.green[500],
+});
+const blueColorMapping = (theme: Theme) => ({
+  color: theme.colors.palette.blue[500],
 });
 const purpleColorMapping = (theme: Theme) => ({
   color: theme.colors.palette.purple[500],
@@ -3122,6 +3449,7 @@ function EmbeddedWorkspaceTabRow({
   onPress,
   menuEntries,
   onToggleParentExpanded,
+  projectLine,
 }: {
   row: SidebarEmbeddedTabTreeRow<EmbeddedSidebarTabItem>;
   serverId: string;
@@ -3135,6 +3463,7 @@ function EmbeddedWorkspaceTabRow({
   onPress: (item: EmbeddedSidebarTabItem) => void;
   menuEntries: WorkspaceTabMenuEntry[];
   onToggleParentExpanded: (parentTabKey: string) => void;
+  projectLine?: EmbeddedTabProjectLine | null;
 }) {
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
@@ -3289,6 +3618,16 @@ function EmbeddedWorkspaceTabRow({
                     }
                     leadingStatus={leadingStatus}
                     label={label}
+                    subtitle={projectLine?.projectName ?? null}
+                    subtitleLeading={
+                      projectLine
+                        ? createElement(ProjectLineIcon, {
+                            projectKey: projectLine.projectKey,
+                            projectName: projectLine.projectName,
+                            iconDataUri: projectLine.iconDataUri,
+                          })
+                        : null
+                    }
                     rightContext={rightContext}
                     hoverRightContext={hoverRightContext}
                     showHoverRightContext={showCloseButton}
@@ -3406,6 +3745,29 @@ function EmbeddedTabKebabMenu({
   );
 }
 
+function ProjectLineIcon({
+  projectKey,
+  projectName,
+  iconDataUri,
+}: {
+  projectKey: string;
+  projectName: string;
+  iconDataUri: string | null;
+}) {
+  const placeholderLabel = projectIconPlaceholderLabelFromDisplayName(projectName);
+  const placeholderInitial = placeholderLabel.charAt(0).toUpperCase();
+  return (
+    <ProjectIconView
+      iconDataUri={iconDataUri}
+      initial={placeholderInitial}
+      projectKey={projectKey}
+      imageStyle={styles.projectLineIcon}
+      fallbackStyle={styles.projectLineIconFallback}
+      textStyle={styles.projectLineIconFallbackText}
+    />
+  );
+}
+
 function EmbeddedWorkspaceTabs({
   workspace,
   badgeMode,
@@ -3413,6 +3775,9 @@ function EmbeddedWorkspaceTabs({
   showAllTabs,
   onShowAllTabsChange,
   onWorkspacePress,
+  statusBucketFilter = null,
+  projectLine = null,
+  limitRecentTabs = true,
 }: {
   workspace: SidebarWorkspaceEntry;
   badgeMode: SidebarBadgeMode;
@@ -3420,6 +3785,9 @@ function EmbeddedWorkspaceTabs({
   showAllTabs: boolean;
   onShowAllTabsChange: (showAllTabs: boolean) => void;
   onWorkspacePress?: () => void;
+  statusBucketFilter?: StatusBucket | null;
+  projectLine?: EmbeddedTabProjectLine | null;
+  limitRecentTabs?: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -3495,7 +3863,6 @@ function EmbeddedWorkspaceTabs({
       }),
     [mainPane, uiTabs],
   );
-  const tabById = useMemo(() => new Map(uiTabs.map((tab) => [tab.tabId, tab])), [uiTabs]);
   const paneTabsByPaneId = useMemo(() => {
     const map = new Map<string, WorkspaceTabDescriptor[]>();
     for (const pane of panes) {
@@ -3537,53 +3904,13 @@ function EmbeddedWorkspaceTabs({
     enabled: true,
   });
   const allItems = useMemo<EmbeddedSidebarTabItem[]>(() => {
-    const mainPaneItems = paneState.tabs.flatMap((entry) => {
-      const tab = tabById.get(entry.descriptor.tabId);
-      if (!tab) {
-        return [];
-      }
-      return [
-        {
-          descriptor: entry.descriptor,
-          tab,
-          paneId: mainPane?.id ?? "",
-          mainPane: true,
-          forceShown: isTabForceShown({
-            tab,
-            activeTabId: paneState.activeTabId,
-            agents: agentMap,
-          }),
-        },
-      ];
+    return buildEmbeddedSidebarTabItems({
+      mainPane,
+      panes,
+      uiTabs,
+      agents: agentMap,
     });
-    const secondaryPaneItems = panes.flatMap((pane) => {
-      if (!mainPane || pane.id === mainPane.id) {
-        return [];
-      }
-      const secondaryPaneState = deriveWorkspacePaneState({
-        pane,
-        tabs: uiTabs,
-      });
-      const activeTab = secondaryPaneState.activeTab;
-      if (!activeTab) {
-        return [];
-      }
-      const tab = tabById.get(activeTab.descriptor.tabId);
-      if (!tab) {
-        return [];
-      }
-      return [
-        {
-          descriptor: activeTab.descriptor,
-          tab,
-          paneId: pane.id,
-          mainPane: false,
-          forceShown: true,
-        },
-      ];
-    });
-    return [...mainPaneItems, ...secondaryPaneItems];
-  }, [agentMap, mainPane, paneState.activeTabId, paneState.tabs, panes, tabById, uiTabs]);
+  }, [agentMap, mainPane, panes, uiTabs]);
   const statusSummariesByTabId = useMemo(() => {
     const summaries = new Map<string, SidebarTabStatusSummary>();
     for (const item of allItems) {
@@ -3643,6 +3970,10 @@ function EmbeddedWorkspaceTabs({
       workspaceLayout?.parentTabIdByTabId,
     ],
   );
+  const filteredRows = useMemo(
+    () => filterEmbeddedTabRowsByStatus({ rows: treeRows, statusBucketFilter }),
+    [statusBucketFilter, treeRows],
+  );
   const orderedTabIds = useMemo(() => sortedItems.map((item) => item.tab.tabId), [sortedItems]);
   const { closeTab, closeWorkspaceTabWithCleanup, handleCloseTabById } = useWorkspaceTabClose({
     serverId: workspace.serverId,
@@ -3652,17 +3983,12 @@ function EmbeddedWorkspaceTabs({
     orderedTabIds,
     parentTabIdByTabId: workspaceLayout?.parentTabIdByTabId ?? null,
   });
-  const recentVisibleRows = useMemo(
-    () =>
-      applyRecentTreeRowCount({
-        rows: treeRows,
-        recentCount: recentTabCount,
-      }),
-    [recentTabCount, treeRows],
-  );
-  const hiddenTabCount = Math.max(0, treeRows.length - recentVisibleRows.length);
-  const shouldShowVisibilityToggle = recentTabCount !== "all" && hiddenTabCount > 0;
-  const visibleRows = showAllTabs ? treeRows : recentVisibleRows;
+  const { visibleRows, shouldShowVisibilityToggle } = useVisibleEmbeddedTabRows({
+    rows: filteredRows,
+    recentTabCount,
+    showAllTabs,
+    limitRecentTabs,
+  });
   const totalTabCount = sortedItems.length;
   const handleToggleShowAllTabs = useCallback(
     (event: GestureResponderEvent) => {
@@ -3880,6 +4206,10 @@ function EmbeddedWorkspaceTabs({
     }),
     [t],
   );
+  const manualSortEnabled = shouldEnableEmbeddedTabManualSort({
+    statusBucketFilter,
+    tabSortMode,
+  });
   const handleBulkCloseTabs = useCallback(
     async (input: { tabsToClose: WorkspaceTabDescriptor[]; title: string; logLabel: string }) => {
       if (input.tabsToClose.length === 0) {
@@ -3971,7 +4301,7 @@ function EmbeddedWorkspaceTabs({
 
   const handleManualDragEnd = useCallback(
     (nextVisibleRows: SidebarEmbeddedTabTreeRow<EmbeddedSidebarTabItem>[]) => {
-      if (!persistenceKey || !mainPane || tabSortMode !== "manual") {
+      if (!persistenceKey || !mainPane || !manualSortEnabled) {
         return;
       }
       const mainPaneItems = allItems.filter((item) => item.mainPane);
@@ -3981,7 +4311,7 @@ function EmbeddedWorkspaceTabs({
       });
       reorderTabsInPane(persistenceKey, mainPane.id, nextTabIds);
     },
-    [allItems, mainPane, persistenceKey, reorderTabsInPane, tabSortMode],
+    [allItems, mainPane, manualSortEnabled, persistenceKey, reorderTabsInPane],
   );
 
   const renderEmbeddedTab = useCallback(
@@ -4002,13 +4332,14 @@ function EmbeddedWorkspaceTabs({
             ? row.item.tab.tabId === paneState.activeTabId
             : workspaceLayout?.focusedPaneId === row.item.paneId)
         }
-        manualSort={tabSortMode === "manual" && row.item.mainPane && row.depth === 0}
+        manualSort={manualSortEnabled && row.item.mainPane && row.depth === 0}
         isDragging={isActive}
         drag={drag}
         dragHandleProps={dragHandleProps}
         onPress={handlePressTab}
         menuEntries={buildMenuEntries(row.item)}
         onToggleParentExpanded={toggleParentTabExpanded}
+        projectLine={projectLine}
       />
     ),
     [
@@ -4016,8 +4347,9 @@ function EmbeddedWorkspaceTabs({
       buildMenuEntries,
       handlePressTab,
       isActiveWorkspace,
+      manualSortEnabled,
       paneState.activeTabId,
-      tabSortMode,
+      projectLine,
       toggleParentTabExpanded,
       workspace.serverId,
       workspace.workspaceId,
@@ -4031,7 +4363,7 @@ function EmbeddedWorkspaceTabs({
 
   return (
     <>
-      {tabSortMode === "manual" ? (
+      {manualSortEnabled ? (
         <DraggableList
           testID={`sidebar-embedded-tabs-${workspace.workspaceKey}`}
           data={visibleRows}
@@ -4067,6 +4399,7 @@ function EmbeddedWorkspaceTabs({
               onPress={handlePressTab}
               menuEntries={buildMenuEntries(row.item)}
               onToggleParentExpanded={toggleParentTabExpanded}
+              projectLine={projectLine}
             />
           ))}
           {shouldShowVisibilityToggle ? (
@@ -4104,10 +4437,16 @@ export function SidebarVerticalWorkspaceTabs({
   workspace,
   badgeMode,
   onWorkspacePress,
+  statusBucketFilter = null,
+  projectLine = null,
+  limitRecentTabs = true,
 }: {
   workspace: SidebarWorkspaceEntry;
   badgeMode: SidebarBadgeMode;
   onWorkspacePress?: () => void;
+  statusBucketFilter?: StatusBucket | null;
+  projectLine?: EmbeddedTabProjectLine | null;
+  limitRecentTabs?: boolean;
 }) {
   const [showAllTabs, setShowAllTabs] = useState(false);
   const persistenceKey = useMemo(
@@ -4174,6 +4513,9 @@ export function SidebarVerticalWorkspaceTabs({
         showAllTabs={showAllTabs}
         onShowAllTabsChange={setShowAllTabs}
         onWorkspacePress={onWorkspacePress}
+        statusBucketFilter={statusBucketFilter}
+        projectLine={projectLine}
+        limitRecentTabs={limitRecentTabs}
       />
     </Pressable>
   );
@@ -5039,12 +5381,45 @@ function SidebarStatusModeWrapper({
   shortcutIndexByWorkspaceKey: Map<string, number>;
   onWorkspacePress?: () => void;
 }) {
+  const { settings: appSettings } = useAppSettings();
   const hydratedWorkspaces = useStatusModeWorkspaceEntries({
     serverId,
     projects,
   });
   const projectNamesByKey = useProjectNamesMap(serverId);
   const showShortcutBadges = useShowShortcutBadges();
+  const badgeMode = useSidebarViewStore((state) =>
+    serverId ? state.getBadgeMode(serverId) : "status",
+  );
+  const workspaceSortMode = useSidebarViewStore((state) =>
+    serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
+  const tabStatusSummaries = useSidebarTabStatusSummaries({
+    workspaces: hydratedWorkspaces,
+    enabled: badgeMode === "status",
+  });
+  const projectIconTargets = useMemo(
+    () =>
+      projects.map((project) => ({
+        projectKey: project.projectKey,
+        serverId: project.serverId ?? project.hosts[0]?.serverId ?? "",
+        iconWorkingDir: project.iconWorkingDir,
+      })),
+    [projects],
+  );
+  const projectIconByProjectKey = useProjectIconDataByProjectKey({ projects: projectIconTargets });
+
+  if (appSettings.tabLayoutMode === "sidebar") {
+    return (
+      <SidebarStatusTabList
+        projects={projects}
+        serverId={serverId}
+        badgeMode={badgeMode}
+        projectIconByProjectKey={projectIconByProjectKey}
+        onWorkspacePress={onWorkspacePress}
+      />
+    );
+  }
 
   return (
     <SidebarStatusWorkspaceList
@@ -5053,9 +5428,226 @@ function SidebarStatusModeWrapper({
       serverId={serverId}
       shortcutIndexByWorkspaceKey={_projectShortcutIndex}
       showShortcutBadges={showShortcutBadges}
+      badgeMode={badgeMode}
+      workspaceSortMode={workspaceSortMode}
+      tabStatusSummaries={tabStatusSummaries}
       onWorkspacePress={onWorkspacePress}
     />
   );
+}
+
+function SidebarStatusTabList({
+  projects,
+  serverId,
+  badgeMode,
+  projectIconByProjectKey,
+  onWorkspacePress,
+}: {
+  projects: SidebarProjectEntry[];
+  serverId: string | null;
+  badgeMode: SidebarBadgeMode;
+  projectIconByProjectKey: Map<string, string | null>;
+  onWorkspacePress?: () => void;
+}) {
+  const groups = useSidebarStatusTabWorkspaceGroups({ projects, serverId });
+  const collapsedStatusGroupKeys = useSidebarCollapsedSectionsStore(
+    (state) => state.collapsedStatusGroupKeys,
+  );
+
+  return (
+    <View style={styles.container}>
+      {platformIsNative ? (
+        <NestableScrollContainer
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          testID="sidebar-status-tabs-scroll"
+        >
+          <SidebarStatusTabGroups
+            groups={groups}
+            collapsedStatusGroupKeys={collapsedStatusGroupKeys}
+            badgeMode={badgeMode}
+            projectIconByProjectKey={projectIconByProjectKey}
+            onWorkspacePress={onWorkspacePress}
+          />
+        </NestableScrollContainer>
+      ) : (
+        <ScrollView
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          testID="sidebar-status-tabs-scroll"
+        >
+          <SidebarStatusTabGroups
+            groups={groups}
+            collapsedStatusGroupKeys={collapsedStatusGroupKeys}
+            badgeMode={badgeMode}
+            projectIconByProjectKey={projectIconByProjectKey}
+            onWorkspacePress={onWorkspacePress}
+          />
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+function SidebarStatusTabGroups({
+  groups,
+  collapsedStatusGroupKeys,
+  badgeMode,
+  projectIconByProjectKey,
+  onWorkspacePress,
+}: {
+  groups: readonly StatusTabWorkspaceGroup[];
+  collapsedStatusGroupKeys: ReadonlySet<string>;
+  badgeMode: SidebarBadgeMode;
+  projectIconByProjectKey: Map<string, string | null>;
+  onWorkspacePress?: () => void;
+}) {
+  return (
+    <>
+      {groups.map((group) => (
+        <View key={group.bucket} style={styles.statusGroupBlock}>
+          <StatusTabGroupHeader
+            bucket={group.bucket}
+            collapsed={collapsedStatusGroupKeys.has(group.bucket)}
+          />
+          {!collapsedStatusGroupKeys.has(group.bucket) ? (
+            <View
+              style={styles.statusWorkspaceListContainer}
+              testID={`sidebar-status-group-tabs-${group.bucket}`}
+            >
+              {group.rows.map(({ project, workspace }) => (
+                <SidebarStatusProjectWorkspaceTabs
+                  key={`${group.bucket}:${workspace.workspaceKey}`}
+                  bucket={group.bucket}
+                  project={project}
+                  workspace={workspace}
+                  badgeMode={badgeMode}
+                  iconDataUri={projectIconByProjectKey.get(project.projectKey) ?? null}
+                  onWorkspacePress={onWorkspacePress}
+                />
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ))}
+    </>
+  );
+}
+
+function SidebarStatusProjectWorkspaceTabs({
+  bucket,
+  project,
+  workspace,
+  badgeMode,
+  iconDataUri,
+  onWorkspacePress,
+}: {
+  bucket: StatusBucket;
+  project: SidebarProjectEntry;
+  workspace: SidebarWorkspaceEntry;
+  badgeMode: SidebarBadgeMode;
+  iconDataUri: string | null;
+  onWorkspacePress?: () => void;
+}) {
+  const projectLine = useMemo(
+    () => ({
+      projectKey: project.projectKey,
+      projectName: project.projectName,
+      iconDataUri,
+    }),
+    [iconDataUri, project.projectKey, project.projectName],
+  );
+  return (
+    <SidebarVerticalWorkspaceTabs
+      workspace={workspace}
+      badgeMode={badgeMode}
+      statusBucketFilter={bucket}
+      projectLine={projectLine}
+      limitRecentTabs={false}
+      onWorkspacePress={onWorkspacePress}
+    />
+  );
+}
+
+function StatusTabGroupHeader({ bucket, collapsed }: { bucket: StatusBucket; collapsed: boolean }) {
+  const [isHovered, setIsHovered] = useState(false);
+  const toggleStatusGroupCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.toggleStatusGroupCollapsed,
+  );
+  const handlePress = useCallback(() => {
+    toggleStatusGroupCollapsed(bucket);
+  }, [bucket, toggleStatusGroupCollapsed]);
+  const handlePointerEnter = useCallback(() => setIsHovered(true), []);
+  const handlePointerLeave = useCallback(() => setIsHovered(false), []);
+  const rowStyle = useCallback(
+    ({ pressed }: PressableStateCallbackType) => [
+      styles.statusGroupRow,
+      isHovered && styles.statusGroupRowHovered,
+      pressed && styles.statusGroupRowPressed,
+    ],
+    [isHovered],
+  );
+  const accessibilityState = useMemo(() => ({ expanded: !collapsed }), [collapsed]);
+
+  return (
+    <View onPointerEnter={handlePointerEnter} onPointerLeave={handlePointerLeave}>
+      <Pressable
+        accessibilityRole={platformIsWeb ? undefined : "button"}
+        accessibilityLabel={`${STATUS_BUCKET_LABELS[bucket]} status group`}
+        accessibilityState={accessibilityState}
+        style={rowStyle}
+        onPress={handlePress}
+        testID={`sidebar-status-group-${bucket}`}
+      >
+        <View style={styles.statusGroupRowLeft}>
+          <View style={styles.statusGroupLeadingVisualSlot}>
+            <StatusTabGroupLeadingVisual
+              bucket={bucket}
+              collapsed={collapsed}
+              showChevron={isHovered}
+            />
+          </View>
+          <View style={styles.statusGroupTitleGroup}>
+            <Text style={styles.statusGroupTitle} numberOfLines={1}>
+              {STATUS_BUCKET_LABELS[bucket]}
+            </Text>
+          </View>
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
+function StatusTabGroupLeadingVisual({
+  bucket,
+  collapsed,
+  showChevron,
+}: {
+  bucket: StatusBucket;
+  collapsed: boolean;
+  showChevron: boolean;
+}) {
+  if (showChevron) {
+    return collapsed ? (
+      <ThemedChevronRight size={14} uniProps={foregroundMutedColorMapping} />
+    ) : (
+      <ThemedChevronDown size={14} uniProps={foregroundMutedColorMapping} />
+    );
+  }
+  switch (bucket) {
+    case "needs_input":
+      return <ThemedCircleAlert size={14} uniProps={amberColorMapping} />;
+    case "failed":
+      return <ThemedCircleX size={14} uniProps={redColorMapping} />;
+    case "attention":
+      return <ThemedCircleCheck size={14} uniProps={greenColorMapping} />;
+    case "running":
+      return <ThemedCircleDot size={14} uniProps={blueColorMapping} />;
+    case "done":
+      return <ThemedCircleCheck size={14} uniProps={foregroundMutedColorMapping} />;
+  }
 }
 
 function ProjectModeList({
@@ -5517,6 +6109,57 @@ const styles = StyleSheet.create((theme) => ({
   projectBlock: {
     marginBottom: theme.spacing[1],
   },
+  statusGroupBlock: {
+    marginBottom: theme.spacing[1],
+  },
+  statusWorkspaceListContainer: {},
+  statusGroupRow: {
+    minHeight: 36,
+    paddingVertical: theme.spacing[2],
+    paddingHorizontal: theme.spacing[2],
+    borderRadius: theme.borderRadius.lg,
+    marginBottom: theme.spacing[2],
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+    userSelect: "none",
+  },
+  statusGroupRowHovered: {
+    backgroundColor: theme.colors.surfaceSidebarHover,
+  },
+  statusGroupRowPressed: {
+    backgroundColor: theme.colors.surface2,
+  },
+  statusGroupRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    flex: 1,
+    minWidth: 0,
+  },
+  statusGroupLeadingVisualSlot: {
+    position: "relative",
+    width: theme.iconSize.md,
+    height: theme.iconSize.md,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusGroupTitleGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    flex: 1,
+    minWidth: 0,
+  },
+  statusGroupTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.normal,
+    minWidth: 0,
+    flexShrink: 1,
+  },
   workspaceListContainer: {},
   emptyContainer: {
     marginHorizontal: theme.spacing[2],
@@ -5587,6 +6230,23 @@ const styles = StyleSheet.create((theme) => ({
     width: "100%",
     height: "100%",
     borderRadius: theme.borderRadius.sm,
+  },
+  projectLineIcon: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 2,
+  },
+  projectLineIconFallback: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  projectLineIconFallbackText: {
+    fontSize: 6,
+    lineHeight: 8,
+    fontWeight: theme.fontWeight.medium,
   },
   projectLeadingVisualSlot: {
     position: "relative",
