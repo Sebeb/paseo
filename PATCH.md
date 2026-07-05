@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: ca90c5fc633c57b2452e6b0185e5b44895698637 — feat(app): add sidebar tab hover cards
+Anchor commit: 2ceaf532b1cca8793e206e1b7ecd4f024b7515e2 — feat(sidebar): group workspace tabs by status
 
 ## Purpose
 
@@ -46,6 +46,7 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Distinguishes ancestor highlighting from direct selection so active project/workspace ancestors use a quieter row background while the selected embedded tab keeps the stronger selected treatment.
 - Shows created and updated timestamps in workspace hover cards, using absolute creation time and recent-or-absolute activity time.
 - Extracts shared desktop-only `InfoHoverCard` positioning/safe-zone behavior so workspace and embedded-tab cards use the same portal surface.
+- In sidebar tab layout, status grouping now groups embedded workspace tabs by their tab status bucket, renders matching project subtitles/icons under each tab row, and filters each embedded workspace tree to the status group being shown.
 
 ## Restored Main Polish
 
@@ -693,11 +694,11 @@ Adds data needed by sort and visibility decisions:
 - Otherwise, the newest non-archived root agent in the workspace can promote the row to `needs_input`, `failed`, `attention`, or `running` via `deriveSidebarStateBucket`.
 - Subagents do not contribute directly to this workspace row activity calculation because workspace-level status is keyed to root agent activity.
 
-#### `sortSidebarWorkspaceProjects({ projects, sortMode })`
+#### `sortSidebarWorkspaces({ workspaces, sortMode })`
 
-Sorts workspaces within each project:
+Sorts a readonly workspace list and returns a fresh array:
 
-- `"manual"` returns the original `projects` array by identity.
+- `"manual"` returns a shallow copy in existing order.
 - `"created"` sorts by `createdAt` descending.
 - `"lastUpdated"` sorts by `activityAt ?? createdAt ?? statusEnteredAt` descending.
 - `"status"` sorts by urgency rank first, then the same last-updated timestamp descending, then workspace name.
@@ -713,6 +714,10 @@ Workspace status urgency rank:
 | `done`        | 4    |
 
 Name tiebreaking uses `localeCompare` with `{ numeric: true, sensitivity: "base" }`, then falls back to `workspaceKey`.
+
+#### `sortSidebarWorkspaceProjects({ projects, sortMode })`
+
+Sorts workspaces within each project by delegating to `sortSidebarWorkspaces`. In manual mode it returns the original `projects` array by identity so persisted drag order remains the source of truth.
 
 #### `useSidebarWorkspacesList(...)`
 
@@ -827,6 +832,52 @@ Key behavior:
 - Tracks the last auto-revealed workspace key to avoid repeatedly rewriting collapsed-section state for the same active workspace.
 - Uses a three-state row highlight model (`"idle"`, `"active"`, `"selected"`) so project/workspace ancestors can show a subdued active background while directly selected rows and embedded active tabs keep the stronger selected background.
 
+#### Status-mode embedded tab grouping
+
+When the sidebar grouping mode is status and `settings.tabLayoutMode === "sidebar"`, the status view renders embedded tab groups instead of one workspace row per status bucket.
+
+Supporting types:
+
+```ts
+interface EmbeddedTabProjectLine {
+  projectKey: string;
+  projectName: string;
+  iconDataUri: string | null;
+}
+
+interface StatusTabWorkspaceRow {
+  project: SidebarProjectEntry;
+  workspace: SidebarWorkspaceEntry;
+}
+
+interface StatusTabWorkspaceGroup {
+  bucket: StatusBucket;
+  rows: StatusTabWorkspaceRow[];
+}
+```
+
+`resolveStatusBucketFromTabSummary(summary)` scans `STATUS_BUCKET_ORDER` and returns the first bucket whose summary count is non-zero, falling back to `"done"`.
+
+`buildEmbeddedSidebarTabItems({ mainPane, panes, uiTabs, agents })` is the shared item builder for normal embedded tab rendering and status-tab grouping. It includes every main-pane tab, plus the active tab from each secondary pane. Main-pane rows are marked `mainPane: true`; secondary-pane active rows are force-shown and marked `mainPane: false`.
+
+`useSidebarStatusTabWorkspaceGroups({ projects, serverId })`:
+
+- Reads workspace layouts, agents, queued messages, pending draft creates, setup snapshots, browser state, active draft inputs, parent-tab expansion state, and per-server embedded tab sort mode.
+- For each workspace with a persisted layout, builds embedded tab items, computes `SidebarTabStatusSummary` for each item, sorts them with `sortSidebarTabItems`, builds parent/child tree rows with `buildSidebarEmbeddedTabTreeRows`, and assigns each tree row to a status bucket from its aggregate summary.
+- Sorts candidates inside each bucket with the current tab sort mode unless that mode is manual.
+- De-duplicates bucket rows by `workspace.workspaceKey`, so a workspace appears once per status bucket even when multiple tabs in that workspace have the same bucket.
+- Emits groups in `STATUS_BUCKET_ORDER`, omitting empty buckets.
+
+`SidebarStatusTabList` renders these groups in a scroll container. Native uses `NestableScrollContainer`; web uses `ScrollView`. Each group uses `StatusTabGroupHeader`, which toggles `collapsedStatusGroupKeys` in `useSidebarCollapsedSectionsStore`, exposes `accessibilityState.expanded`, shows the bucket-specific status icon at rest, and swaps to a chevron while hovered.
+
+`SidebarStatusProjectWorkspaceTabs` renders `SidebarVerticalWorkspaceTabs` for a workspace inside one status bucket with:
+
+- `statusBucketFilter` set to the group bucket.
+- `projectLine` set to the workspace's project key/name/icon data.
+- `limitRecentTabs={false}` so a status bucket shows every matching embedded tab instead of applying the recent-tab limit.
+
+`ProjectLineIcon` renders the project icon at 10 px in embedded tab subtitles. It uses the real project icon when available and otherwise falls back to `projectIconPlaceholderLabelFromDisplayName(projectName)`.
+
 #### `useSidebarTabStatusSummaries`
 
 Now also reads `queuedMessages` from the session store and `draftInputsByKey` from the draft store, passing both into `summarizeSidebarTabs`. This enables queued-message badges and draft-text propagation in workspace-level status summaries.
@@ -877,9 +928,11 @@ Implementation details:
 - Computes per-tab status summaries through `summarizeSidebarTabs`.
 - Sorts with `sortSidebarTabItems`.
 - Converts the sorted rows into a visible tree with `buildSidebarEmbeddedTabTreeRows`.
-- Applies `applyRecentTreeRowCount`, which limits visible rows by top-level tree position but force-includes pinned/active rows.
+- Optionally filters tree rows by `statusBucketFilter`, using the aggregate row summary to decide which bucket a row belongs to.
+- Applies `useVisibleEmbeddedTabRows`, which wraps `applyRecentTreeRowCount` and limits visible rows by top-level tree position while force-including pinned/active rows. The limit is skipped when `limitRecentTabs` is false or the user has toggled "show all".
 - Persists parent expansion state through `useSidebarCollapsedSectionsStore(...expandedParentTabKeys...)`.
 - Uses `useWorkspaceTabClose` with both `orderedTabIds` and `parentTabIdByTabId`.
+- Disables manual drag sorting whenever a status bucket filter is active, even if the configured tab sort mode is `"manual"`, because filtered status groups are derived views rather than reorderable main-pane lists.
 
 #### `EmbeddedWorkspaceTabRow`
 
@@ -887,6 +940,7 @@ Implementation details:
 - Indents descendant rows by `24 + depth * 16`.
 - In diff mode, shows the highest-priority status as the leading overlay badge.
 - In status mode, renders subtree badges in the trailing slot using the row's aggregate `statusSummary`.
+- When `projectLine` is provided, shows the project name as the row subtitle and the 10 px project icon/fallback initial before that subtitle.
 - Shows kebab + close controls on hover/native/compact layouts.
 - Supports middle-click close on web by attaching an `auxclick` handler directly to the row element.
 - Allows drag handles only for depth-0 main-pane rows in manual mode.
@@ -934,10 +988,15 @@ Changes:
 
 ### `packages/app/src/components/sidebar/sidebar-status-list.tsx`
 
-The status-group list now wraps workspace rows with a `ContextMenu` and shows a `StatusWorkspaceContextMenuContent` panel.
+The status-group list renders workspace rows grouped by `StatusBucket`. It is used for status grouping when the app is not in sidebar tab layout; sidebar tab layout uses `SidebarStatusTabList` from `sidebar-workspace-list.tsx` instead.
 
 Changes:
 
+- `SidebarStatusWorkspaceList` takes `workspaceSortMode` instead of project names and builds groups with `buildStatusGroups(workspaces, workspaceSortMode)`.
+- The row props include `badgeMode` and a per-workspace `SidebarTabStatusSummary`.
+- In status badge mode, status summary badges can occupy the trailing slot for a row and suppress the workspace row's normal status loader/visual so the summary is not duplicated.
+- In diff badge mode, workspace diff stats continue to occupy the trailing slot when there is no higher-priority shortcut, menu, status summary, or VC operation badge.
+- Pending checkout/branch operation badges still have priority over diff and status metadata, unless a shortcut or visible status summary has already claimed the slot.
 - `StatusWorkspaceRowWithMenu` changed from a `<>` fragment to a `<ContextMenu>` wrapper.
 - The inner `<Pressable>` in `StatusWorkspaceRowInner` was replaced with `<ContextMenuTrigger>`.
 - Added `StatusWorkspaceContextMenuContent` — a `ContextMenuContent` component with the same menu items as the kebab `StatusKebabMenu`:
@@ -946,6 +1005,50 @@ Changes:
   - Rename workspace.
   - Mark as read (when handler present).
   - Archive (always, with shortcut badge when workspace is selected).
+
+### `packages/app/src/components/sidebar/sidebar-entry-row.tsx`
+
+`SidebarEntryRowContent` now accepts `subtitleLeading?: ReactNode`.
+
+Behavior:
+
+- When `subtitle` is present, the subtitle is rendered inside a horizontal row.
+- `subtitleLeading` renders in a fixed 10 x 10 slot before the subtitle text.
+- The subtitle text keeps single-line truncation with `ellipsizeMode="tail"`.
+- Callers without `subtitleLeading` keep the previous subtitle layout.
+
+Status badge exports in the same file continue to provide shared row badge rendering through `SidebarEntryStatusBadges`, `SidebarEntryPrimaryStatusBadge`, and `SidebarEntryStatusBadge`.
+
+### `packages/app/src/hooks/sidebar-status-view-model.ts`
+
+`buildStatusGroups(workspaces, sortMode)` groups rows by `STATUS_BUCKET_ORDER` and sorts rows within each bucket through `sortSidebarWorkspaces({ workspaces: rows, sortMode })`.
+
+Behavior:
+
+- Manual mode preserves the supplied workspace order inside each status bucket.
+- Created, last-updated, and status modes reuse the same sorting rules as project-grouped sidebar workspaces.
+- Project-name tie-breaking was removed from status grouping; final ties are workspace name, then workspace key through the shared workspace comparator.
+
+`buildStatusShortcutIndex(groups)` is unchanged and assigns shortcuts in visible status-group order.
+
+### `packages/app/src/utils/sidebar-shortcuts.ts`
+
+`buildStatusSidebarShortcutModel` now takes:
+
+```ts
+interface BuildStatusSidebarShortcutModelInput {
+  workspaces: SidebarWorkspaceEntry[];
+  workspaceSortMode: SidebarWorkspaceSortMode;
+  collapsedStatusGroupKeys?: ReadonlySet<string>;
+  shortcutLimit?: number;
+}
+```
+
+It passes `workspaceSortMode` to `buildStatusGroups`, so keyboard shortcuts for status grouping follow the same per-bucket ordering visible in the sidebar.
+
+### `packages/app/src/screens/workspace/workspace-shortcut-targets-subscriber.tsx`
+
+The shortcut target subscriber now reads the per-server workspace sort mode from `useSidebarViewStore` and passes it into `buildStatusSidebarShortcutModel` when sidebar grouping is status. This keeps numeric shortcut targets aligned with manual/created/last-updated/status ordering.
 
 ## Workspace Layout And Navigation Store Changes
 
@@ -1332,8 +1435,10 @@ New and updated tests include:
 - `packages/app/src/stores/workspace-layout-store.test.ts`
 - `packages/app/src/utils/sidebar-active-ancestor-highlight.test.ts`
 - `packages/app/src/utils/sidebar-embedded-tab-tree.test.ts`
+- `packages/app/src/hooks/sidebar-status-view-model.test.ts`
 - `packages/app/src/utils/sidebar-tab-sort.test.ts`
 - `packages/app/src/utils/sidebar-tab-status-summary.test.ts`
+- `packages/app/src/utils/sidebar-shortcuts.test.ts`
 - `packages/app/src/workspace-tabs/agent-visibility.test.ts`
 - `packages/app/src/workspace-tabs/tab-navigation.test.ts`
 - `packages/app/src/screens/workspace/workspace-tab-close-tree.test.ts`
