@@ -2963,9 +2963,7 @@ export class Session {
   ): Promise<void> {
     let branchAgentId: string | null = null;
     try {
-      const { sourceAgent, sourcePersistence, sourceRecord } = await this.resolveAgentBranchSource(
-        msg.agentId,
-      );
+      const { sourceAgent, sourceRecord } = await this.resolveAgentBranchSource(msg.agentId);
       const existingMembership = this.findBranchMembershipForMessage(sourceRecord, msg.messageId);
       const groupId = existingMembership?.groupId ?? uuidv4();
       const existingGroups = await this.listBranchGroupsForAgent(sourceAgent.id, groupId);
@@ -2976,17 +2974,31 @@ export class Session {
         : 2;
       const createdAt = new Date().toISOString();
 
-      const branchAgent = await this.agentManager.resumeAgentFromPersistence(
-        sourcePersistence,
-        sourceAgent.config,
-        undefined,
-        {
-          labels: sourceAgent.labels,
-          workspaceId: sourceAgent.workspaceId,
-        },
-      );
+      // Fork on the SOURCE agent: it is the only session that can resolve
+      // the branch-point message. The fork yields a brand-new provider
+      // session, so the branch never shares native state with the source
+      // (archiving one cannot archive the other). A null handle means the
+      // branch point is the first user message — start a fresh conversation.
+      const forkedHandle = await this.agentManager.forkConversation(sourceAgent.id, msg.messageId);
+      const branchOptions = {
+        labels: sourceAgent.labels,
+        workspaceId: sourceAgent.workspaceId,
+      };
+      const branchAgent = forkedHandle
+        ? await this.agentManager.resumeAgentFromPersistence(
+            forkedHandle,
+            sourceAgent.config,
+            undefined,
+            branchOptions,
+          )
+        : await this.agentManager.createAgent(sourceAgent.config, undefined, branchOptions);
       branchAgentId = branchAgent.id;
-      await this.agentManager.rewind(branchAgent.id, msg.messageId, "conversation");
+      if (forkedHandle) {
+        await this.agentManager.hydrateTimelineFromProvider(branchAgent.id, {
+          force: true,
+          broadcast: true,
+        });
+      }
 
       const latestSourceRecord = (await this.agentStorage.get(sourceAgent.id)) ?? sourceRecord;
       const sourceBranching = this.normalizeBranchingMetadata(latestSourceRecord.branching);

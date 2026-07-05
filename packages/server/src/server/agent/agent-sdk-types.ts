@@ -609,6 +609,17 @@ export interface AgentPermissionResult {
   followUpPrompt?: AgentPromptInput;
 }
 
+export interface AgentConversationTargetInput {
+  messageId: string;
+  /**
+   * 1-based position of the target among the conversation's visible user
+   * messages, computed from the durable timeline. Providers whose message
+   * ids are not stable across sessions (e.g. Codex thread reads return
+   * id-less user items) fall back to this when messageId cannot be resolved.
+   */
+  userTurnOrdinal?: number | null;
+}
+
 export interface AgentSession {
   readonly provider: AgentProvider;
   readonly id: string | null;
@@ -635,9 +646,16 @@ export interface AgentSession {
   setThinkingOption?(thinkingOptionId: string | null): Promise<void | AgentProviderNotice>;
   setFeature?(featureId: string, value: unknown): Promise<void>;
   getNativeTitle?(): Promise<string | null>;
-  revertConversation?(input: { messageId: string }): Promise<void>;
+  revertConversation?(input: AgentConversationTargetInput): Promise<void>;
   revertFiles?(input: { messageId: string }): Promise<void>;
-  revertBoth?(input: { messageId: string }): Promise<void>;
+  revertBoth?(input: AgentConversationTargetInput): Promise<void>;
+  /**
+   * Fork the conversation at a prior user message into a NEW provider
+   * session without mutating this session's state. Returns the persistence
+   * handle of the forked session, or null when the fork point is the first
+   * user message (the branch starts as a fresh conversation with no history).
+   */
+  forkConversation?(input: AgentConversationTargetInput): Promise<AgentPersistenceHandle | null>;
   /**
    * Out-of-band prompt handler. When non-null, the manager runs the returned
    * handler instead of allocating a turn. The handler emits stream events

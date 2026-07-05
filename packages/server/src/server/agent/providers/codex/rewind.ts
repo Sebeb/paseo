@@ -40,25 +40,55 @@ async function rollbackCodexThread(
   return parseCodexThreadRollbackResponse(await client.request("thread/rollback", params));
 }
 
-export async function revertCodexConversation(input: {
+function resolveCodexTargetTurnIndex(input: {
+  messageId: string;
+  userTurnOrdinal?: number | null;
+  userMessageTurns: CodexUserMessageTurnIndex;
+}): number {
+  const resolved = input.userMessageTurns.resolve(input.messageId);
+  if (resolved !== null) {
+    return resolved;
+  }
+  // Codex item ids only live inside the app-server process that minted them;
+  // thread reads return id-less user items. Fall back to the durable
+  // timeline's 1-based user-turn position when the id cannot be resolved.
+  const ordinal = input.userTurnOrdinal;
+  const count = input.userMessageTurns.count();
+  if (
+    typeof ordinal === "number" &&
+    Number.isInteger(ordinal) &&
+    ordinal >= 1 &&
+    ordinal <= count
+  ) {
+    return ordinal - 1;
+  }
+  throw new Error(`Codex could not find user message ${input.messageId} in the current thread`);
+}
+
+export interface ForkCodexConversationInput {
   client: CodexRewindClient;
   threadId: string | null;
   messageId: string;
+  userTurnOrdinal?: number | null;
   cwd?: string | null;
   model?: string | null;
   serviceTier?: string | null;
   userMessageTurns: CodexUserMessageTurnIndex;
-  setThreadId: (threadId: string) => void | Promise<void>;
-}): Promise<void> {
+}
+
+/**
+ * Fork the thread and roll the fork back to just before the target user
+ * message. The source thread is untouched; the caller decides whether to
+ * adopt the returned thread id (rewind) or hand it to a new agent (branch).
+ */
+export async function forkCodexConversation(
+  input: ForkCodexConversationInput,
+): Promise<{ threadId: string; numTurns: number }> {
   if (!input.threadId) {
     throw new Error("Codex thread is not ready for rewind");
   }
 
-  const targetTurnIndex = input.userMessageTurns.resolve(input.messageId);
-  if (targetTurnIndex === null) {
-    throw new Error(`Codex could not find user message ${input.messageId} in the current thread`);
-  }
-
+  const targetTurnIndex = resolveCodexTargetTurnIndex(input);
   const currentUserTurnCount = input.userMessageTurns.count();
   const numTurns = currentUserTurnCount - targetTurnIndex;
   if (numTurns < 0) {
@@ -83,5 +113,14 @@ export async function revertCodexConversation(input: {
     threadId: forkedThreadId,
     numTurns,
   });
-  await input.setThreadId(rolledBack.thread.id);
+  return { threadId: rolledBack.thread.id, numTurns };
+}
+
+export async function revertCodexConversation(
+  input: ForkCodexConversationInput & {
+    setThreadId: (threadId: string) => void | Promise<void>;
+  },
+): Promise<void> {
+  const forked = await forkCodexConversation(input);
+  await input.setThreadId(forked.threadId);
 }

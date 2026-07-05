@@ -9,6 +9,7 @@ import type {
 import {
   type CodexUserMessageTurnIndex,
   type CodexRewindClient,
+  forkCodexConversation,
   revertCodexConversation,
 } from "./rewind.js";
 
@@ -146,5 +147,73 @@ describe("Codex Rewind", () => {
     ).rejects.toThrow("Codex could not find user message missing-message");
     expect(codex.recordedForks).toEqual([]);
     expect(codex.recordedRollbacks).toEqual([]);
+  });
+
+  test("falls back to the durable user-turn ordinal when the message id cannot be resolved", async () => {
+    const codex = new FakeCodex();
+    // Simulates a thread read on a resumed agent: user items came back
+    // id-less, so the index only holds positional placeholders.
+    const userMessageTurns = new CodexMessageTurns(
+      new Map([
+        ["codex-history-user-turn-1", 0],
+        ["codex-history-user-turn-2", 1],
+        ["codex-history-user-turn-3", 2],
+      ]),
+    );
+    let reboundThreadId: string | null = null;
+
+    await revertCodexConversation({
+      client: codex,
+      threadId: "source-thread",
+      messageId: "live-id-from-previous-process",
+      userTurnOrdinal: 2,
+      userMessageTurns,
+      setThreadId: (threadId) => {
+        reboundThreadId = threadId;
+      },
+    });
+
+    expect(codex.recordedRollbacks).toEqual([{ threadId: "forked-thread", numTurns: 2 }]);
+    expect(reboundThreadId).toBe("forked-thread");
+  });
+
+  test("rejects an ordinal fallback outside the thread's user-turn range", async () => {
+    const codex = new FakeCodex();
+    const userMessageTurns = new CodexMessageTurns(new Map([["codex-history-user-turn-1", 0]]));
+
+    await expect(
+      revertCodexConversation({
+        client: codex,
+        threadId: "source-thread",
+        messageId: "missing-message",
+        userTurnOrdinal: 5,
+        userMessageTurns,
+        setThreadId: () => undefined,
+      }),
+    ).rejects.toThrow("Codex could not find user message missing-message");
+    expect(codex.recordedForks).toEqual([]);
+  });
+
+  test("forks the conversation without mutating the source thread", async () => {
+    const codex = new FakeCodex();
+    const userMessageTurns = new CodexMessageTurns(
+      new Map([
+        ["codex-first", 0],
+        ["codex-second", 1],
+        ["codex-third", 2],
+      ]),
+    );
+
+    const forked = await forkCodexConversation({
+      client: codex,
+      threadId: "source-thread",
+      messageId: "codex-second",
+      userMessageTurns,
+    });
+
+    expect(codex.recordedForks).toHaveLength(1);
+    expect(codex.recordedForks[0]?.threadId).toBe("source-thread");
+    expect(codex.recordedRollbacks).toEqual([{ threadId: "forked-thread", numTurns: 2 }]);
+    expect(forked).toEqual({ threadId: "forked-thread", numTurns: 2 });
   });
 });

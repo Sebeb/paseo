@@ -257,14 +257,38 @@ interface PersistedTimelineEntry {
   timestamp?: string;
 }
 
-interface ClaudeRewindTurnAnchor {
+export interface ClaudeRewindTurnAnchor {
   userMessageId: string;
   assistantMessageId: string | null;
 }
 
-type ClaudeConversationRewindTarget =
+export type ClaudeConversationRewindTarget =
   | { kind: "fresh-session" }
   | { kind: "fork"; messageId: string };
+
+export function resolveClaudeConversationForkTarget(
+  anchors: readonly ClaudeRewindTurnAnchor[],
+  targetUserMessageId: string,
+): ClaudeConversationRewindTarget {
+  const index = anchors.findIndex((anchor) => anchor.userMessageId === targetUserMessageId);
+  if (index < 0) {
+    throw new Error(
+      `Claude rewind target ${targetUserMessageId} is not in the tracked conversation`,
+    );
+  }
+
+  // The fork point is the last assistant message observed before the target
+  // user message. Turns interrupted before any assistant output leave a null
+  // anchor — walk back past them; their user message had no response, so
+  // there is nothing to preserve from that turn.
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const assistantMessageId = anchors[cursor]?.assistantMessageId;
+    if (assistantMessageId) {
+      return { kind: "fork", messageId: assistantMessageId };
+    }
+  }
+  return { kind: "fresh-session" };
+}
 
 const CLAUDE_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: true,
@@ -1348,6 +1372,45 @@ function isSyntheticHistoryUserEntry(entry: Record<string, unknown>): boolean {
   return isSyntheticUserEntry(entry) && !isToolResultUserEntry(entry);
 }
 
+const LOCAL_COMMAND_TAG_PREFIXES = [
+  "<command-name>",
+  "<command-message>",
+  "<local-command-stdout>",
+  "<local-command-caveat>",
+] as const;
+
+/**
+ * Local CLI command records (`/model`, `/clear`, ...) are stored as plain
+ * user entries without isMeta/isSynthetic flags. They are not conversation
+ * turns: no assistant response follows them, so treating them as rewind
+ * anchors poisons turn-boundary resolution.
+ */
+export function isLocalCommandUserEntry(entry: unknown): boolean {
+  const candidate = toObjectRecord(entry);
+  if (!candidate) {
+    return false;
+  }
+  const message = toObjectRecord(candidate.message);
+  const content = message?.content;
+  let firstText: string | null = null;
+  if (typeof content === "string") {
+    firstText = content;
+  } else if (Array.isArray(content)) {
+    for (const block of content) {
+      const record = toObjectRecord(block);
+      if (record?.type === "text" && typeof record.text === "string") {
+        firstText = record.text;
+        break;
+      }
+    }
+  }
+  if (!firstText) {
+    return false;
+  }
+  const trimmed = firstText.trimStart();
+  return LOCAL_COMMAND_TAG_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+}
+
 function firstTrimmedString(sources: readonly unknown[]): string | null {
   for (const source of sources) {
     const value = readTrimmedString(source);
@@ -2418,6 +2481,11 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   async revertConversation(input: { messageId: string }): Promise<void> {
+    // Claude message ids are transcript uuids and stable across restarts, so
+    // id resolution is authoritative; the positional userTurnOrdinal fallback
+    // is intentionally not used here (durable-timeline user rows include
+    // slash-command records that are not rewind anchors, so positions would
+    // not line up).
     const target = this.resolveConversationRewindTarget(input.messageId);
     if (target.kind === "fresh-session") {
       this.startFreshConversationSession();
@@ -2432,6 +2500,27 @@ class ClaudeAgentSession implements AgentSession {
         this.rebindConversationSession(sessionId);
       },
     });
+  }
+
+  async forkConversation(input: { messageId: string }): Promise<AgentPersistenceHandle | null> {
+    const target = this.resolveConversationRewindTarget(input.messageId);
+    if (target.kind === "fresh-session") {
+      // Branching from the first user message: the branch starts as a fresh
+      // conversation, there is no provider session to hand over.
+      return null;
+    }
+    if (!this.claudeSessionId) {
+      throw new Error("Claude session is not ready for branching");
+    }
+    const fork = await realClaudeRewindSdk.forkSession(this.claudeSessionId, {
+      upToMessageId: target.messageId,
+    });
+    return {
+      provider: "claude",
+      sessionId: fork.sessionId,
+      nativeHandle: fork.sessionId,
+      metadata: { ...this.config },
+    };
   }
 
   async revertFiles(input: { messageId: string }): Promise<void> {
@@ -2701,7 +2790,8 @@ class ClaudeAgentSession implements AgentSession {
     if (
       message.type === "user" &&
       !isSyntheticUserEntry(message) &&
-      !isToolResultUserEntry(message)
+      !isToolResultUserEntry(message) &&
+      !isLocalCommandUserEntry(message)
     ) {
       this.rememberRewindUserAnchor(messageId);
       return;
@@ -2725,25 +2815,10 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   private resolveConversationRewindTarget(messageId: string): ClaudeConversationRewindTarget {
-    const targetUserMessageId = this.resolveClaudeMessageId(messageId);
-    const index = this.rewindTurnAnchors.findIndex(
-      (anchor) => anchor.userMessageId === targetUserMessageId,
+    return resolveClaudeConversationForkTarget(
+      this.rewindTurnAnchors,
+      this.resolveClaudeMessageId(messageId),
     );
-    if (index < 0) {
-      throw new Error(`Claude rewind target ${messageId} is not in the tracked conversation`);
-    }
-
-    if (index === 0) {
-      return { kind: "fresh-session" };
-    }
-
-    const previousTurn = this.rewindTurnAnchors[index - 1];
-    if (!previousTurn?.assistantMessageId) {
-      throw new Error(
-        `Claude rewind cannot preserve turn ${index} because its assistant response id was not observed`,
-      );
-    }
-    return { kind: "fork", messageId: previousTurn.assistantMessageId };
   }
 
   private async ensureQuery(): Promise<Query> {
@@ -4217,7 +4292,8 @@ class ClaudeAgentSession implements AgentSession {
       entry.type === "user" &&
       typeof entry.uuid === "string" &&
       !isSyntheticHistoryUserEntry(entry) &&
-      !isToolResultUserEntry(entry);
+      !isToolResultUserEntry(entry) &&
+      !isLocalCommandUserEntry(entry);
     if (isVisibleUserEntry && typeof entry.uuid === "string") {
       this.rememberUserMessageId(entry.uuid);
       this.rememberRewindUserAnchor(entry.uuid);

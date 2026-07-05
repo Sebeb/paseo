@@ -2187,6 +2187,60 @@ export class AgentManager {
     await this.hydrateTimelineFromLegacyProviderHistory(agent, options);
   }
 
+  /**
+   * 1-based position of messageId among the visible user messages in the
+   * agent's durable timeline. Used as a positional fallback for providers
+   * whose message ids are not stable across sessions.
+   */
+  private async resolveUserTurnOrdinal(agentId: string, messageId: string): Promise<number | null> {
+    const rows = await this.getTimelineRows(agentId);
+    let ordinal = 0;
+    for (const row of rows) {
+      if (row.item.type !== "user_message") {
+        continue;
+      }
+      ordinal += 1;
+      if (row.item.messageId === messageId) {
+        return ordinal;
+      }
+    }
+    return null;
+  }
+
+  async forkConversation(
+    agentId: string,
+    messageId: string,
+  ): Promise<AgentPersistenceHandle | null> {
+    const agent = this.requireSessionAgent(agentId);
+    if (!agent.session.forkConversation) {
+      throw new Error(`Provider '${agent.provider}' does not support conversation branching`);
+    }
+    const userTurnOrdinal = await this.resolveUserTurnOrdinal(agentId, messageId);
+    this.logger.info(
+      { agentId, provider: agent.provider, messageId, userTurnOrdinal },
+      "agent.fork_conversation.start",
+    );
+    try {
+      const handle = await agent.session.forkConversation({ messageId, userTurnOrdinal });
+      this.logger.info(
+        {
+          agentId,
+          provider: agent.provider,
+          messageId,
+          forkedSessionId: handle?.sessionId ?? null,
+        },
+        "agent.fork_conversation.complete",
+      );
+      return handle;
+    } catch (error) {
+      this.logger.warn(
+        { err: error, agentId, provider: agent.provider, messageId, userTurnOrdinal },
+        "agent.fork_conversation.failed",
+      );
+      throw error;
+    }
+  }
+
   async rewind(agentId: string, messageId: string, mode: RewindMode): Promise<void> {
     const agent = this.requireSessionAgent(agentId);
     const hadActiveRun =
@@ -2201,7 +2255,9 @@ export class AgentManager {
         { agentId, provider: agent.provider, messageId, mode },
         "agent.rewind.start",
       );
-      await invokeRewindCapability(agent.session, { messageId, mode });
+      const userTurnOrdinal =
+        mode === "files" ? null : await this.resolveUserTurnOrdinal(agentId, messageId);
+      await invokeRewindCapability(agent.session, { messageId, mode, userTurnOrdinal });
       if (mode !== "files") {
         await this.hydrateTimelineFromProvider(agentId, { force: true, broadcast: true });
       }
