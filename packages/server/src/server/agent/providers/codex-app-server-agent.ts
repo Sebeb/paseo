@@ -763,6 +763,7 @@ function expandCodexCustomPrompt(template: string, args: string | undefined): st
 }
 
 type CodexMcpServerConfig = Record<string, unknown>;
+const CODEX_MCP_NUMBER_FIELDS = new Set(["startup_timeout_sec", "tool_timeout_sec"]);
 
 function toCodexMcpConfig(config: McpServerConfig): CodexMcpServerConfig {
   switch (config.type) {
@@ -789,6 +790,35 @@ function toCodexMcpConfig(config: McpServerConfig): CodexMcpServerConfig {
   }
 }
 
+function normalizeCodexConfiguredMcpServerConfig(
+  name: string,
+  config: Record<string, unknown>,
+  logger: Logger,
+): CodexMcpServerConfig {
+  const normalized: CodexMcpServerConfig = { ...config };
+
+  for (const field of CODEX_MCP_NUMBER_FIELDS) {
+    const value = normalized[field];
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const numberValue = Number(value.trim());
+    if (Number.isFinite(numberValue)) {
+      normalized[field] = numberValue;
+      continue;
+    }
+
+    delete normalized[field];
+    logger.debug(
+      { mcpServerName: name, field, value },
+      "Dropped invalid numeric Codex MCP server field from merged config",
+    );
+  }
+
+  return normalized;
+}
+
 async function readCodexConfiguredMcpServers(
   client: CodexAppServerClient,
   logger: Logger,
@@ -805,7 +835,7 @@ async function readCodexConfiguredMcpServers(
     for (const [name, serverConfig] of Object.entries(mcpServers)) {
       const record = toObjectRecord(serverConfig);
       if (record) {
-        result[name] = record;
+        result[name] = normalizeCodexConfiguredMcpServerConfig(name, record, logger);
       }
     }
     return result;
