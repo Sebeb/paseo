@@ -77,7 +77,11 @@ import {
   type CodexThreadRollbackResponse,
   type CodexAppServerTraceContext,
 } from "./codex/app-server-transport.js";
-import { type CodexUserMessageTurnIndex, revertCodexConversation } from "./codex/rewind.js";
+import {
+  type CodexUserMessageTurnIndex,
+  forkCodexConversation,
+  revertCodexConversation,
+} from "./codex/rewind.js";
 import {
   materializeProviderImage,
   renderProviderImageOutputAsAssistantMarkdown,
@@ -3249,9 +3253,16 @@ export class CodexAppServerAgentSession implements AgentSession {
       },
     });
     this.resetCodexUserMessageTurns();
+    let userTurnPosition = 0;
     for (const entry of timeline) {
       if (entry.item.type === "user_message") {
-        this.rememberCodexUserMessageTurn(entry.item.messageId);
+        userTurnPosition += 1;
+        // Thread reads return id-less user items; keep a deterministic
+        // placeholder so positional (ordinal) rewind resolution still sees
+        // every user turn.
+        this.rememberCodexUserMessageTurn(
+          entry.item.messageId ?? `codex-history-user-turn-${userTurnPosition}`,
+        );
       }
     }
     if (timeline.length > 0) {
@@ -3863,7 +3874,10 @@ export class CodexAppServerAgentSession implements AgentSession {
     };
   }
 
-  async revertConversation(input: { messageId: string }): Promise<void> {
+  async revertConversation(input: {
+    messageId: string;
+    userTurnOrdinal?: number | null;
+  }): Promise<void> {
     await this.connect();
     if (!this.client) {
       throw new Error("Codex client is not initialized");
@@ -3878,6 +3892,7 @@ export class CodexAppServerAgentSession implements AgentSession {
       client: this.client,
       threadId: this.currentThreadId,
       messageId: input.messageId,
+      userTurnOrdinal: input.userTurnOrdinal,
       cwd: this.config.cwd ?? null,
       model: this.config.model ?? null,
       serviceTier: this.serviceTier,
@@ -3890,6 +3905,42 @@ export class CodexAppServerAgentSession implements AgentSession {
         await this.loadPersistedHistory();
       },
     });
+  }
+
+  async forkConversation(input: {
+    messageId: string;
+    userTurnOrdinal?: number | null;
+  }): Promise<AgentPersistenceHandle | null> {
+    await this.connect();
+    if (!this.client) {
+      throw new Error("Codex client is not initialized");
+    }
+    if (!this.currentThreadId) {
+      throw new Error("Codex thread is not ready for branching");
+    }
+    await this.ensureThreadLoaded();
+
+    const forked = await forkCodexConversation({
+      client: this.client,
+      threadId: this.currentThreadId,
+      messageId: input.messageId,
+      userTurnOrdinal: input.userTurnOrdinal,
+      cwd: this.config.cwd ?? null,
+      model: this.config.model ?? null,
+      serviceTier: this.serviceTier,
+      userMessageTurns: this.codexUserMessageTurns(),
+    });
+
+    const base = this.describePersistence();
+    return {
+      provider: CODEX_PROVIDER,
+      sessionId: forked.threadId,
+      nativeHandle: forked.threadId,
+      metadata: {
+        ...base?.metadata,
+        threadId: forked.threadId,
+      },
+    };
   }
 
   async interrupt(): Promise<void> {

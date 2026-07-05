@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 
+import { isLocalCommandUserEntry, resolveClaudeConversationForkTarget } from "./agent.js";
 import {
   revertClaudeConversation,
   revertClaudeConversationAndFiles,
@@ -85,5 +86,107 @@ describe("Claude rewind", () => {
     expect(claude.recordedFileRewinds).toEqual([{ userMessageId: "user-message-1" }]);
     expect(claude.recordedForks).toEqual([{ upToMessageId: "user-message-1" }]);
     expect(sessionId).toBe("forked-before-rehydrate");
+  });
+});
+
+describe("resolveClaudeConversationForkTarget", () => {
+  test("forks at the previous turn's assistant message", () => {
+    const target = resolveClaudeConversationForkTarget(
+      [
+        { userMessageId: "user-1", assistantMessageId: "assistant-1" },
+        { userMessageId: "user-2", assistantMessageId: "assistant-2" },
+      ],
+      "user-2",
+    );
+
+    expect(target).toEqual({ kind: "fork", messageId: "assistant-1" });
+  });
+
+  test("walks back past turns without an observed assistant response", () => {
+    // A turn interrupted before any assistant output leaves a null anchor;
+    // the fork point is the last assistant message before the target.
+    const target = resolveClaudeConversationForkTarget(
+      [
+        { userMessageId: "user-1", assistantMessageId: "assistant-1" },
+        { userMessageId: "user-interrupted", assistantMessageId: null },
+        { userMessageId: "user-3", assistantMessageId: "assistant-3" },
+      ],
+      "user-3",
+    );
+
+    expect(target).toEqual({ kind: "fork", messageId: "assistant-1" });
+  });
+
+  test("returns fresh-session when no assistant message precedes the target", () => {
+    expect(
+      resolveClaudeConversationForkTarget(
+        [{ userMessageId: "user-1", assistantMessageId: "assistant-1" }],
+        "user-1",
+      ),
+    ).toEqual({ kind: "fresh-session" });
+
+    expect(
+      resolveClaudeConversationForkTarget(
+        [
+          { userMessageId: "user-interrupted", assistantMessageId: null },
+          { userMessageId: "user-2", assistantMessageId: "assistant-2" },
+        ],
+        "user-2",
+      ),
+    ).toEqual({ kind: "fresh-session" });
+  });
+
+  test("throws when the target user message was never tracked", () => {
+    expect(() => resolveClaudeConversationForkTarget([], "missing")).toThrow(
+      "Claude rewind target missing is not in the tracked conversation",
+    );
+  });
+});
+
+describe("isLocalCommandUserEntry", () => {
+  function userEntry(content: unknown): Record<string, unknown> {
+    return { type: "user", message: { role: "user", content } };
+  }
+
+  test("detects local command transcript records", () => {
+    expect(
+      isLocalCommandUserEntry(
+        userEntry("<command-name>/model</command-name>\n<command-message>model</command-message>"),
+      ),
+    ).toBe(true);
+    expect(
+      isLocalCommandUserEntry(
+        userEntry(
+          "<command-message>diagnose</command-message>\n<command-name>/diagnose</command-name>",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isLocalCommandUserEntry(
+        userEntry("<local-command-stdout>Set model to haiku</local-command-stdout>"),
+      ),
+    ).toBe(true);
+    expect(
+      isLocalCommandUserEntry(
+        userEntry("<local-command-caveat>Caveat text</local-command-caveat>"),
+      ),
+    ).toBe(true);
+  });
+
+  test("detects command records stored as text blocks", () => {
+    expect(
+      isLocalCommandUserEntry(
+        userEntry([{ type: "text", text: "<command-name>/model</command-name>" }]),
+      ),
+    ).toBe(true);
+  });
+
+  test("keeps real user messages", () => {
+    expect(isLocalCommandUserEntry(userEntry("Fix the login bug"))).toBe(false);
+    expect(
+      isLocalCommandUserEntry(userEntry([{ type: "text", text: "What does <command-name> do?" }])),
+    ).toBe(false);
+    expect(isLocalCommandUserEntry(userEntry([{ type: "image", source: "x.png" }]))).toBe(false);
+    expect(isLocalCommandUserEntry(null)).toBe(false);
   });
 });

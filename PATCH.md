@@ -57,20 +57,30 @@ Schema tests cover capability defaults, snapshot parsing with branch metadata, b
 
 ### Purpose
 
-Implements durable conversation branching for persisted Claude and Codex sessions. A user can pick a prior user message, clone the source provider session, rewind the clone's conversation to that message, and continue from there while the original and branch remain linked as siblings.
+Implements durable conversation branching for persisted Claude and Codex sessions. A user picks a prior user message; the daemon forks the conversation **on the live source agent** into a brand-new provider session, then creates the branch agent from that forked session. The fork happens on the source because only the source can resolve the branch-point message: Claude turn anchors and Codex user-message item ids are in-memory state that a fresh clone cannot reconstruct (Codex thread reads return id-less user items). The branch never shares a native session with the source, so archiving one cannot archive the other's provider session.
 
 ### Files
 
 - `packages/server/src/server/session.ts`
 - `packages/server/src/server/agent/agent-storage.ts`
 - `packages/server/src/server/agent/agent-projections.ts`
+- `packages/server/src/server/agent/agent-manager.ts`
+- `packages/server/src/server/agent/agent-sdk-types.ts`
+- `packages/server/src/server/agent/rewind/rewind.ts`
 - `packages/server/src/server/agent/providers/claude/agent.ts`
+- `packages/server/src/server/agent/providers/claude/rewind.ts`
+- `packages/server/src/server/agent/providers/codex/rewind.ts`
 - `packages/server/src/server/agent/providers/codex-app-server-agent.ts`
 - `packages/server/src/server/websocket-server.ts`
 
 ### Public Surface
 
 - Claude and Codex provider capability maps now set `supportsBranchConversation: true`.
+- `AgentSession.forkConversation?(input: AgentConversationTargetInput): Promise<AgentPersistenceHandle | null>` — fork the conversation at a prior user message into a new provider session without mutating the source session. Returns `null` when the branch point has no preceding assistant message (the branch starts as a fresh conversation).
+- `AgentConversationTargetInput` — `{ messageId: string; userTurnOrdinal?: number | null }`. The ordinal is the 1-based position of the target among the durable timeline's user messages; providers with unstable message ids (Codex) use it as a positional fallback.
+- `AgentManager.forkConversation(agentId, messageId)` — resolves the user-turn ordinal from the durable timeline and invokes the provider fork.
+- `AgentManager.rewind` now also resolves and passes `userTurnOrdinal` for conversation rewinds, so plain rewind works on Codex agents resumed after a daemon restart (whose live item ids died with the previous process).
+- Claude exports `resolveClaudeConversationForkTarget(anchors, targetUserMessageId)` and `isLocalCommandUserEntry(entry)` for testability.
 - Stored agent records accept and persist `branching?: AgentBranchingMetadata`.
 - Stored-agent snapshots include `branching` when present and default stored-agent capabilities include `supportsBranchConversation: false`.
 - Live-agent snapshots copy persisted `branching` onto the emitted `AgentSnapshotPayload`.
@@ -92,8 +102,14 @@ The session routes `agent.branch.create.request` to `handleAgentBranchCreateRequ
 
 - If the source record already has a membership for the selected `messageId`, that membership's `groupId` is reused and the new branch ordinal is one greater than the current maximum member ordinal.
 - If no membership exists for the selected `messageId`, a new UUID group is created, the source branch is recorded as ordinal `1`, and the new branch starts at ordinal `2`.
-- The new agent is created with `agentManager.resumeAgentFromPersistence(sourcePersistence, sourceAgent.config, undefined, { labels, workspaceId })`, preserving the source labels and workspace.
-- The new agent is rewound with `agentManager.rewind(branchAgent.id, messageId, "conversation")`.
+- The conversation is forked on the source with `agentManager.forkConversation(sourceAgent.id, messageId)`, which returns a persistence handle for a brand-new provider session (Claude: SDK `forkSession` up to the previous turn's last assistant message; Codex: `thread/fork` + `thread/rollback`, leaving the source thread untouched).
+- With a handle, the branch agent is created via `agentManager.resumeAgentFromPersistence(forkedHandle, sourceAgent.config, undefined, { labels, workspaceId })` and its timeline is hydrated from the forked provider history (`hydrateTimelineFromProvider` with `force` + `broadcast`). With a `null` handle (branch point has no preceding assistant response), the branch is created as a fresh agent with the source config.
+- Because the fork runs before any agent is created, a fork failure produces no orphaned half-initialized branch agent.
+
+Provider fork/rewind resolution details:
+
+- **Claude** tracks rewind turn anchors (user message uuid → last assistant message id before the next user turn). Local command transcript records (`<command-name>`, `<command-message>`, `<local-command-stdout>`, `<local-command-caveat>`) are excluded from anchors and user-message id tracking in both JSONL history ingest and live transcript observation — they are not conversation turns and previously poisoned turn-boundary resolution (built-in commands like `/model` never get an assistant response). Fork-target resolution walks back past turns with no observed assistant response and falls back to a fresh session when none precedes the target. Claude ignores `userTurnOrdinal` (transcript uuids are stable; durable-timeline user rows include slash-command records so positions would not line up).
+- **Codex** keys its user-turn index by app-server item id, which only exists inside the process that minted it; `thread/read` returns id-less user items. History loading now records a deterministic positional placeholder (`codex-history-user-turn-N`) for id-less user items so every user turn occupies an index slot, and `forkCodexConversation`/`revertCodexConversation` fall back to `userTurnOrdinal` when the message id cannot be resolved.
 - The source record is updated only when it did not already have the selected branch-point membership.
 - The new branch record gets a membership with `messageId: null`, `pendingGroupId` set to the group ID, and its title copied from the source record when available.
 - Updated branch metadata is persisted through `AgentStorage.upsert` and immediately emitted through `agentUpdates.emitStoredRecord`.
