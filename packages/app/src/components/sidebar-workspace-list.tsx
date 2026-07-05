@@ -2996,10 +2996,25 @@ function ProjectSelectorCapsule({
     [project, statusByWorkspaceKey],
   );
   const glowOpacity = useRef(new Animated.Value(0)).current;
+  // Selected capsules animate their fill to the sidebar background so the
+  // active tab reads as connected to the sidebar content below it.
+  const selectedFillOpacity = useRef(new Animated.Value(selected ? 1 : 0)).current;
   const previousCountsRef = useRef(counts);
   const [glowBucket, setGlowBucket] = useState<"attention" | "needs_input" | "failed" | null>(null);
   const placeholderLabel = projectIconPlaceholderLabelFromDisplayName(project.projectName);
   const placeholderInitial = placeholderLabel.charAt(0).toUpperCase();
+
+  useEffect(() => {
+    if (reduceMotionEnabled) {
+      selectedFillOpacity.setValue(selected ? 1 : 0);
+      return;
+    }
+    Animated.timing(selectedFillOpacity, {
+      toValue: selected ? 1 : 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+  }, [reduceMotionEnabled, selected, selectedFillOpacity]);
 
   useEffect(() => {
     const previous = previousCountsRef.current;
@@ -3068,6 +3083,10 @@ function ProjectSelectorCapsule({
     .filter(Boolean)
     .join(", ");
   const accessibilityState = useMemo(() => ({ selected }), [selected]);
+  const selectedFillStyle = useMemo(
+    () => [styles.projectSelectorCapsuleSelectedFill, { opacity: selectedFillOpacity }],
+    [selectedFillOpacity],
+  );
   const glowStyle = useMemo(
     () =>
       glowBucket
@@ -3094,6 +3113,7 @@ function ProjectSelectorCapsule({
         onPress={handlePress}
         style={pressableStyle}
       >
+        <Animated.View pointerEvents="none" style={selectedFillStyle} />
         {glowStyle ? <Animated.View pointerEvents="none" style={glowStyle} /> : null}
         <View style={styles.projectSelectorIconSlot}>
           <ProjectIcon
@@ -3248,6 +3268,14 @@ const styles = StyleSheet.create((theme) => ({
   },
   projectSelectorCapsuleHovered: {
     opacity: 0.88,
+  },
+  projectSelectorCapsuleSelectedFill: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: theme.colors.surfaceSidebar,
   },
   projectSelectorCapsuleGlow: {
     position: "absolute",
