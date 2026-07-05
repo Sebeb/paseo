@@ -38,6 +38,7 @@ export const SidebarEntryRowContent = memo(function SidebarEntryRowContent({
   leadingStatus,
   label,
   subtitle = null,
+  subtitleLeading = null,
   rightContext = null,
   hoverRightContext = null,
   showHoverRightContext = false,
@@ -49,6 +50,7 @@ export const SidebarEntryRowContent = memo(function SidebarEntryRowContent({
   leadingStatus?: SidebarEntryStatusKind | null;
   label: string;
   subtitle?: string | null;
+  subtitleLeading?: ReactNode;
   rightContext?: ReactNode;
   hoverRightContext?: ReactNode;
   showHoverRightContext?: boolean;
@@ -69,9 +71,12 @@ export const SidebarEntryRowContent = memo(function SidebarEntryRowContent({
           {label}
         </Text>
         {subtitle ? (
-          <Text style={styles.subtitle} numberOfLines={1} ellipsizeMode="tail">
-            {subtitle}
-          </Text>
+          <View style={styles.subtitleRow}>
+            {subtitleLeading ? <View style={styles.subtitleLeading}>{subtitleLeading}</View> : null}
+            <Text style={styles.subtitle} numberOfLines={1} ellipsizeMode="tail">
+              {subtitle}
+            </Text>
+          </View>
         ) : null}
       </View>
       {resolvedRightContext ? (
@@ -283,6 +288,19 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.xs,
     lineHeight: 14,
     minWidth: 0,
+  },
+  subtitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    minWidth: 0,
+  },
+  subtitleLeading: {
+    width: 10,
+    height: 10,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
   rightContext: {
     height: 24,

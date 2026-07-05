@@ -200,11 +200,25 @@ export function sortSidebarWorkspaceProjects(input: {
 
     return {
       ...project,
-      workspaces: project.workspaces
-        .slice()
-        .sort((left, right) => compareSidebarWorkspaces({ left, right, sortMode })),
+      workspaces: sortSidebarWorkspaces({
+        workspaces: project.workspaces,
+        sortMode,
+      }),
     };
   });
+}
+
+export function sortSidebarWorkspaces(input: {
+  workspaces: readonly SidebarWorkspaceEntry[];
+  sortMode: SidebarWorkspaceSortMode;
+}): SidebarWorkspaceEntry[] {
+  if (input.sortMode === "manual") {
+    return input.workspaces.slice();
+  }
+  const sortMode = input.sortMode;
+  return input.workspaces
+    .slice()
+    .sort((left, right) => compareSidebarWorkspaces({ left, right, sortMode }));
 }
 
 export function applyStoredOrdering<T>(input: {

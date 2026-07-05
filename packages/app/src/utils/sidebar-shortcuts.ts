@@ -3,6 +3,7 @@ import type {
   SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
 import { buildStatusGroups } from "@/hooks/sidebar-status-view-model";
+import type { SidebarWorkspaceSortMode } from "@/stores/sidebar-view-store";
 
 export interface SidebarShortcutWorkspaceTarget {
   serverId: string;
@@ -51,12 +52,12 @@ export function buildSidebarShortcutModel(input: {
 
 export function buildStatusSidebarShortcutModel(input: {
   workspaces: SidebarWorkspaceEntry[];
-  projectNamesByKey: Map<string, string>;
+  workspaceSortMode: SidebarWorkspaceSortMode;
   collapsedStatusGroupKeys?: ReadonlySet<string>;
   shortcutLimit?: number;
 }): SidebarShortcutModel {
   const maxShortcuts = Math.max(0, Math.floor(input.shortcutLimit ?? 9));
-  const groups = buildStatusGroups(input.workspaces, input.projectNamesByKey);
+  const groups = buildStatusGroups(input.workspaces, input.workspaceSortMode);
   const shortcutTargets: SidebarShortcutWorkspaceTarget[] = [];
   const shortcutIndexByWorkspaceKey = new Map<string, number>();
 

@@ -1,8 +1,5 @@
 import { useEffect, useMemo } from "react";
-import {
-  useProjectNamesMap,
-  useStatusModeWorkspaceEntries,
-} from "@/hooks/use-status-mode-workspaces";
+import { useStatusModeWorkspaceEntries } from "@/hooks/use-status-mode-workspaces";
 import { useSidebarWorkspacesList } from "@/hooks/use-sidebar-workspaces-list";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
@@ -33,7 +30,9 @@ export function WorkspaceShortcutTargetsSubscriber({
     serverId: isStatusMode ? serverId : null,
     projects,
   });
-  const projectNamesByKey = useProjectNamesMap(isStatusMode ? serverId : null);
+  const workspaceSortMode = useSidebarViewStore((state) =>
+    enabled && serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
   const collapsedProjectKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedProjectKeys,
   );
@@ -48,7 +47,7 @@ export function WorkspaceShortcutTargetsSubscriber({
     if (groupMode === "status") {
       return buildStatusSidebarShortcutModel({
         workspaces: statusWorkspaces,
-        projectNamesByKey,
+        workspaceSortMode,
         collapsedStatusGroupKeys,
       });
     }
@@ -61,9 +60,9 @@ export function WorkspaceShortcutTargetsSubscriber({
     collapsedProjectKeys,
     collapsedStatusGroupKeys,
     groupMode,
-    projectNamesByKey,
     projects,
     statusWorkspaces,
+    workspaceSortMode,
   ]);
 
   useEffect(() => {

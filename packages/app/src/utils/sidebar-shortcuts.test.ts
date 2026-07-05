@@ -195,10 +195,7 @@ describe("buildStatusSidebarShortcutModel", () => {
 
     const model = buildStatusSidebarShortcutModel({
       workspaces,
-      projectNamesByKey: new Map([
-        ["p1", "Project 1"],
-        ["p2", "Project 2"],
-      ]),
+      workspaceSortMode: "status",
     });
 
     expect(model.shortcutTargets).toEqual([
@@ -235,7 +232,7 @@ describe("buildStatusSidebarShortcutModel", () => {
 
     const model = buildStatusSidebarShortcutModel({
       workspaces,
-      projectNamesByKey: new Map([["p1", "Project 1"]]),
+      workspaceSortMode: "manual",
       collapsedStatusGroupKeys: new Set(["needs_input"]),
     });
 
