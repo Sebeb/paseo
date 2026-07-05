@@ -66,6 +66,10 @@ function isTextTimelineItem(item: CoalescableTimelineItem): item is CoalescableT
   return item.type === "assistant_message" || item.type === "reasoning";
 }
 
+function getTextPresentation(item: CoalescableTextItem): string | undefined {
+  return item.type === "assistant_message" ? item.presentation : undefined;
+}
+
 function isTerminalToolCall(item: CoalescableTimelineItem): boolean {
   return (
     item.type === "tool_call" &&
@@ -242,6 +246,7 @@ export class AgentStreamCoalescer {
         previous.kind === "text" &&
         entry.kind === "text" &&
         previous.item.type === entry.item.type &&
+        getTextPresentation(previous.item) === getTextPresentation(entry.item) &&
         previous.provider === entry.provider &&
         previous.turnId === entry.turnId
       ) {

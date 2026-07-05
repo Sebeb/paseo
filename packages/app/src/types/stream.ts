@@ -78,6 +78,7 @@ export interface AssistantMessageItem {
   kind: "assistant_message";
   id: string;
   messageId?: string;
+  presentation?: "response" | "progress";
   text: string;
   timestamp: Date;
   blockGroupId?: string;
@@ -320,6 +321,7 @@ function appendAssistantMessage(
   timestamp: Date,
   source: StreamUpdateSource,
   messageId?: string,
+  presentation?: AssistantMessageItem["presentation"],
 ): StreamItem[] {
   const { chunk, hasContent } = normalizeChunk(text);
   if (!chunk) {
@@ -330,7 +332,8 @@ function appendAssistantMessage(
   const shouldAppendToLast =
     last &&
     last.kind === "assistant_message" &&
-    (messageId === undefined || last.messageId === messageId);
+    (messageId === undefined || last.messageId === messageId) &&
+    last.presentation === presentation;
   if (shouldAppendToLast) {
     const updated: AssistantMessageItem = {
       ...last,
@@ -347,7 +350,8 @@ function appendAssistantMessage(
     source === "live" &&
     last?.kind === "user_message" &&
     secondLast?.kind === "assistant_message" &&
-    (messageId === undefined || secondLast.messageId === messageId)
+    (messageId === undefined || secondLast.messageId === messageId) &&
+    secondLast.presentation === presentation
   ) {
     const updated: AssistantMessageItem = {
       ...secondLast,
@@ -367,6 +371,7 @@ function appendAssistantMessage(
     kind: "assistant_message",
     id: entryId,
     ...(messageId ? { messageId } : {}),
+    ...(presentation ? { presentation } : {}),
     text: chunk,
     timestamp,
   };
@@ -758,7 +763,14 @@ function reduceTimelineEvent(
       return finalizeActiveThoughts(appendUserMessage(state, item.text, timestamp, item.messageId));
     case "assistant_message":
       return finalizeActiveThoughts(
-        appendAssistantMessage(state, item.text, timestamp, source, item.messageId),
+        appendAssistantMessage(
+          state,
+          item.text,
+          timestamp,
+          source,
+          item.messageId,
+          item.presentation,
+        ),
       );
     case "reasoning":
       return appendThought(state, item.text, timestamp);
@@ -993,6 +1005,7 @@ function promoteCompletedAssistantBlocks(params: { tail: StreamItem[]; head: Str
     ...(activeItem.messageId ? { messageId: activeItem.messageId } : {}),
     blockGroupId,
     blockIndex: firstBlockIndex + offset,
+    ...(activeItem.presentation ? { presentation: activeItem.presentation } : {}),
     text: block,
     timestamp: activeItem.timestamp,
   }));
