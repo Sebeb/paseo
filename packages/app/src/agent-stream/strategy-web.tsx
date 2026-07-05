@@ -105,7 +105,13 @@ function StreamItemElement({ children, itemId, setStreamItemElement }: StreamIte
   );
 
   return (
-    <div key={itemId} data-stream-item-id={itemId} ref={handleRef} style={streamItemElementStyle}>
+    <div
+      key={itemId}
+      data-stream-item-id={itemId}
+      data-stream-message-id={itemId}
+      ref={handleRef}
+      style={streamItemElementStyle}
+    >
       {children}
     </div>
   );
@@ -134,7 +140,13 @@ function VirtualStreamItemElement({
   );
 
   return (
-    <div data-index={index} data-stream-item-id={itemId} ref={handleRef} style={style}>
+    <div
+      data-index={index}
+      data-stream-item-id={itemId}
+      data-stream-message-id={itemId}
+      ref={handleRef}
+      style={style}
+    >
       {children}
     </div>
   );
@@ -323,6 +335,10 @@ function scrollElementToBottom(
     top: scrollContainer.scrollHeight,
     behavior,
   });
+}
+
+function cssStringEscape(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function syncNearBottom(
@@ -1186,6 +1202,40 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     pinnedBottom,
   ]);
 
+  const scrollToMessage = useCallback(
+    (messageId: string, viewportY: number | null = null): boolean => {
+      const scrollContainer = scrollContainerRef.current;
+      const content = contentRef.current;
+      if (!scrollContainer || !content) {
+        return false;
+      }
+      const selector = `[data-stream-message-id="${cssStringEscape(messageId)}"]`;
+      const node = content.querySelector(selector);
+      if (node instanceof HTMLElement) {
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const nodeRect = node.getBoundingClientRect();
+        const targetY = typeof viewportY === "number" ? viewportY : containerRect.top + 96;
+        scrollContainer.scrollTo({
+          top: scrollContainer.scrollTop + nodeRect.top - targetY,
+          behavior: "auto",
+        });
+        setFollowOutput(false);
+        lastKnownScrollTopRef.current = scrollContainer.scrollTop;
+        updateScrollMetrics();
+        return true;
+      }
+
+      const virtualIndex = segments.historyVirtualized.findIndex((item) => item.id === messageId);
+      if (virtualIndex >= 0) {
+        rowVirtualizer.scrollToIndex(virtualIndex, { align: "start" });
+        setFollowOutput(false);
+        return true;
+      }
+      return false;
+    },
+    [rowVirtualizer, segments.historyVirtualized, setFollowOutput, updateScrollMetrics],
+  );
+
   const handleDomScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) {
@@ -1435,6 +1485,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         forceStickToBottom();
       },
       scrollToStreamItemTop,
+      scrollToMessage,
       prepareForViewportChange: () => {
         if (!followOutputRef.current) {
           return;
@@ -1459,6 +1510,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     scheduleStickToBottom,
     setFollowOutput,
     scrollToStreamItemTop,
+    scrollToMessage,
     viewportRef,
   ]);
 

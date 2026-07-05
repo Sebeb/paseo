@@ -124,10 +124,15 @@ import {
   FindHighlightedTextSegments,
 } from "@/components/find-highlighted-text";
 import type { FindHighlightRange } from "@/agent-stream/find-in-thread";
+import { BranchButton } from "@/components/branching/branch-button";
+import { BranchCounter, type MessageBranchInfo } from "@/components/branching/branch-counter";
+import { useAgentBranchMutation } from "@/components/branching/use-agent-branch-mutation";
+import type { AgentBranchGroupMember } from "@getpaseo/protocol/agent-types";
 export type { InlinePathTarget } from "@/assistant-file-links";
 
 interface UserMessageProps {
   serverId?: string;
+  workspaceId?: string;
   agentId?: string;
   messageId?: string;
   message: string;
@@ -136,6 +141,9 @@ interface UserMessageProps {
   timestamp: number;
   capabilities?: AgentCapabilityFlags;
   client?: DaemonClient | null;
+  canBranch?: boolean;
+  branchInfo?: MessageBranchInfo | null;
+  onNavigateBranch?: (member: AgentBranchGroupMember, viewportY: number | null) => void;
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
   disableOuterSpacing?: boolean;
@@ -591,6 +599,7 @@ function getUserMessageAttachmentContent(
 
 export const UserMessage = memo(function UserMessage({
   serverId,
+  workspaceId,
   agentId,
   messageId,
   message,
@@ -599,6 +608,9 @@ export const UserMessage = memo(function UserMessage({
   timestamp,
   capabilities,
   client,
+  canBranch = false,
+  branchInfo = null,
+  onNavigateBranch,
   isFirstInGroup = true,
   isLastInGroup = true,
   disableOuterSpacing,
@@ -611,12 +623,19 @@ export const UserMessage = memo(function UserMessage({
   const handleLightboxClose = useCallback(() => setLightboxMetadata(null), []);
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
   const hasText = message.trim().length > 0;
-  const showTrailingRow = hasText && (isCompact || isNative || isHovered);
+  const showTrailingRow = hasText && (branchInfo !== null || isCompact || isNative || isHovered);
   const formattedTimestamp = useMemo(
     () => formatMessageTimestamp(new Date(timestamp)),
     [timestamp],
   );
   const rewindMutation = useRewindAgentMutation({ serverId, agentId, client, messageId });
+  const branchMutation = useAgentBranchMutation({
+    serverId,
+    workspaceId,
+    agentId,
+    client,
+    messageId,
+  });
 
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
@@ -626,6 +645,10 @@ export const UserMessage = memo(function UserMessage({
       return rewindMutation.rewindAgent(input);
     },
     [rewindMutation],
+  );
+  const handleBranch = useCallback(
+    (input: { rewoundText: string }) => branchMutation.branchAgent(input),
+    [branchMutation],
   );
 
   const containerStyle = useMemo(
@@ -668,7 +691,17 @@ export const UserMessage = memo(function UserMessage({
         </View>
         {hasText ? (
           <View style={trailingRowStyle} pointerEvents={showTrailingRow ? "auto" : "none"}>
+            {branchInfo && onNavigateBranch ? (
+              <BranchCounter branchInfo={branchInfo} onNavigate={onNavigateBranch} />
+            ) : null}
             <Text style={userMessageStylesheet.timestampText}>{formattedTimestamp}</Text>
+            {canBranch ? (
+              <BranchButton
+                isPending={branchMutation.isPending}
+                rewoundText={message}
+                onBranch={handleBranch}
+              />
+            ) : null}
             {capabilities ? (
               <RewindMenu
                 capabilities={capabilities}

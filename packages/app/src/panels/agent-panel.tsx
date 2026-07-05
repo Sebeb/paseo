@@ -90,6 +90,12 @@ interface ChatAgentStateShape {
   cwd: string | null;
   workspaceId?: string;
   capabilities?: Agent["capabilities"];
+  currentModeId?: Agent["currentModeId"];
+  model?: Agent["model"];
+  thinkingOptionId?: Agent["thinkingOptionId"];
+  runtimeInfo?: Agent["runtimeInfo"];
+  features?: Agent["features"];
+  branching?: Agent["branching"];
   lastError?: Agent["lastError"] | null;
 }
 
@@ -135,6 +141,12 @@ function selectChatAgentState(
     cwd: agent.cwd,
     workspaceId: agent.workspaceId,
     capabilities: agent.capabilities,
+    currentModeId: agent.currentModeId,
+    model: agent.model,
+    thinkingOptionId: agent.thinkingOptionId,
+    runtimeInfo: agent.runtimeInfo,
+    features: agent.features,
+    branching: agent.branching,
     lastError: agent.lastError ?? null,
     archivedAt: agent.archivedAt ?? null,
     requiresAttention: agent.requiresAttention ?? false,
@@ -156,6 +168,12 @@ function buildChatAgentFromState(
     cwd: state.cwd,
     workspaceId: state.workspaceId,
     capabilities: state.capabilities,
+    currentModeId: state.currentModeId,
+    model: state.model,
+    thinkingOptionId: state.thinkingOptionId,
+    runtimeInfo: state.runtimeInfo,
+    features: state.features,
+    branching: state.branching,
     lastError: state.lastError ?? null,
     projectPlacement,
   };
@@ -551,18 +569,7 @@ function AgentPanelBody({
     (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b),
   );
   const agentState = useSessionStore(
-    useShallow((state) => {
-      const agent = resolveChatAgentFromSession(state, serverId, agentId);
-      return {
-        serverId: agent?.serverId ?? null,
-        id: agent?.id ?? null,
-        status: agent?.status ?? null,
-        cwd: agent?.cwd ?? null,
-        workspaceId: agent?.workspaceId,
-        lastError: agent?.lastError ?? null,
-        archivedAt: agent?.archivedAt ?? null,
-      };
-    }),
+    useShallow((state) => selectChatAgentState(state, serverId, agentId)),
   );
   const [lookupState, setLookupState] = useState<AgentLookupState>({ tag: "idle" });
   const lookupAttemptTokenRef = useRef(0);
@@ -652,6 +659,13 @@ function AgentPanelBody({
           status: agentState.status,
           cwd: agentState.cwd,
           workspaceId: agentState.workspaceId,
+          capabilities: agentState.capabilities,
+          currentModeId: agentState.currentModeId,
+          model: agentState.model,
+          thinkingOptionId: agentState.thinkingOptionId,
+          runtimeInfo: agentState.runtimeInfo,
+          features: agentState.features,
+          branching: agentState.branching,
           lastError: agentState.lastError ?? null,
           projectPlacement,
         }

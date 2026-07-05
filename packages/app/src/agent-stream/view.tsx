@@ -31,7 +31,7 @@ import {
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { MAX_CONTENT_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import Animated, {
   Easing,
   FadeIn,
@@ -146,6 +146,13 @@ import {
   type FindInThreadMatch,
 } from "./find-in-thread";
 import { startFindThreadJob } from "./find-runner";
+import { agentBranchGroupsQueryKey } from "@/components/branching/query-keys";
+import {
+  branchNavigationKey,
+  useBranchNavigationStore,
+} from "@/components/branching/navigation-store";
+import type { MessageBranchInfo } from "@/components/branching/branch-counter";
+import type { AgentBranchGroupMember } from "@getpaseo/protocol/agent-types";
 
 const FIND_KEYBOARD_ACTIONS = [
   "agent.find.open",
@@ -204,6 +211,32 @@ function getPinnedUserInputOverlayHeight(maxContentHeight: number): number {
 
 function getPinnedUserInputMaxHeight(isCompact: boolean): number {
   return isCompact ? PINNED_USER_INPUT_MAX_HEIGHT_COMPACT : PINNED_USER_INPUT_MAX_HEIGHT_DEFAULT;
+}
+
+function getAgentWorkspaceRoot(agent: AgentScreenAgent): string {
+  return agent.cwd?.trim() || "";
+}
+
+function useAgentBranchGroupsQuery(input: {
+  client: DaemonClient | null;
+  resolvedServerId: string;
+  agentId: string;
+  supportsAgentBranching: boolean;
+  membershipCount: number;
+}) {
+  const { agentId, client, membershipCount, resolvedServerId, supportsAgentBranching } = input;
+  return useQuery({
+    queryKey: agentBranchGroupsQueryKey(resolvedServerId, agentId),
+    queryFn: async () => {
+      if (!client) {
+        return [];
+      }
+      const response = await client.fetchAgentBranchGroups(agentId);
+      return response.groups;
+    },
+    enabled: Boolean(client) && supportsAgentBranching && membershipCount > 0,
+    staleTime: 5_000,
+  });
 }
 
 function renderLiveAuxiliaryNode(input: {
@@ -676,6 +709,7 @@ function resolveActiveFindMatchId(input: {
 
 export interface AgentStreamViewHandle {
   scrollToBottom(reason?: BottomAnchorLocalRequest["reason"]): void;
+  scrollToMessage(messageId: string, viewportY?: number | null): boolean;
   prepareForViewportChange(): void;
   pauseBottomAnchoringForNextLayoutChange(): void;
 }
@@ -707,6 +741,7 @@ const AGENT_CAPABILITY_FLAG_KEYS: (keyof AgentCapabilityFlags)[] = [
   "supportsRewindConversation",
   "supportsRewindFiles",
   "supportsRewindBoth",
+  "supportsBranchConversation",
 ];
 
 const EMPTY_STREAM_HEAD: StreamItem[] = [];
@@ -792,8 +827,25 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const setAgentTimelinePromptIndex = useSessionStore(
       (state) => state.setAgentTimelinePromptIndex,
     );
+    const supportsAgentBranching = useSessionStore(
+      (state) => state.sessions[resolvedServerId]?.serverInfo?.features?.agentBranching === true,
+    );
+    const pendingBranchNavigation = useBranchNavigationStore(
+      (state) => state.pendingByKey[branchNavigationKey(resolvedServerId, agentId)] ?? null,
+    );
+    const consumePendingBranchNavigation = useBranchNavigationStore(
+      (state) => state.consumePending,
+    );
+    const setPendingBranchNavigation = useBranchNavigationStore((state) => state.setPending);
+    const branchGroupsQuery = useAgentBranchGroupsQuery({
+      agentId,
+      client,
+      membershipCount: agent.branching?.memberships.length ?? 0,
+      resolvedServerId,
+      supportsAgentBranching,
+    });
 
-    const workspaceRoot = agent.cwd?.trim() || "";
+    const workspaceRoot = getAgentWorkspaceRoot(agent);
     const { isLoadingOlder, hasOlder, loadOlder } = useLoadOlderAgentHistory({
       serverId: resolvedServerId,
       agentId,
@@ -937,6 +989,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         scrollToBottom(reason = "jump-to-bottom") {
           viewportRef.current?.scrollToBottom(reason);
         },
+        scrollToMessage(messageId, viewportY = null) {
+          return viewportRef.current?.scrollToMessage(messageId, viewportY) ?? false;
+        },
         prepareForViewportChange() {
           viewportRef.current?.prepareForViewportChange();
         },
@@ -946,6 +1001,30 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       }),
       [],
     );
+
+    useEffect(() => {
+      if (!pendingBranchNavigation || !isAuthoritativeHistoryReady) {
+        return;
+      }
+      const request = pendingBranchNavigation;
+      const frame = requestAnimationFrame(() => {
+        const didScroll =
+          request.messageId !== null
+            ? (viewportRef.current?.scrollToMessage(request.messageId, request.viewportY) ?? false)
+            : false;
+        if (!didScroll) {
+          viewportRef.current?.scrollToBottom("jump-to-bottom");
+        }
+        consumePendingBranchNavigation(resolvedServerId, agentId, request.requestId);
+      });
+      return () => cancelAnimationFrame(frame);
+    }, [
+      agentId,
+      consumePendingBranchNavigation,
+      isAuthoritativeHistoryReady,
+      pendingBranchNavigation,
+      resolvedServerId,
+    ]);
 
     const scrollToBottom = useCallback(() => {
       viewportRef.current?.scrollToBottom("jump-to-bottom");
@@ -1144,11 +1223,49 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       [streamRenderStrategy],
     );
 
+    const branchInfoByMessageId = useMemo(() => {
+      const result = new Map<string, MessageBranchInfo>();
+      for (const group of branchGroupsQuery.data ?? []) {
+        const current = group.members.find((member) => member.agentId === agentId);
+        if (!current?.messageId || group.members.length < 2) {
+          continue;
+        }
+        result.set(current.messageId, {
+          groupId: group.groupId,
+          current,
+          members: group.members,
+        });
+      }
+      return result;
+    }, [agentId, branchGroupsQuery.data]);
+
+    const handleNavigateBranch = useCallback(
+      (member: AgentBranchGroupMember, viewportY: number | null) => {
+        if (!agent.workspaceId) {
+          return;
+        }
+        setPendingBranchNavigation({
+          serverId: resolvedServerId,
+          agentId: member.agentId,
+          messageId: member.messageId,
+          viewportY,
+        });
+        navigateToPreparedWorkspaceTab({
+          serverId: resolvedServerId,
+          workspaceId: agent.workspaceId,
+          target: { kind: "agent", agentId: member.agentId },
+          pin: true,
+        });
+      },
+      [agent.workspaceId, resolvedServerId, setPendingBranchNavigation],
+    );
+
     const renderUserMessageItem = useCallback(
       (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "user_message" }>) => {
         return (
           <UserMessage
             serverId={resolvedServerId}
+            workspaceId={agent.workspaceId}
             agentId={agentId}
             messageId={item.id}
             message={item.text}
@@ -1157,13 +1274,33 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             timestamp={item.timestamp.getTime()}
             capabilities={agent.capabilities}
             client={client}
+            canBranch={
+              Boolean(agent.workspaceId) &&
+              supportsAgentBranching &&
+              agent.status !== "running" &&
+              agent.status !== "initializing" &&
+              agent.capabilities?.supportsBranchConversation === true
+            }
+            branchInfo={branchInfoByMessageId.get(item.id) ?? null}
+            onNavigateBranch={handleNavigateBranch}
             isFirstInGroup={layoutItem.isFirstInUserGroup}
             isLastInGroup={layoutItem.isLastInUserGroup}
             findHighlightRanges={getFindHighlightRanges(findHighlights, item.id, FIND_PART_MESSAGE)}
           />
         );
       },
-      [agent.capabilities, agentId, client, findHighlights, resolvedServerId],
+      [
+        agent.capabilities,
+        agent.status,
+        agent.workspaceId,
+        agentId,
+        branchInfoByMessageId,
+        client,
+        findHighlights,
+        handleNavigateBranch,
+        resolvedServerId,
+        supportsAgentBranching,
+      ],
     );
 
     const renderAssistantMessageItem = useCallback(
@@ -1664,6 +1801,47 @@ function agentCapabilityFlagsEqual(
   return AGENT_CAPABILITY_FLAG_KEYS.every((key) => left?.[key] === right?.[key]);
 }
 
+function collectAgentProjectPlacementDiffs(
+  left: AgentScreenAgent["projectPlacement"],
+  right: AgentScreenAgent["projectPlacement"],
+): string[] {
+  const reasons: string[] = [];
+  if (left?.checkout?.cwd !== right?.checkout?.cwd) {
+    reasons.push("agent.projectPlacement.checkout.cwd");
+  }
+  if (left?.checkout?.isGit !== right?.checkout?.isGit) {
+    reasons.push("agent.projectPlacement.checkout.isGit");
+  }
+  if (left?.projectName !== right?.projectName) {
+    reasons.push("agent.projectPlacement.projectName");
+  }
+  if (left?.projectKey !== right?.projectKey) {
+    reasons.push("agent.projectPlacement.projectKey");
+  }
+  return reasons;
+}
+
+function collectAgentSetupDiffs(left: AgentScreenAgent, right: AgentScreenAgent): string[] {
+  const reasons: string[] = [];
+  if (left.currentModeId !== right.currentModeId) reasons.push("agent.currentModeId");
+  if (left.model !== right.model) reasons.push("agent.model");
+  if (left.thinkingOptionId !== right.thinkingOptionId) {
+    reasons.push("agent.thinkingOptionId");
+  }
+  if (left.runtimeInfo?.modeId !== right.runtimeInfo?.modeId) {
+    reasons.push("agent.runtimeInfo.modeId");
+  }
+  if (left.runtimeInfo?.model !== right.runtimeInfo?.model) {
+    reasons.push("agent.runtimeInfo.model");
+  }
+  if (left.runtimeInfo?.thinkingOptionId !== right.runtimeInfo?.thinkingOptionId) {
+    reasons.push("agent.runtimeInfo.thinkingOptionId");
+  }
+  if (left.features !== right.features) reasons.push("agent.features");
+  if (left.branching !== right.branching) reasons.push("agent.branching");
+  return reasons;
+}
+
 function collectAgentScreenAgentDiffs(left: AgentScreenAgent, right: AgentScreenAgent): string[] {
   const reasons: string[] = [];
   if (left.serverId !== right.serverId) reasons.push("agent.serverId");
@@ -1674,12 +1852,8 @@ function collectAgentScreenAgentDiffs(left: AgentScreenAgent, right: AgentScreen
     reasons.push("agent.capabilities");
   }
   if (left.lastError !== right.lastError) reasons.push("agent.lastError");
-  if (left.projectPlacement?.checkout?.cwd !== right.projectPlacement?.checkout?.cwd) {
-    reasons.push("agent.projectPlacement.checkout.cwd");
-  }
-  if (left.projectPlacement?.checkout?.isGit !== right.projectPlacement?.checkout?.isGit) {
-    reasons.push("agent.projectPlacement.checkout.isGit");
-  }
+  reasons.push(...collectAgentProjectPlacementDiffs(left.projectPlacement, right.projectPlacement));
+  reasons.push(...collectAgentSetupDiffs(left, right));
   return reasons;
 }
 

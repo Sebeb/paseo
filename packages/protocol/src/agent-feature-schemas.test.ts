@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   AgentFeatureSchema,
   AgentSnapshotPayloadSchema,
+  AgentBranchCreateRequestMessageSchema,
+  AgentBranchCreateResponseMessageSchema,
+  AgentBranchGroupsRequestMessageSchema,
+  AgentBranchGroupsResponseMessageSchema,
   SetAgentFeatureRequestMessageSchema,
   SetAgentFeatureResponseMessageSchema,
 } from "./messages.js";
@@ -175,5 +179,116 @@ describe("agent feature schemas", () => {
     expect(parsed.capabilities.supportsRewindConversation).toBe(false);
     expect(parsed.capabilities.supportsRewindFiles).toBe(false);
     expect(parsed.capabilities.supportsRewindBoth).toBe(false);
+    expect(parsed.capabilities.supportsBranchConversation).toBe(false);
+  });
+
+  it("accepts branch metadata on agent snapshot payloads", () => {
+    const parsed = AgentSnapshotPayloadSchema.parse({
+      id: "agent-123",
+      provider: "codex",
+      cwd: "/tmp/project",
+      model: "gpt-5",
+      thinkingOptionId: null,
+      effectiveThinkingOptionId: null,
+      createdAt: "2026-04-03T12:00:00.000Z",
+      updatedAt: "2026-04-03T12:00:00.000Z",
+      lastUserMessageAt: null,
+      status: "idle",
+      capabilities: {
+        supportsStreaming: true,
+        supportsSessionPersistence: true,
+        supportsDynamicModes: true,
+        supportsMcpServers: true,
+        supportsReasoningStream: true,
+        supportsToolInvocations: true,
+        supportsBranchConversation: true,
+      },
+      currentModeId: null,
+      availableModes: [],
+      pendingPermissions: [],
+      persistence: null,
+      title: null,
+      labels: {},
+      branching: {
+        memberships: [
+          {
+            groupId: "branch-group-1",
+            ordinal: 2,
+            messageId: null,
+            createdAt: "2026-04-03T12:00:00.000Z",
+          },
+        ],
+        pendingGroupId: "branch-group-1",
+      },
+    });
+
+    expect(parsed.branching?.memberships[0]?.ordinal).toBe(2);
+    expect(parsed.branching?.pendingGroupId).toBe("branch-group-1");
+  });
+
+  it("parses branch create and group RPCs", () => {
+    expect(
+      AgentBranchCreateRequestMessageSchema.parse({
+        type: "agent.branch.create.request",
+        agentId: "agent-123",
+        messageId: "msg-123",
+        requestId: "req-123",
+      }).messageId,
+    ).toBe("msg-123");
+
+    const createResponse = AgentBranchCreateResponseMessageSchema.parse({
+      type: "agent.branch.create.response",
+      payload: {
+        requestId: "req-123",
+        agentId: "agent-123",
+        branchAgentId: "agent-branch",
+        group: {
+          groupId: "branch-group-1",
+          members: [
+            {
+              agentId: "agent-123",
+              ordinal: 1,
+              messageId: "msg-123",
+              createdAt: "2026-04-03T12:00:00.000Z",
+              archivedAt: null,
+              title: "Original",
+            },
+            {
+              agentId: "agent-branch",
+              ordinal: 2,
+              messageId: null,
+              createdAt: "2026-04-03T12:00:00.000Z",
+            },
+          ],
+        },
+        ok: true,
+        error: null,
+      },
+    });
+
+    const group = createResponse.payload.group;
+    if (!group) {
+      throw new Error("Expected branch group");
+    }
+    expect(group.members).toHaveLength(2);
+    expect(
+      AgentBranchGroupsRequestMessageSchema.parse({
+        type: "agent.branch.groups.request",
+        agentId: "agent-123",
+        requestId: "req-124",
+        groupId: "branch-group-1",
+      }).groupId,
+    ).toBe("branch-group-1");
+    expect(
+      AgentBranchGroupsResponseMessageSchema.parse({
+        type: "agent.branch.groups.response",
+        payload: {
+          requestId: "req-124",
+          agentId: "agent-123",
+          groups: [group],
+          error: null,
+        },
+      }).payload.groups[0]?.groupId,
+    ).toBe("branch-group-1");
   });
 });

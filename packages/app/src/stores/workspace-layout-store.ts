@@ -92,6 +92,7 @@ interface WorkspaceLayoutStore {
     target: WorkspaceTabTarget,
     parentTabId: string,
   ) => string | null;
+  attachChildTab: (workspaceKey: string, childTabId: string, parentTabId: string) => void;
   openTabInBackground: (workspaceKey: string, target: WorkspaceTabTarget) => string | null;
   closeTab: (workspaceKey: string, tabId: string, orderedTabIds?: readonly string[] | null) => void;
   restoreClosedTab: (workspaceKey: string, entryKey: string) => string | null;
@@ -455,6 +456,25 @@ export function createWorkspaceLayoutStore(
           }));
 
           return result.tabId;
+        },
+        attachChildTab: (workspaceKey, childTabId, parentTabId) => {
+          const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);
+          const normalizedChildTabId = trimNonEmpty(childTabId);
+          const normalizedParentTabId = trimNonEmpty(parentTabId);
+          if (!normalizedWorkspaceKey || !normalizedChildTabId || !normalizedParentTabId) {
+            return;
+          }
+
+          set((state) => ({
+            layoutByWorkspace: {
+              ...state.layoutByWorkspace,
+              [normalizedWorkspaceKey]: attachParentTab({
+                layout: getWorkspaceLayout(state.layoutByWorkspace, normalizedWorkspaceKey),
+                childTabId: normalizedChildTabId,
+                parentTabId: normalizedParentTabId,
+              }),
+            },
+          }));
         },
         closeTab: (workspaceKey, tabId, orderedTabIds) => {
           const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);

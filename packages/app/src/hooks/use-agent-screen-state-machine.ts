@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import type {
   AgentCapabilityFlags,
+  AgentBranchingMetadata,
   AgentFeature,
   AgentProvider,
 } from "@getpaseo/protocol/agent-types";
@@ -22,6 +23,7 @@ export interface AgentScreenAgent {
     thinkingOptionId?: string | null;
   } | null;
   features?: readonly AgentFeature[];
+  branching?: AgentBranchingMetadata;
   lastError?: string | null;
   projectPlacement?: {
     projectKey?: string;

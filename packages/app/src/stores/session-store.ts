@@ -20,6 +20,7 @@ import type {
   AgentCapabilityFlags,
   AgentUsage,
   AgentPersistenceHandle,
+  AgentBranchingMetadata,
 } from "@getpaseo/protocol/agent-types";
 import type {
   ServerInfoStatusPayload,
@@ -118,6 +119,7 @@ export interface Agent {
   archivedAt?: Date | null;
   parentAgentId: string | null;
   labels: Record<string, string>;
+  branching?: AgentBranchingMetadata;
   projectPlacement?: ProjectPlacementPayload | null;
 }
 

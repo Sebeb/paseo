@@ -20,6 +20,11 @@ import {
   type WorkspaceDescriptorPayload,
 } from "./messages.js";
 import type {
+  AgentBranchingMetadata,
+  AgentBranchGroup,
+  AgentBranchMembership,
+} from "@getpaseo/protocol/agent-types";
+import type {
   TerminalManager,
   TerminalWorkspaceContributionChangedEvent,
 } from "../terminal/terminal-manager.js";
@@ -192,16 +197,12 @@ import {
 } from "./workspace-directory.js";
 import { shouldEmitPendingBootstrapUpdate } from "./workspace-bootstrap-dedupe.js";
 import {
-  attemptFirstAgentBranchAutoName,
   createLocalCheckoutWorkspace,
   createPaseoWorktree,
   type CreatePaseoWorktreeInput,
   type CreatePaseoWorktreeResult,
 } from "./paseo-worktree-service.js";
-import {
-  generateBranchNameFromFirstAgentContext,
-  type GeneratedWorkspaceName,
-} from "./worktree-branch-name-generator.js";
+import { WorkspaceAutoName } from "./workspace-auto-name.js";
 import {
   buildAgentSessionConfig as buildWorktreeAgentSessionConfig,
   createPaseoWorktreeWorkflow as createWorktreeWorkflow,
@@ -427,10 +428,8 @@ export interface SessionOptions {
   // Injected so tests can substitute the git branch rename without module mocks;
   // defaults to the real checkout-git implementation.
   renameCurrentBranch?: typeof renameCurrentBranchDefault;
-  // Injected so tests can substitute workspace title/branch generation without
-  // calling the LLM; defaults to the real first-agent-context generator.
-  generateWorkspaceName?: typeof generateBranchNameFromFirstAgentContext;
   workspaceGitService: WorkspaceGitService;
+  workspaceAutoName: WorkspaceAutoName;
   daemonConfigStore: DaemonConfigStore;
   mcpBaseUrl?: string | null;
   stt: Resolvable<SpeechToTextProvider | null>;
@@ -549,8 +548,8 @@ export class Session {
   private readonly filesystem: SessionFileSystem;
   private readonly github: GitHubService;
   private readonly renameCurrentBranch: typeof renameCurrentBranchDefault;
-  private readonly generateWorkspaceName: typeof generateBranchNameFromFirstAgentContext;
   private readonly workspaceGitService: WorkspaceGitService;
+  private readonly workspaceAutoName: WorkspaceAutoName;
   private readonly gitMutation: GitMutationService;
   private readonly workspaceProvisioning: WorkspaceProvisioningService;
   private readonly daemonConfigStore: DaemonConfigStore;
@@ -617,8 +616,8 @@ export class Session {
       checkoutDiffManager,
       github,
       renameCurrentBranch,
-      generateWorkspaceName,
       workspaceGitService,
+      workspaceAutoName,
       daemonConfigStore,
       stt,
       sttLanguage,
@@ -675,13 +674,13 @@ export class Session {
     this.filesystem = filesystem ?? nodeSessionFileSystem;
     this.github = github ?? createGitHubService();
     this.renameCurrentBranch = renameCurrentBranch ?? renameCurrentBranchDefault;
-    this.generateWorkspaceName = generateWorkspaceName ?? generateBranchNameFromFirstAgentContext;
     this.workspaceGitService = workspaceGitService;
     this.gitMutation = createGitMutationService({
       workspaceGitService: this.workspaceGitService,
       github: this.github,
       logger: this.sessionLogger,
     });
+    this.workspaceAutoName = workspaceAutoName;
     this.workspaceProvisioning = createWorkspaceProvisioningService({
       workspaceRegistry: this.workspaceRegistry,
       projectRegistry: this.projectRegistry,
@@ -1257,6 +1256,9 @@ export class Session {
       }
     }
     payload.archivedAt = storedRecord?.archivedAt ?? null;
+    if (storedRecord?.branching) {
+      payload.branching = storedRecord.branching;
+    }
     return payload;
   }
 
@@ -1430,6 +1432,10 @@ export class Session {
     switch (msg.type) {
       case "agent.rewind.request":
         return this.handleAgentRewindRequest(msg);
+      case "agent.branch.create.request":
+        return this.handleAgentBranchCreateRequest(msg);
+      case "agent.branch.groups.request":
+        return this.handleAgentBranchGroupsRequest(msg);
       default:
         return undefined;
     }
@@ -2459,11 +2465,14 @@ export class Session {
       createdAgentId = snapshot.id;
       await this.agentUpdates.forwardLiveAgent(snapshot);
       if (createdDirectoryWorkspaceForAgent && trimmedPrompt) {
-        await this.scheduleAutoNameLocalWorkspaceTitleForFirstAgent({
-          workspaceId,
-          cwd: createAgentConfig.cwd,
-          firstAgentContext,
-        });
+        this.workspaceAutoName.scheduleForDirectory(
+          {
+            workspaceId,
+            cwd: createAgentConfig.cwd,
+            firstAgentContext,
+          },
+          { currentSelection: this.getFocusedAgentSelectionForCwd(createAgentConfig.cwd) },
+        );
       }
       this.createAgentLifecycleDispatch.registerAutoArchiveIfRequested({
         autoArchive,
@@ -2795,6 +2804,277 @@ export class Session {
     }
   }
 
+  private normalizeBranchingMetadata(
+    branching: AgentBranchingMetadata | undefined,
+  ): AgentBranchingMetadata {
+    return {
+      memberships: branching?.memberships ?? [],
+      ...(branching?.pendingGroupId ? { pendingGroupId: branching.pendingGroupId } : {}),
+    };
+  }
+
+  private async writeAgentBranchingMetadata(
+    record: StoredAgentRecord,
+    branching: AgentBranchingMetadata,
+  ): Promise<StoredAgentRecord> {
+    const nextRecord: StoredAgentRecord = {
+      ...record,
+      branching,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.agentStorage.upsert(nextRecord);
+    await this.agentUpdates.emitStoredRecord(nextRecord);
+    return nextRecord;
+  }
+
+  private findBranchMembershipForMessage(
+    record: StoredAgentRecord,
+    messageId: string,
+  ): AgentBranchMembership | null {
+    const memberships = record.branching?.memberships ?? [];
+    return memberships.find((membership) => membership.messageId === messageId) ?? null;
+  }
+
+  private async listBranchGroupsForAgent(
+    agentId: string,
+    groupId?: string,
+  ): Promise<AgentBranchGroup[]> {
+    const records = await this.agentStorage.list();
+    const requestedGroupIds = new Set<string>();
+    for (const record of records) {
+      if (record.id !== agentId) {
+        continue;
+      }
+      for (const membership of record.branching?.memberships ?? []) {
+        if (!groupId || membership.groupId === groupId) {
+          requestedGroupIds.add(membership.groupId);
+        }
+      }
+    }
+    if (groupId) {
+      requestedGroupIds.add(groupId);
+    }
+
+    const groups = new Map<string, AgentBranchGroup>();
+    for (const record of records) {
+      for (const membership of record.branching?.memberships ?? []) {
+        if (!requestedGroupIds.has(membership.groupId)) {
+          continue;
+        }
+        const group =
+          groups.get(membership.groupId) ??
+          ({
+            groupId: membership.groupId,
+            members: [],
+          } satisfies AgentBranchGroup);
+        group.members.push({
+          agentId: record.id,
+          ordinal: membership.ordinal,
+          messageId: membership.messageId,
+          createdAt: membership.createdAt,
+          archivedAt: record.archivedAt ?? null,
+          title: record.title ?? null,
+        });
+        groups.set(membership.groupId, group);
+      }
+    }
+
+    for (const group of groups.values()) {
+      group.members = group.members.toSorted((a, b) => a.ordinal - b.ordinal);
+    }
+    return Array.from(groups.values());
+  }
+
+  private async resolveAgentBranchSource(agentIdOrIdentifier: string): Promise<{
+    sourceAgent: ManagedAgent;
+    sourcePersistence: AgentPersistenceHandle;
+    sourceRecord: StoredAgentRecord;
+  }> {
+    const resolved = await this.resolveAgentIdentifier(agentIdOrIdentifier);
+    if (!resolved.ok) {
+      throw new Error(resolved.error);
+    }
+
+    const sourceAgent = this.agentManager.getAgent(resolved.agentId);
+    if (!sourceAgent) {
+      throw new Error(`Agent not found: ${resolved.agentId}`);
+    }
+    if (sourceAgent.lifecycle === "running" || sourceAgent.lifecycle === "initializing") {
+      throw new Error("Cannot branch while the agent is running");
+    }
+    if (sourceAgent.capabilities.supportsBranchConversation !== true) {
+      throw new Error("This agent provider does not support conversation branching");
+    }
+    const sourcePersistence = sourceAgent.persistence;
+    if (!sourcePersistence) {
+      throw new Error("This agent cannot be branched because it has no persisted session");
+    }
+
+    const sourceRecord = await this.agentStorage.get(sourceAgent.id);
+    if (!sourceRecord || sourceRecord.archivedAt) {
+      throw new Error("Archived or missing agents cannot be branched");
+    }
+    return { sourceAgent, sourcePersistence, sourceRecord };
+  }
+
+  private emitAgentBranchCreateResponse(input: {
+    requestId: string;
+    agentId: string;
+    branchAgentId: string | null;
+    group: AgentBranchGroup | null;
+    ok: boolean;
+    error: string | null;
+  }): void {
+    this.emit({
+      type: "agent.branch.create.response",
+      payload: input,
+    });
+  }
+
+  private async handleAgentBranchGroupsRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.branch.groups.request" }>,
+  ): Promise<void> {
+    try {
+      const groups = await this.listBranchGroupsForAgent(msg.agentId, msg.groupId);
+      this.emit({
+        type: "agent.branch.groups.response",
+        payload: {
+          requestId: msg.requestId,
+          agentId: msg.agentId,
+          groups,
+          error: null,
+        },
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.branch.groups.response",
+        payload: {
+          requestId: msg.requestId,
+          agentId: msg.agentId,
+          groups: [],
+          error: error instanceof Error ? error.message : "Failed to list branch groups",
+        },
+      });
+    }
+  }
+
+  private async handleAgentBranchCreateRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.branch.create.request" }>,
+  ): Promise<void> {
+    let branchAgentId: string | null = null;
+    try {
+      const { sourceAgent, sourcePersistence, sourceRecord } = await this.resolveAgentBranchSource(
+        msg.agentId,
+      );
+      const existingMembership = this.findBranchMembershipForMessage(sourceRecord, msg.messageId);
+      const groupId = existingMembership?.groupId ?? uuidv4();
+      const existingGroups = await this.listBranchGroupsForAgent(sourceAgent.id, groupId);
+      const existingMembers =
+        existingGroups.find((group) => group.groupId === groupId)?.members ?? [];
+      const nextOrdinal = existingMembership
+        ? existingMembers.reduce((max, member) => Math.max(max, member.ordinal), 0) + 1
+        : 2;
+      const createdAt = new Date().toISOString();
+
+      const branchAgent = await this.agentManager.resumeAgentFromPersistence(
+        sourcePersistence,
+        sourceAgent.config,
+        undefined,
+        {
+          labels: sourceAgent.labels,
+          workspaceId: sourceAgent.workspaceId,
+        },
+      );
+      branchAgentId = branchAgent.id;
+      await this.agentManager.rewind(branchAgent.id, msg.messageId, "conversation");
+
+      const latestSourceRecord = (await this.agentStorage.get(sourceAgent.id)) ?? sourceRecord;
+      const sourceBranching = this.normalizeBranchingMetadata(latestSourceRecord.branching);
+      if (!existingMembership) {
+        sourceBranching.memberships = [
+          ...sourceBranching.memberships,
+          {
+            groupId,
+            ordinal: 1,
+            messageId: msg.messageId,
+            createdAt,
+          },
+        ];
+        await this.writeAgentBranchingMetadata(latestSourceRecord, sourceBranching);
+      }
+
+      const branchRecord = await this.agentStorage.get(branchAgent.id);
+      if (!branchRecord) {
+        throw new Error(`Branched agent ${branchAgent.id} was not persisted`);
+      }
+      const branchBranching = this.normalizeBranchingMetadata(branchRecord.branching);
+      branchBranching.memberships = [
+        ...branchBranching.memberships,
+        {
+          groupId,
+          ordinal: nextOrdinal,
+          messageId: null,
+          createdAt,
+        },
+      ];
+      branchBranching.pendingGroupId = groupId;
+      await this.writeAgentBranchingMetadata(
+        {
+          ...branchRecord,
+          title: sourceRecord.title ?? branchRecord.title ?? null,
+        },
+        branchBranching,
+      );
+
+      const groups = await this.listBranchGroupsForAgent(sourceAgent.id, groupId);
+      this.emitAgentBranchCreateResponse({
+        requestId: msg.requestId,
+        agentId: sourceAgent.id,
+        branchAgentId: branchAgent.id,
+        group: groups.find((group) => group.groupId === groupId) ?? null,
+        ok: true,
+        error: null,
+      });
+    } catch (error) {
+      this.emitAgentBranchCreateResponse({
+        requestId: msg.requestId,
+        agentId: msg.agentId,
+        branchAgentId,
+        group: null,
+        ok: false,
+        error: error instanceof Error ? error.message : "Failed to branch agent",
+      });
+    }
+  }
+
+  private async markPendingBranchMessage(
+    agentId: string,
+    messageId: string | undefined,
+  ): Promise<void> {
+    if (!messageId) {
+      return;
+    }
+    const record = await this.agentStorage.get(agentId);
+    const pendingGroupId = record?.branching?.pendingGroupId;
+    if (!record || !pendingGroupId) {
+      return;
+    }
+    const branching = this.normalizeBranchingMetadata(record.branching);
+    let changed = false;
+    branching.memberships = branching.memberships.map((membership) => {
+      if (membership.groupId !== pendingGroupId || membership.messageId !== null) {
+        return membership;
+      }
+      changed = true;
+      return { ...membership, messageId };
+    });
+    if (!changed) {
+      return;
+    }
+    branching.pendingGroupId = null;
+    await this.writeAgentBranchingMetadata(record, branching);
+  }
+
   private async buildAgentSessionConfig(
     config: AgentSessionConfig,
     gitOptions?: GitSetupOptions,
@@ -2841,140 +3121,6 @@ export class Session {
       gitOptions,
       legacyWorktreeName,
       firstAgentContext,
-    );
-  }
-
-  private scheduleAutoNameWorkspaceBranchForFirstAgent(input: {
-    workspace: PersistedWorkspaceRecord;
-    firstAgentContext: FirstAgentContext;
-  }): void {
-    this.scheduleWorkspaceNaming(() => this.maybeAutoNameWorkspaceBranchForFirstAgent(input), {
-      cwd: input.workspace.cwd,
-      message: "Failed to auto-name worktree branch",
-    });
-  }
-
-  private async maybeAutoNameWorkspaceBranchForFirstAgent(input: {
-    workspace: PersistedWorkspaceRecord;
-    firstAgentContext: FirstAgentContext;
-  }): Promise<void> {
-    // Capture the generated title from the generator callback so we can write
-    // title := generated title after the branch rename completes.
-    let generatedTitle: string | null = null;
-    const result = await attemptFirstAgentBranchAutoName({
-      cwd: input.workspace.cwd,
-      firstAgentContext: input.firstAgentContext,
-      generateBranchNameFromContext: ({ cwd, firstAgentContext }) => {
-        return this.generateWorkspaceName({
-          agentManager: this.agentManager,
-          cwd,
-          workspaceGitService: this.workspaceGitService,
-          providerSnapshotManager: this.providerSnapshotManager,
-          daemonConfig: this.readStructuredGenerationDaemonConfig(),
-          currentSelection: this.getFocusedAgentSelectionForCwd(cwd),
-          firstAgentContext,
-          logger: this.sessionLogger,
-        }).then((r) => {
-          generatedTitle = r?.title ?? null;
-          return r?.branch ?? null;
-        });
-      },
-    });
-    if (!result.renamed || !generatedTitle) {
-      return;
-    }
-
-    // K4: re-read from the registry before writing so any concurrent upsert
-    // that happened between workspace creation and this async path is not clobbered.
-    // The first-agent rename renamed the git branch too, so persist the new branch
-    // alongside the title — both are this path's own fields.
-    await this.applyGeneratedWorkspaceTitle(input.workspace.workspaceId, {
-      title: generatedTitle,
-      branch: result.branchName,
-      promptTitle: resolveFirstAgentPromptTitle(input.firstAgentContext),
-    });
-    await this.gitMutation.notifyGitMutation(input.workspace.cwd, "rename-branch");
-    await this.emitWorkspaceUpdateForCwd(input.workspace.cwd);
-  }
-
-  // Generated names may replace the prompt title set at creation, but not a user
-  // rename that landed while the async generator was running.
-  private async applyGeneratedWorkspaceTitle(
-    workspaceId: string,
-    input: { title: string; branch?: string | null; promptTitle?: string | null },
-  ): Promise<void> {
-    const current = await this.workspaceRegistry.get(workspaceId);
-    if (!current) {
-      return;
-    }
-    let title = current.title;
-    if (!title || (input.promptTitle && title === input.promptTitle)) {
-      title = input.title;
-    }
-    await this.workspaceRegistry.upsert({
-      ...current,
-      title,
-      ...(input.branch ? { branch: input.branch } : {}),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  // Wraps the injected workspace-name generator for a directory workspace.
-  private async generateWorkspaceTitleFromContext(input: {
-    cwd: string;
-    firstAgentContext: FirstAgentContext;
-  }): Promise<GeneratedWorkspaceName | null> {
-    return this.generateWorkspaceName({
-      agentManager: this.agentManager,
-      cwd: input.cwd,
-      workspaceGitService: this.workspaceGitService,
-      providerSnapshotManager: this.providerSnapshotManager,
-      daemonConfig: this.readStructuredGenerationDaemonConfig(),
-      currentSelection: this.getFocusedAgentSelectionForCwd(input.cwd),
-      firstAgentContext: input.firstAgentContext,
-      logger: this.sessionLogger,
-    });
-  }
-
-  // Generates a human title for a directory workspace from the firstAgentContext
-  // prompt. No branch rename — directory workspaces have no worktree git state.
-  // TODO(K7): same-dir directory-workspace display disambiguation not yet implemented.
-  private async maybeAutoNameDirectoryWorkspaceTitle(input: {
-    workspaceId: string;
-    cwd: string;
-    firstAgentContext: FirstAgentContext;
-  }): Promise<void> {
-    const generated = await this.generateWorkspaceTitleFromContext({
-      cwd: input.cwd,
-      firstAgentContext: input.firstAgentContext,
-    });
-    const title = generated?.title ?? null;
-    if (!title) {
-      return;
-    }
-    // K4: applyGeneratedWorkspaceTitle re-reads from the registry before writing.
-    // Directory workspaces have no branch — write only the title.
-    await this.applyGeneratedWorkspaceTitle(input.workspaceId, {
-      title,
-      promptTitle: resolveFirstAgentPromptTitle(input.firstAgentContext),
-    });
-    await this.emitWorkspaceUpdateForWorkspaceId(input.workspaceId);
-  }
-
-  private async scheduleAutoNameLocalWorkspaceTitleForFirstAgent(input: {
-    workspaceId: string;
-    cwd: string;
-    firstAgentContext: FirstAgentContext;
-  }): Promise<void> {
-    const workspaceId = input.workspaceId;
-    this.scheduleWorkspaceNaming(
-      () =>
-        this.maybeAutoNameDirectoryWorkspaceTitle({
-          workspaceId,
-          cwd: input.cwd,
-          firstAgentContext: input.firstAgentContext,
-        }),
-      { cwd: input.cwd, message: "Failed to auto-name local workspace title" },
     );
   }
 
@@ -4567,29 +4713,15 @@ export class Session {
       });
     if (request.firstAgentContext) {
       const firstAgentContext = request.firstAgentContext;
-      this.scheduleWorkspaceNaming(
-        () =>
-          this.maybeAutoNameDirectoryWorkspaceTitle({
-            workspaceId: workspace.workspaceId,
-            cwd: workspace.cwd,
-            firstAgentContext,
-          }),
-        { cwd: workspace.cwd, message: "Failed to auto-name directory workspace title" },
+      this.workspaceAutoName.scheduleForDirectory(
+        {
+          workspaceId: workspace.workspaceId,
+          cwd: workspace.cwd,
+          firstAgentContext,
+        },
+        { currentSelection: this.getFocusedAgentSelectionForCwd(workspace.cwd) },
       );
     }
-  }
-
-  // Schedules a background workspace-naming write off the request path. The
-  // setTimeout(0) keeps the LLM call off the hot path.
-  private scheduleWorkspaceNaming(
-    run: () => Promise<void>,
-    context: { cwd: string; message: string },
-  ): void {
-    setTimeout(() => {
-      void run().catch((error) => {
-        this.sessionLogger.warn({ err: error, cwd: context.cwd }, context.message);
-      });
-    }, 0);
   }
 
   private async handleWorkspaceCreateWorktree(
@@ -4896,7 +5028,9 @@ export class Session {
           this.createPaseoWorktree(workflowInput, serviceOptions),
         warmWorkspaceGitData: (workspace) => this.warmWorkspaceGitDataForWorkspace(workspace),
         autoNameWorkspaceBranchForFirstAgent: (autoNameInput) =>
-          this.scheduleAutoNameWorkspaceBranchForFirstAgent(autoNameInput),
+          this.workspaceAutoName.scheduleForWorktree(autoNameInput, {
+            currentSelection: this.getFocusedAgentSelectionForCwd(autoNameInput.workspace.cwd),
+          }),
         emitWorkspaceUpdateForWorkspaceId: (workspaceId) =>
           this.emitWorkspaceUpdateForWorkspaceId(workspaceId),
         cacheWorkspaceSetupSnapshot: (workspaceId, snapshot) => {
@@ -5459,6 +5593,8 @@ export class Session {
         });
         return;
       }
+
+      await this.markPendingBranchMessage(agentId, msg.messageId);
 
       if (dispatchResult.outOfBand) {
         this.emit({

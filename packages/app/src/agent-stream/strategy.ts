@@ -45,6 +45,7 @@ export interface StreamEdgeSlotProps {
 export interface StreamViewportHandle {
   scrollToBottom: (reason?: BottomAnchorLocalRequest["reason"]) => void;
   scrollToStreamItemTop: (itemId: string) => void;
+  scrollToMessage: (messageId: string, viewportY?: number | null) => boolean;
   prepareForViewportChange: () => void;
   pauseBottomAnchoringForNextLayoutChange: () => void;
 }

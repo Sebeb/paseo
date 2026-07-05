@@ -72,6 +72,8 @@ import type {
   DaemonGetPairingOfferResponse,
   DiagnosticsResponse,
   AgentRewindResponseMessage,
+  AgentBranchCreateResponseMessage,
+  AgentBranchGroupsResponseMessage,
   ListTerminalsResponse,
   CreateTerminalResponse,
   SubscribeTerminalResponse,
@@ -253,7 +255,7 @@ export interface DaemonClientConfig {
   };
   runtimeMetricsIntervalMs?: number;
   runtimeMetricsWindowMs?: number;
-  capabilities?: Partial<Record<ClientCapability, boolean>>;
+  capabilities?: Partial<Record<ClientCapability, unknown>>;
 }
 
 export interface SendMessageOptions {
@@ -360,6 +362,8 @@ type GetProvidersSnapshotPayload = GetProvidersSnapshotResponseMessage["payload"
 type RefreshProvidersSnapshotPayload = RefreshProvidersSnapshotResponseMessage["payload"];
 type ProviderDiagnosticPayload = ProviderDiagnosticResponseMessage["payload"];
 type ProviderUsageListPayload = ProviderUsageListResponseMessage["payload"];
+export type AgentBranchCreatePayload = AgentBranchCreateResponseMessage["payload"];
+export type AgentBranchGroupsPayload = AgentBranchGroupsResponseMessage["payload"];
 type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
 type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
 type DiagnosticsPayload = DiagnosticsResponse["payload"];
@@ -2561,6 +2565,46 @@ export class DaemonClient {
     });
     if (!payload.ok) {
       throw new Error(payload.error ?? "Agent rewind failed");
+    }
+    return payload;
+  }
+
+  async createAgentBranch(
+    agentId: string,
+    messageId: string,
+    options?: { requestId?: string },
+  ): Promise<AgentBranchCreatePayload> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.branch.create.response">({
+        requestId: options?.requestId,
+        message: {
+          type: "agent.branch.create.request",
+          agentId,
+          messageId,
+        },
+        timeout: 30000,
+      });
+    if (!payload.ok) {
+      throw new Error(payload.error ?? "Agent branch failed");
+    }
+    return payload;
+  }
+
+  async fetchAgentBranchGroups(
+    agentId: string,
+    options?: { requestId?: string; groupId?: string },
+  ): Promise<AgentBranchGroupsPayload> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.branch.groups.response">({
+        requestId: options?.requestId,
+        message: {
+          type: "agent.branch.groups.request",
+          agentId,
+          ...(options?.groupId ? { groupId: options.groupId } : {}),
+        },
+      });
+    if (payload.error) {
+      throw new Error(payload.error);
     }
     return payload;
   }
