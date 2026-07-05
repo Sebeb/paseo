@@ -784,7 +784,7 @@ describe("Codex app-server provider", () => {
             },
             godot: {
               command: "godot-mcp",
-              tool_timeout_sec: "'",
+              tool_timeout_sec: "",
             },
           },
         },
