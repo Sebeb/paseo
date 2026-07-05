@@ -37,6 +37,10 @@ export interface SidebarTabStatusSummary {
   propagatedEntryCounts: Record<SidebarEntryStatusKind, number>;
 }
 
+interface SidebarEntryStatusFilterOptions {
+  excludeKinds?: readonly SidebarEntryStatusKind[];
+}
+
 export interface SidebarTerminalStatusRecord {
   id: string;
   activity: TerminalActivity | null | undefined;
@@ -182,12 +186,16 @@ export function getSidebarEntryStatusCount(
 
 export function getVisibleSidebarEntryStatusKinds(
   summary: SidebarTabStatusSummary,
+  options: SidebarEntryStatusFilterOptions = {},
 ): SidebarEntryStatusKind[] {
-  return SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER.filter((kind) => summary.entryCounts[kind] > 0);
+  return SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER.filter(
+    (kind) => summary.entryCounts[kind] > 0 && !options.excludeKinds?.includes(kind),
+  );
 }
 
 export function getPrimarySidebarEntryStatusKind(
   summary: SidebarTabStatusSummary,
+  options: SidebarEntryStatusFilterOptions = {},
 ): SidebarEntryStatusKind | null {
   const priority: SidebarEntryStatusKind[] = [
     "input_required",
@@ -197,7 +205,11 @@ export function getPrimarySidebarEntryStatusKind(
     "queued_messages",
     "draft",
   ];
-  return priority.find((kind) => summary.entryCounts[kind] > 0) ?? null;
+  return (
+    priority.find(
+      (kind) => summary.entryCounts[kind] > 0 && !options.excludeKinds?.includes(kind),
+    ) ?? null
+  );
 }
 
 export function getSidebarEntryStatusSortRank(summary: SidebarTabStatusSummary): number {

@@ -4,12 +4,15 @@
 import React from "react";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SidebarEntryStatusBadges } from "@/components/sidebar/sidebar-entry-row";
+import {
+  SidebarEntryRowContent,
+  SidebarEntryStatusBadges,
+} from "@/components/sidebar/sidebar-entry-row";
 import { createEmptySidebarTabStatusSummary } from "@/utils/sidebar-tab-status-summary";
 
 const { theme } = vi.hoisted(() => ({
   theme: {
-    spacing: { 2: 8 },
+    spacing: { 1: 4, 2: 8 },
     iconSize: { md: 16 },
     borderRadius: { full: 999 },
     fontSize: { xs: 11, sm: 13 },
@@ -69,6 +72,49 @@ afterEach(() => {
 });
 
 describe("SidebarEntryStatusBadges", () => {
+  it("renders a label prefix before the label text", () => {
+    const leading = React.createElement("span", { "data-testid": "leading-icon" });
+    const labelPrefix = React.createElement("span", { "data-testid": "label-prefix" }, "3");
+    const { getByTestId, getByText } = render(
+      <SidebarEntryRowContent leading={leading} labelPrefix={labelPrefix} label="Implement" />,
+    );
+
+    const prefix = getByTestId("label-prefix");
+    const label = getByText("Implement");
+
+    expect(prefix.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+
+  it("swaps the leading slot to hover content without unmounting the base leading content", () => {
+    const leading = React.createElement("span", { "data-testid": "leading-icon" });
+    const hoverLeading = React.createElement("span", { "data-testid": "hover-leading" }, "toggle");
+    const { getByTestId } = render(
+      <SidebarEntryRowContent
+        leading={leading}
+        hoverLeading={hoverLeading}
+        showHoverLeading
+        label="Implement"
+      />,
+    );
+
+    expect(getByTestId("hover-leading")).not.toBeNull();
+    expect(getByTestId("leading-icon").parentElement?.getAttribute("style")).toContain(
+      "opacity: 0",
+    );
+  });
+
+  it("renders a leading badge over the leading icon", () => {
+    const leading = React.createElement("span", { "data-testid": "leading-icon" });
+    const leadingBadge = React.createElement("span", { "data-testid": "leading-badge" }, "P");
+    const { getByTestId } = render(
+      <SidebarEntryRowContent leading={leading} leadingBadge={leadingBadge} label="Implement" />,
+    );
+
+    expect(getByTestId("leading-badge").parentElement?.getAttribute("style")).toContain(
+      "position: absolute",
+    );
+  });
+
   it("uses custom tab-style icons for single input-required and failed statuses", () => {
     const summary = createEmptySidebarTabStatusSummary();
     summary.entryCounts.input_required = 1;

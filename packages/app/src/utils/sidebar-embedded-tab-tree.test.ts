@@ -65,6 +65,26 @@ describe("sidebar embedded tab tree", () => {
     expect(rows[0]?.expanded).toBe(true);
   });
 
+  it("tracks the total tab count for a collapsed parent branch", () => {
+    const rows = buildSidebarEmbeddedTabTreeRows({
+      workspaceKey: "workspace-a",
+      items: [item("agent_parent"), item("agent_child"), item("agent_grandchild")],
+      parentTabIdByTabId: {
+        agent_child: "agent_parent",
+        agent_grandchild: "agent_child",
+      },
+      expandedParentTabKeys: new Set(),
+      statusSummariesByTabId: new Map([
+        ["agent_parent", unreadSummary(1)],
+        ["agent_child", unreadSummary(1)],
+        ["agent_grandchild", unreadSummary(1)],
+      ]),
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.statusSummary.total).toBe(3);
+  });
+
   it("aggregates parent and descendant status badge counts", () => {
     const rows = buildSidebarEmbeddedTabTreeRows({
       workspaceKey: "workspace-a",

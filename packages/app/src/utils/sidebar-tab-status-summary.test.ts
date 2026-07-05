@@ -8,6 +8,7 @@ import {
   combineSidebarTabStatusSummaries,
   createEmptySidebarTabStatusSummary,
   SIDEBAR_TAB_STATUS_BADGE_BUCKETS,
+  getPrimarySidebarEntryStatusKind,
   getSidebarEntryStatusCount,
   getSidebarEntryStatusSortRank,
   getVisibleSidebarEntryStatusKinds,
@@ -331,6 +332,27 @@ describe("sidebar tab status summary", () => {
     expect(result.propagatedDraft).toBe(1);
     expect(combineSidebarTabStatusSummaries([result]).draft).toBe(1);
     expect(getSidebarEntryStatusCount(combineSidebarTabStatusSummaries([result]), "draft")).toBe(1);
+  });
+
+  it("can hide draft entry badges while preserving other tab status badges", () => {
+    const result = summarize({
+      tabs: [
+        tab({ tabId: "draft-typed", target: { kind: "draft", draftId: "draft-1" } }),
+        tab({ tabId: "agent-running", target: { kind: "agent", agentId: "running" } }),
+      ],
+      agents: [agent({ id: "running", status: "running" })],
+      draftInputsByKey: {
+        "draft:srv:draft-1": { text: "hello", attachments: [] },
+      },
+    });
+
+    expect(getVisibleSidebarEntryStatusKinds(result)).toEqual(["draft", "in_progress"]);
+    expect(getVisibleSidebarEntryStatusKinds(result, { excludeKinds: ["draft"] })).toEqual([
+      "in_progress",
+    ]);
+    expect(getPrimarySidebarEntryStatusKind(result, { excludeKinds: ["draft"] })).toBe(
+      "in_progress",
+    );
   });
 
   it("counts queued messages and renders queued before other badges", () => {
