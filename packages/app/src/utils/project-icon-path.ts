@@ -1,6 +1,18 @@
 import { isAbsolutePath } from "@/utils/path";
 
-export const PROJECT_ICON_FILE_EXTENSIONS = ["ico", "png", "svg", "jpg", "jpeg", "gif", "webp"];
+export const PROJECT_ICON_FILE_EXTENSIONS = [
+  "ico",
+  "png",
+  "svg",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "avif",
+  "bmp",
+  "tif",
+  "tiff",
+];
 
 export function normalizeProjectIconRelativePath(value: string): string | null {
   const trimmed = value.trim();

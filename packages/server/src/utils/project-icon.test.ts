@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, realpathSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import sharp from "sharp";
 import {
   findProjectIcon,
   getProjectIcon,
@@ -259,6 +260,13 @@ describe("findProjectIcon", () => {
 
 describe("getProjectIcon", () => {
   let tempDir: string;
+  let squarePng: Buffer;
+  let nonSquarePng: Buffer;
+
+  beforeAll(async () => {
+    squarePng = await createPng(128, 128);
+    nonSquarePng = await createPng(200, 100);
+  });
 
   beforeEach(() => {
     tempDir = createTempDir();
@@ -268,159 +276,60 @@ describe("getProjectIcon", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  // Valid 1x1 PNG (square)
-  const squarePng = Buffer.from([
-    0x89,
-    0x50,
-    0x4e,
-    0x47,
-    0x0d,
-    0x0a,
-    0x1a,
-    0x0a, // PNG signature
-    0x00,
-    0x00,
-    0x00,
-    0x0d, // IHDR chunk length
-    0x49,
-    0x48,
-    0x44,
-    0x52, // IHDR
-    0x00,
-    0x00,
-    0x00,
-    0x01, // width: 1
-    0x00,
-    0x00,
-    0x00,
-    0x01, // height: 1
-    0x08,
-    0x02, // bit depth, color type
-    0x00,
-    0x00,
-    0x00, // compression, filter, interlace
-    0x90,
-    0x77,
-    0x53,
-    0xde, // CRC
-    0x00,
-    0x00,
-    0x00,
-    0x0c, // IDAT chunk length
-    0x49,
-    0x44,
-    0x41,
-    0x54, // IDAT
-    0x08,
-    0xd7,
-    0x63,
-    0xf8,
-    0xff,
-    0xff,
-    0xff,
-    0x00,
-    0x05,
-    0xfe,
-    0x02,
-    0xfe, // data
-    0xa3,
-    0x6c,
-    0x47,
-    0x9f, // CRC
-    0x00,
-    0x00,
-    0x00,
-    0x00, // IEND chunk length
-    0x49,
-    0x45,
-    0x4e,
-    0x44, // IEND
-    0xae,
-    0x42,
-    0x60,
-    0x82, // CRC
-  ]);
+  async function expectNormalizedPng(result: Awaited<ReturnType<typeof getProjectIcon>>) {
+    expect(result).not.toBeNull();
+    expect(result?.mimeType).toBe("image/png");
+    const metadata = await sharp(Buffer.from(result?.data ?? "", "base64")).metadata();
+    expect(metadata.format).toBe("png");
+    expect(metadata.width).toBe(96);
+    expect(metadata.height).toBe(96);
+  }
 
-  // Valid 2x1 PNG (non-square)
-  const nonSquarePng = Buffer.from([
-    0x89,
-    0x50,
-    0x4e,
-    0x47,
-    0x0d,
-    0x0a,
-    0x1a,
-    0x0a, // PNG signature
-    0x00,
-    0x00,
-    0x00,
-    0x0d, // IHDR chunk length
-    0x49,
-    0x48,
-    0x44,
-    0x52, // IHDR
-    0x00,
-    0x00,
-    0x00,
-    0x02, // width: 2
-    0x00,
-    0x00,
-    0x00,
-    0x01, // height: 1
-    0x08,
-    0x02, // bit depth, color type
-    0x00,
-    0x00,
-    0x00, // compression, filter, interlace
-    0x00,
-    0x00,
-    0x00,
-    0x00, // CRC (not validated)
-  ]);
-
-  it("returns icon data for square PNG", async () => {
+  it("returns normalized icon data for square PNG", async () => {
     writeFileSync(join(tempDir, "favicon.png"), squarePng);
 
     const result = await getProjectIcon(tempDir);
-    expect(result).not.toBeNull();
-    expect(result?.mimeType).toBe("image/png");
-    expect(result?.data).toBe(squarePng.toString("base64"));
+    await expectNormalizedPng(result);
     expect(result?.path).toBe("favicon.png");
   });
 
-  it("returns null for non-square PNG", async () => {
+  it("normalizes non-square PNG files", async () => {
     writeFileSync(join(tempDir, "favicon.png"), nonSquarePng);
 
     const result = await getProjectIcon(tempDir);
-    expect(result).toBeNull();
+    await expectNormalizedPng(result);
   });
 
-  it("returns icon data for ICO files (assumed square)", async () => {
-    writeFileSync(join(tempDir, "favicon.ico"), "ico content");
+  it("returns normalized icon data for PNG-backed ICO files", async () => {
+    writeFileSync(join(tempDir, "favicon.ico"), createPngBackedIco(squarePng));
 
     const result = await getProjectIcon(tempDir);
-    expect(result).not.toBeNull();
-    expect(result?.mimeType).toBe("image/x-icon");
+    await expectNormalizedPng(result);
+    expect(result?.path).toBe("favicon.ico");
   });
 
-  it("returns icon data for SVG files (assumed square)", async () => {
-    writeFileSync(join(tempDir, "favicon.svg"), "<svg></svg>");
+  it("returns normalized icon data for SVG files", async () => {
+    writeFileSync(
+      join(tempDir, "favicon.svg"),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="red"/></svg>',
+    );
 
     const result = await getProjectIcon(tempDir);
-    expect(result).not.toBeNull();
-    expect(result?.mimeType).toBe("image/svg+xml");
+    await expectNormalizedPng(result);
     expect(result?.path).toBe("favicon.svg");
   });
 
   it("prefers the configured paseo.json icon over automatic discovery", async () => {
     mkdirSync(join(tempDir, "assets"));
     writeFileSync(join(tempDir, "favicon.png"), squarePng);
-    writeFileSync(join(tempDir, "assets", "brand.svg"), "<svg></svg>");
+    writeFileSync(
+      join(tempDir, "assets", "brand.svg"),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="32" cy="32" r="32" fill="blue"/></svg>',
+    );
     writeFileSync(join(tempDir, "paseo.json"), JSON.stringify({ icon: "assets/brand.svg" }));
 
     const result = await getProjectIcon(tempDir);
-    expect(result).not.toBeNull();
-    expect(result?.mimeType).toBe("image/svg+xml");
+    await expectNormalizedPng(result);
     expect(result?.path).toBe("assets/brand.svg");
   });
 
@@ -434,11 +343,13 @@ describe("getProjectIcon", () => {
 
   it("validates an explicit relative icon path for preview requests", async () => {
     mkdirSync(join(tempDir, "assets"));
-    writeFileSync(join(tempDir, "assets", "brand.svg"), "<svg></svg>");
+    writeFileSync(
+      join(tempDir, "assets", "brand.svg"),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="32" cy="32" r="32" fill="blue"/></svg>',
+    );
 
     const result = await getProjectIcon(tempDir, { iconPath: "assets/brand.svg" });
-    expect(result).not.toBeNull();
-    expect(result?.mimeType).toBe("image/svg+xml");
+    await expectNormalizedPng(result);
     expect(result?.path).toBe("assets/brand.svg");
   });
 
@@ -449,8 +360,8 @@ describe("getProjectIcon", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null for files over 32KB", async () => {
-    const largeContent = Buffer.alloc(33 * 1024, 0);
+  it("returns null for source files over 10MB", async () => {
+    const largeContent = Buffer.alloc(10 * 1024 * 1024 + 1, 0);
     writeFileSync(join(tempDir, "favicon.ico"), largeContent);
 
     const result = await getProjectIcon(tempDir);
@@ -462,6 +373,35 @@ describe("getProjectIcon", () => {
     expect(result).toBeNull();
   });
 });
+
+async function createPng(width: number, height: number): Promise<Buffer> {
+  return await sharp({
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: { r: 200, g: 40, b: 80, alpha: 1 },
+    },
+  })
+    .png()
+    .toBuffer();
+}
+
+function createPngBackedIco(png: Buffer): Buffer {
+  const header = Buffer.alloc(22);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(1, 4);
+  header[6] = 128;
+  header[7] = 128;
+  header[8] = 0;
+  header[9] = 0;
+  header.writeUInt16LE(1, 10);
+  header.writeUInt16LE(32, 12);
+  header.writeUInt32LE(png.length, 14);
+  header.writeUInt32LE(header.length, 18);
+  return Buffer.concat([header, png]);
+}
 
 describe("normalizeProjectIconRelativePath", () => {
   it("normalizes separators and rejects absolute or escaping paths", () => {
