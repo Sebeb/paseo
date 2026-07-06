@@ -44,10 +44,12 @@ import {
 import { ensureAgentLoaded } from "./agent/agent-loading.js";
 import {
   formatSystemNotificationPrompt,
+  isSystemInjectedEnvelope,
   sendPromptToAgent,
   waitForAgentRunStartWithTimeout,
   unarchiveAgentState,
 } from "./agent/agent-prompt.js";
+import type { AgentTimelineRow } from "./agent/agent-timeline-store-types.js";
 import {
   resolveCreateAgentTitles,
   resolveFirstAgentPromptTitle,
@@ -3133,19 +3135,45 @@ export class Session {
     }
   }
 
+  /**
+   * Resolve a branch's pending membership to the timeline id of the first
+   * user message sent after branching. The send request's client messageId
+   * cannot be used directly: providers assign their own timeline ids
+   * (Claude uses the SDK/transcript uuid, Codex uses app-server item ids),
+   * and the branch counter in the app is keyed by timeline message ids.
+   * The user message is committed to the durable timeline asynchronously,
+   * so this retries briefly; callers must not await it on the send path.
+   */
   private async markPendingBranchMessage(
     agentId: string,
-    messageId: string | undefined,
+    sentMessageId: string | undefined,
   ): Promise<void> {
-    if (!messageId) {
-      return;
-    }
     const record = await this.agentStorage.get(agentId);
     const pendingGroupId = record?.branching?.pendingGroupId;
     if (!record || !pendingGroupId) {
       return;
     }
-    const branching = this.normalizeBranchingMetadata(record.branching);
+    const pendingMembership = record.branching?.memberships.find(
+      (membership) => membership.groupId === pendingGroupId && membership.messageId === null,
+    );
+    if (!pendingMembership) {
+      return;
+    }
+
+    const messageId = await this.resolveBranchUserMessageId({
+      agentId,
+      sentMessageId,
+      notBefore: Date.parse(pendingMembership.createdAt),
+    });
+    if (!messageId) {
+      return;
+    }
+
+    const latestRecord = await this.agentStorage.get(agentId);
+    if (!latestRecord || latestRecord.branching?.pendingGroupId !== pendingGroupId) {
+      return;
+    }
+    const branching = this.normalizeBranchingMetadata(latestRecord.branching);
     let changed = false;
     branching.memberships = branching.memberships.map((membership) => {
       if (membership.groupId !== pendingGroupId || membership.messageId !== null) {
@@ -3158,7 +3186,44 @@ export class Session {
       return;
     }
     branching.pendingGroupId = null;
-    await this.writeAgentBranchingMetadata(record, branching);
+    await this.writeAgentBranchingMetadata(latestRecord, branching);
+  }
+
+  private async resolveBranchUserMessageId(input: {
+    agentId: string;
+    sentMessageId: string | undefined;
+    notBefore: number;
+  }): Promise<string | null> {
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      let rows: AgentTimelineRow[];
+      try {
+        rows = await this.agentManager.getTimelineRows(input.agentId);
+      } catch {
+        return null;
+      }
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const row = rows[index];
+        if (!row || row.item.type !== "user_message" || !row.item.messageId) {
+          continue;
+        }
+        if (isSystemInjectedEnvelope(row.item.text)) {
+          continue;
+        }
+        if (input.sentMessageId && row.item.messageId === input.sentMessageId) {
+          return row.item.messageId;
+        }
+        const timestamp = Date.parse(row.timestamp);
+        if (Number.isFinite(input.notBefore) && timestamp >= input.notBefore) {
+          return row.item.messageId;
+        }
+        break;
+      }
+      if (Date.now() >= deadline) {
+        return null;
+      }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
+    }
   }
 
   private async buildAgentSessionConfig(
@@ -5680,7 +5745,14 @@ export class Session {
         return;
       }
 
-      await this.markPendingBranchMessage(agentId, msg.messageId);
+      // Fire-and-forget: waits for the user message to land in the durable
+      // timeline (up to ~15s) and must not delay the send response.
+      void this.markPendingBranchMessage(agentId, msg.messageId).catch((error) => {
+        this.sessionLogger.warn(
+          { err: error, agentId },
+          "Failed to resolve pending branch message",
+        );
+      });
 
       if (dispatchResult.outOfBand) {
         this.emit({
