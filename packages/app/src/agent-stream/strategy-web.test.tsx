@@ -63,6 +63,28 @@ function TestPinnedOverlayButton() {
   );
 }
 
+interface TestElementRect {
+  top: number;
+  bottom: number;
+}
+
+function setElementRect(element: Element, rect: TestElementRect): void {
+  Object.defineProperty(element, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({
+      x: 0,
+      y: rect.top,
+      top: rect.top,
+      bottom: rect.bottom,
+      left: 0,
+      right: 100,
+      width: 100,
+      height: rect.bottom - rect.top,
+      toJSON: () => ({}),
+    }),
+  });
+}
+
 function createRenderers(onRowRender: () => void): StreamSegmentRenderers {
   return {
     renderHistoryVirtualizedRow: (item) => {
@@ -238,6 +260,82 @@ describe("createWebStreamStrategy", () => {
     });
 
     expect(onNearHistoryStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses mounted virtualized row pixels before pinning a visible user input", () => {
+    const strategy = createWebStreamStrategy({ isMobileBreakpoint: true });
+    const viewportRef = React.createRef<StreamViewportHandle>();
+    const onPinnedUserInputChange = vi.fn();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <>
+          {strategy.render({
+            agentId: "agent",
+            segments: {
+              historyVirtualized: [userMessage(1), assistantMessage(1)],
+              historyMounted: [],
+              liveHead: [],
+            },
+            boundary: {
+              hasVirtualizedHistory: true,
+              hasMountedHistory: false,
+              hasLiveHead: false,
+            },
+            renderers: createRenderers(vi.fn()),
+            listEmptyComponent: null,
+            viewportRef,
+            routeBottomAnchorRequest: null,
+            isAuthoritativeHistoryReady: true,
+            onNearBottomChange: vi.fn(),
+            onNearHistoryStart: vi.fn(),
+            pinUserInputsEnabled: true,
+            pinnedBottom: 133,
+            onPinnedUserInputChange,
+            pinnedUserInputOverlay: <TestPinnedOverlayButton />,
+            isLoadingOlderHistory: false,
+            hasOlderHistory: false,
+            scrollEnabled: true,
+            listStyle: null,
+            baseListContentContainerStyle: null,
+            forwardListContentContainerStyle: null,
+          })}
+        </>,
+      );
+    });
+
+    const scrollContainer = container.querySelector('[data-testid="agent-chat-scroll"]');
+    if (!(scrollContainer instanceof HTMLElement)) {
+      throw new Error("Expected chat scroll container to render");
+    }
+    const contentElement = scrollContainer.firstElementChild;
+    if (!(contentElement instanceof HTMLElement)) {
+      throw new Error("Expected chat content element to render");
+    }
+    const userRow = container.querySelector('[data-stream-item-id="message-1"]');
+    if (!(userRow instanceof HTMLElement)) {
+      throw new Error("Expected virtualized user row to render");
+    }
+    const assistantRow = container.querySelector('[data-stream-item-id="assistant-1"]');
+    if (!(assistantRow instanceof HTMLElement)) {
+      throw new Error("Expected virtualized assistant row to render");
+    }
+
+    Object.defineProperty(scrollContainer, "clientHeight", { configurable: true, value: 300 });
+    Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(scrollContainer, "scrollTop", { configurable: true, value: 120 });
+    setElementRect(contentElement, { top: 0, bottom: 1000 });
+    setElementRect(userRow, { top: 16, bottom: 280 });
+    setElementRect(assistantRow, { top: 280, bottom: 640 });
+
+    act(() => {
+      scrollContainer.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(onPinnedUserInputChange).toHaveBeenLastCalledWith(null);
   });
 
   it("reports a pinned user input and scrolls to its source row", () => {

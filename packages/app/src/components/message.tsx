@@ -6,7 +6,9 @@ import {
   ActivityIndicator,
   type GestureResponderEvent,
   type LayoutChangeEvent,
+  type NativeSyntheticEvent,
   StyleProp,
+  type TextLayoutEventData,
   ViewStyle,
   type TextStyle,
 } from "react-native";
@@ -138,6 +140,8 @@ interface UserMessageBubbleContentProps {
   onOpenImage?: (image: UserMessageImageAttachment) => void;
   textNumberOfLines?: number;
   selectable?: boolean;
+  imageThumbnailSize?: "default" | "small";
+  showLiteralTruncationMarker?: boolean;
 }
 
 const EMPTY_USER_MESSAGE_IMAGES: UserMessageImageAttachment[] = [];
@@ -391,6 +395,22 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
   imagePreviewSpacing: {
     marginBottom: theme.spacing[2],
   },
+  textClipContainer: {
+    position: "relative",
+  },
+  textWithLiteralTruncationMarker: {
+    paddingRight: 24,
+  },
+  literalTruncationMarker: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    paddingLeft: theme.spacing[1],
+    color: theme.colors.foreground,
+    backgroundColor: theme.colors.surface3,
+    fontSize: theme.fontSize.base,
+    lineHeight: 22,
+  },
   copyButton: {
     alignSelf: "center",
     padding: theme.spacing[1],
@@ -434,16 +454,92 @@ interface UserMessageImagePillProps {
   image: UserMessageImageAttachment;
   onOpen: (image: UserMessageImageAttachment) => void;
   accessibilityLabel: string;
+  thumbnailSize: "default" | "small";
 }
 
-function UserMessageImagePill({ image, onOpen, accessibilityLabel }: UserMessageImagePillProps) {
+function UserMessageImagePill({
+  image,
+  onOpen,
+  accessibilityLabel,
+  thumbnailSize,
+}: UserMessageImagePillProps) {
   const handlePress = useCallback(() => {
     onOpen(image);
   }, [onOpen, image]);
   return (
     <AttachmentFrame onPress={handlePress} accessibilityLabel={accessibilityLabel}>
-      <AttachmentThumbnail metadata={image} />
+      <AttachmentThumbnail metadata={image} size={thumbnailSize} />
     </AttachmentFrame>
+  );
+}
+
+interface UserMessageTextProps {
+  message: string;
+  numberOfLines?: number;
+  selectable: boolean;
+  showLiteralTruncationMarker: boolean;
+}
+
+function UserMessageText({
+  message,
+  numberOfLines,
+  selectable,
+  showLiteralTruncationMarker,
+}: UserMessageTextProps) {
+  const [isTruncated, setIsTruncated] = useState(false);
+  const canShowLiteralMarker = showLiteralTruncationMarker && numberOfLines !== undefined;
+  const textStyle = useMemo(
+    () => [
+      userMessageStylesheet.text,
+      isTruncated ? userMessageStylesheet.textWithLiteralTruncationMarker : undefined,
+    ],
+    [isTruncated],
+  );
+  const handleTextLayout = useCallback(
+    (event: NativeSyntheticEvent<TextLayoutEventData>) => {
+      if (!canShowLiteralMarker) {
+        return;
+      }
+      const nextIsTruncated = event.nativeEvent.lines.length > numberOfLines;
+      setIsTruncated((previous) => (previous === nextIsTruncated ? previous : nextIsTruncated));
+    },
+    [canShowLiteralMarker, numberOfLines],
+  );
+
+  useEffect(() => {
+    setIsTruncated(false);
+  }, [message, numberOfLines]);
+
+  if (!canShowLiteralMarker) {
+    return (
+      <Text
+        selectable={selectable}
+        style={userMessageStylesheet.text}
+        numberOfLines={numberOfLines}
+        ellipsizeMode="tail"
+      >
+        {message}
+      </Text>
+    );
+  }
+
+  return (
+    <View style={userMessageStylesheet.textClipContainer}>
+      <Text
+        selectable={selectable}
+        style={textStyle}
+        numberOfLines={numberOfLines}
+        ellipsizeMode="clip"
+        onTextLayout={handleTextLayout}
+      >
+        {message}
+      </Text>
+      {isTruncated ? (
+        <Text style={userMessageStylesheet.literalTruncationMarker} pointerEvents="none">
+          ...
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -454,6 +550,8 @@ function UserMessageBubbleContent({
   onOpenImage,
   textNumberOfLines,
   selectable = true,
+  imageThumbnailSize = "default",
+  showLiteralTruncationMarker = false,
 }: UserMessageBubbleContentProps) {
   const { t } = useTranslation();
   const hasText = message.trim().length > 0;
@@ -485,10 +583,11 @@ function UserMessageBubbleContent({
                 image={image}
                 onOpen={onOpenImage}
                 accessibilityLabel={t("composer.attachments.openImage")}
+                thumbnailSize={imageThumbnailSize}
               />
             ) : (
               <AttachmentFrame key={image.id}>
-                <AttachmentThumbnail metadata={image} />
+                <AttachmentThumbnail metadata={image} size={imageThumbnailSize} />
               </AttachmentFrame>
             ),
           )}
@@ -513,14 +612,12 @@ function UserMessageBubbleContent({
         </View>
       ) : null}
       {hasText ? (
-        <Text
-          selectable={selectable}
-          style={userMessageStylesheet.text}
+        <UserMessageText
+          message={message}
           numberOfLines={textNumberOfLines}
-          ellipsizeMode="tail"
-        >
-          {message}
-        </Text>
+          selectable={selectable}
+          showLiteralTruncationMarker={showLiteralTruncationMarker}
+        />
       ) : null}
     </>
   );
@@ -687,6 +784,12 @@ export const PinnedUserMessage = memo(function PinnedUserMessage({
   images = EMPTY_USER_MESSAGE_IMAGES,
   attachments = EMPTY_USER_MESSAGE_ATTACHMENTS,
 }: PinnedUserMessageProps) {
+  let textNumberOfLines = 3;
+  if (attachments.length > 0) {
+    textNumberOfLines = 1;
+  } else if (images.length > 0) {
+    textNumberOfLines = 2;
+  }
   const bubbleStyle = useMemo(
     () => [userMessageStylesheet.bubble, userMessageStylesheet.pinnedBubble],
     [],
@@ -700,8 +803,10 @@ export const PinnedUserMessage = memo(function PinnedUserMessage({
             message={message}
             images={images}
             attachments={attachments}
-            textNumberOfLines={4}
+            textNumberOfLines={textNumberOfLines}
             selectable={false}
+            imageThumbnailSize="small"
+            showLiteralTruncationMarker
           />
         </View>
       </View>

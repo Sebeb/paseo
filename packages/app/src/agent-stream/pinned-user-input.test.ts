@@ -91,12 +91,27 @@ describe("selectPinnedUserInput", () => {
     });
   });
 
+  it("selects an input when it is the only user input visible in the top half", () => {
+    const result = selectPinnedUserInput({
+      enabled: true,
+      candidates: [
+        candidate({
+          id: "u1",
+          top: 0,
+          bottom: 80,
+          responseRanges: [{ id: "a1", top: 120, bottom: 420 }],
+        }),
+      ],
+      viewportTop: 0,
+      viewportBottom: 300,
+      pinnedBottom: DEFAULT_PINNED_BOTTOM,
+    });
+    expect(result?.item.id).toBe("u1");
+  });
+
   it("hides when the active candidate's bottom is at or below the pinned bottom in viewport", () => {
-    // u1.bottom = 80, viewportTop = 0, pinnedBottom = 133
-    // u1.bottom_in_viewport = 80, which is < 133 — but the threshold check is strict
-    // and the message is fully visible, so we still want the real one until it scrolls
-    // past. Here we test the boundary: at viewportTop just past u1.bottom (viewport
-    // pushed enough that u1 has cleared the pinned bottom only by 1px), u1 must show.
+    // u1.bottom = 200, viewportTop = 0, pinnedBottom = 133.
+    // u1 has not cleared the pinned overlay's bottom, so the real bubble remains.
     expect(
       selectPinnedUserInput({
         enabled: true,
@@ -142,6 +157,55 @@ describe("selectPinnedUserInput", () => {
     expect(result?.translateY).toBe(0);
   });
 
+  it("hides when a different user input is visible in the top half", () => {
+    // u2 is visible between viewport y=80..150 while u1 would otherwise pin.
+    const result = selectPinnedUserInput({
+      enabled: true,
+      candidates: [
+        candidate({
+          id: "u1",
+          top: 0,
+          bottom: 80,
+          responseRanges: [{ id: "a1", top: 80, bottom: 480 }],
+        }),
+        candidate({
+          id: "u2",
+          top: 480,
+          bottom: 580,
+          responseRanges: [{ id: "a2", top: 580, bottom: 900 }],
+        }),
+      ],
+      viewportTop: 400,
+      viewportBottom: 700,
+      pinnedBottom: DEFAULT_PINNED_BOTTOM,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("hides when the active input and another user input are both visible in the top half", () => {
+    const result = selectPinnedUserInput({
+      enabled: true,
+      candidates: [
+        candidate({
+          id: "u1",
+          top: 0,
+          bottom: 80,
+          responseRanges: [{ id: "a1", top: 80, bottom: 120 }],
+        }),
+        candidate({
+          id: "u2",
+          top: 120,
+          bottom: 220,
+          responseRanges: [{ id: "a2", top: 220, bottom: 520 }],
+        }),
+      ],
+      viewportTop: 0,
+      viewportBottom: 300,
+      pinnedBottom: DEFAULT_PINNED_BOTTOM,
+    });
+    expect(result).toBeNull();
+  });
+
   it("applies a negative translateY push when the next user_message enters the pinned zone", () => {
     // u1.bottom = 80, u2.top = 480, pinnedBottom = 133.
     // At viewportTop = 400: u2.top_in_viewport = 80 < 133 → push.
@@ -163,7 +227,7 @@ describe("selectPinnedUserInput", () => {
         }),
       ],
       viewportTop: 400,
-      viewportBottom: 700,
+      viewportBottom: 560,
       pinnedBottom: DEFAULT_PINNED_BOTTOM,
     });
     expect(result?.item.id).toBe("u1");
