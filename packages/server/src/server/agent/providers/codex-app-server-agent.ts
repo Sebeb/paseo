@@ -1215,6 +1215,14 @@ function normalizeCodexThreadItemType(rawType: string | undefined): string | und
   }
 }
 
+function readCodexAssistantPresentation(
+  item: Record<string, unknown>,
+): Exclude<AssistantMessagePresentation, undefined> {
+  const payload = toObjectRecord(item.payload);
+  const phase = nonEmptyString(item.phase) ?? nonEmptyString(payload?.phase);
+  return phase === "final_answer" ? "response" : "progress";
+}
+
 function normalizeCodexCommandValue(value: unknown): string | string[] | null {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -1701,7 +1709,7 @@ export function threadItemToTimeline(
         type: "assistant_message",
         text: typeof normalizedItem.text === "string" ? normalizedItem.text : "",
         ...(messageId ? { messageId } : {}),
-        presentation: "progress",
+        presentation: readCodexAssistantPresentation(normalizedItem),
       };
     }
     case "plan":
@@ -1906,6 +1914,7 @@ const ItemTextDeltaNotificationSchema = z
     threadId: z.string().optional(),
     itemId: z.string(),
     delta: z.string(),
+    phase: z.string().optional(),
   })
   .passthrough();
 
@@ -2108,7 +2117,13 @@ type ParsedCodexNotification =
   | { kind: "plan_updated"; plan: Array<{ step: string | null; status: string | null }> }
   | { kind: "diff_updated"; diff: string }
   | { kind: "token_usage_updated"; tokenUsage: unknown }
-  | { kind: "agent_message_delta"; itemId: string; delta: string; threadId: string | null }
+  | {
+      kind: "agent_message_delta";
+      itemId: string;
+      delta: string;
+      threadId: string | null;
+      presentation: Exclude<AssistantMessagePresentation, undefined>;
+    }
   | { kind: "reasoning_delta"; itemId: string; delta: string; threadId: string | null }
   | {
       kind: "item_completed";
@@ -2184,6 +2199,11 @@ type CodexDeltaNotification = Extract<
       | "file_change_output_delta";
   }
 >;
+
+type AssistantMessagePresentation = Extract<
+  AgentTimelineItem,
+  { type: "assistant_message" }
+>["presentation"];
 
 function isCodexDeltaNotification(
   parsed: ParsedCodexNotification,
@@ -2318,6 +2338,7 @@ const CodexNotificationSchema = z.union([
         itemId: params.itemId,
         delta: params.delta,
         threadId: params.threadId ?? null,
+        presentation: params.phase === "final_answer" ? "response" : "progress",
       }),
     ),
   z.object({ method: z.literal("item/agentMessage/delta"), params: z.unknown() }).transform(
@@ -2926,6 +2947,10 @@ export class CodexAppServerAgentSession implements AgentSession {
   >();
   private resolvedPermissionRequests = new Set<string>();
   private pendingAgentMessages = new Map<string, string>();
+  private pendingAgentMessagePresentations = new Map<
+    string,
+    Exclude<AssistantMessagePresentation, undefined>
+  >();
   private pendingReasoning = new Map<string, string[]>();
   private pendingCommandOutputDeltas = new Map<string, string[]>();
   private pendingFileChangeOutputDeltas = new Map<string, string[]>();
@@ -4468,6 +4493,7 @@ export class CodexAppServerAgentSession implements AgentSession {
     if (itemId) {
       this.upsertSubAgentChildItem(callId, itemId, timelineItem);
       this.pendingAgentMessages.delete(itemId);
+      this.pendingAgentMessagePresentations.delete(itemId);
       this.pendingReasoning.delete(itemId);
       this.pendingCommandOutputDeltas.delete(itemId);
       this.pendingFileChangeOutputDeltas.delete(itemId);
@@ -4493,13 +4519,14 @@ export class CodexAppServerAgentSession implements AgentSession {
       const prev = this.pendingAgentMessages.get(parsed.itemId) ?? "";
       const text = prev + parsed.delta;
       this.pendingAgentMessages.set(parsed.itemId, text);
+      this.pendingAgentMessagePresentations.set(parsed.itemId, parsed.presentation);
       const subAgentCallId = this.getSubAgentCallIdForThread(parsed.threadId);
       if (subAgentCallId) {
         this.upsertSubAgentChildItem(subAgentCallId, parsed.itemId, {
           type: "assistant_message",
           messageId: parsed.itemId,
           text,
-          presentation: "progress",
+          presentation: parsed.presentation,
         });
         this.emitSubAgentActivityUpdate(subAgentCallId, "running");
         return;
@@ -4511,7 +4538,7 @@ export class CodexAppServerAgentSession implements AgentSession {
           type: "assistant_message",
           messageId: parsed.itemId,
           text: parsed.delta,
-          presentation: "progress",
+          presentation: parsed.presentation,
         },
       });
       return;
@@ -4612,6 +4639,7 @@ export class CodexAppServerAgentSession implements AgentSession {
     this.emittedExecCommandStartedCallIds.clear();
     this.emittedExecCommandCompletedCallIds.clear();
     this.pendingAgentMessages.clear();
+    this.pendingAgentMessagePresentations.clear();
     this.pendingReasoning.clear();
     this.pendingCommandOutputDeltas.clear();
     this.pendingFileChangeOutputDeltas.clear();
@@ -4920,7 +4948,16 @@ export class CodexAppServerAgentSession implements AgentSession {
     }
     if (timelineItem.type === "assistant_message" && this.pendingAgentMessages.has(itemId)) {
       const streamedText = this.pendingAgentMessages.get(itemId) ?? "";
+      const streamedPresentation = this.pendingAgentMessagePresentations.get(itemId);
       this.pendingAgentMessages.delete(itemId);
+      this.pendingAgentMessagePresentations.delete(itemId);
+      if (
+        streamedPresentation !== timelineItem.presentation &&
+        timelineItem.presentation === "response"
+      ) {
+        this.emitEvent({ type: "timeline", provider: CODEX_PROVIDER, item: timelineItem });
+        return true;
+      }
       this.emitMissingFinalTextSuffix(timelineItem, streamedText);
       return true;
     }

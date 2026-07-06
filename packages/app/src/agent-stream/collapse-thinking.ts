@@ -5,6 +5,8 @@ export interface ThinkingGroup {
   id: string;
   anchorItemId: string;
   itemIds: string[];
+  startedAt: Date;
+  lastActivityAt: Date;
   defaultExpanded: boolean;
   status: "active" | "completed";
   finalAssistantItemId: string | null;
@@ -96,6 +98,8 @@ function buildTurnGroups(input: BuildTurnGroupsInput): ThinkingGroup[] {
       }`,
       anchorItemId: anchorItem.id,
       itemIds: groupItems.map((item) => item.id),
+      startedAt: anchorItem.timestamp,
+      lastActivityAt: groupItems.at(-1)?.timestamp ?? anchorItem.timestamp,
       defaultExpanded: status === "active" && input.behavior === "completed",
       status,
       finalAssistantItemId: finalAssistantItem?.id ?? null,

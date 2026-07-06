@@ -1672,6 +1672,54 @@ describe("Codex app-server provider", () => {
     ]);
   });
 
+  test("loads Codex final-answer history as visible response presentation", async () => {
+    const session = createSession();
+    session.client = {
+      request: vi.fn(async (method: string) => {
+        if (method !== "thread/read") {
+          return {};
+        }
+        return {
+          thread: {
+            turns: [
+              {
+                items: [
+                  {
+                    type: "agentMessage",
+                    id: "message-final-answer",
+                    text: "Fixed the remaining overlap.",
+                    phase: "final_answer",
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      }),
+    };
+
+    await asInternals(session).loadPersistedHistory();
+
+    const history: AgentStreamEvent[] = [];
+    for await (const event of session.streamHistory()) {
+      history.push(event);
+    }
+
+    expect(history).toEqual([
+      {
+        type: "timeline",
+        provider: "codex",
+        timestamp: undefined,
+        item: {
+          type: "assistant_message",
+          text: "Fixed the remaining overlap.",
+          messageId: "message-final-answer",
+          presentation: "response",
+        },
+      },
+    ]);
+  });
+
   test("uses Codex turn timestamps for timestamp-less persisted history items", async () => {
     const session = createSession();
     session.client = {
@@ -2537,6 +2585,50 @@ describe("Codex app-server provider", () => {
           text: "!",
           messageId: "assistant-item-2",
           presentation: "progress",
+        },
+      },
+    ]);
+  });
+
+  test("re-emits completed final-answer text visibly after progress deltas", () => {
+    const session = createSession();
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((event) => events.push(event));
+
+    asInternals(session).handleNotification("item/agentMessage/delta", {
+      itemId: "assistant-item-final",
+      delta: "Fixed the remaining overlap.",
+    });
+    asInternals(session).handleNotification("item/completed", {
+      item: {
+        id: "assistant-item-final",
+        type: "agentMessage",
+        text: "Fixed the remaining overlap.",
+        phase: "final_answer",
+      },
+    });
+
+    expect(events).toEqual([
+      {
+        type: "timeline",
+        provider: "codex",
+        turnId: "test-turn",
+        item: {
+          type: "assistant_message",
+          text: "Fixed the remaining overlap.",
+          messageId: "assistant-item-final",
+          presentation: "progress",
+        },
+      },
+      {
+        type: "timeline",
+        provider: "codex",
+        turnId: "test-turn",
+        item: {
+          type: "assistant_message",
+          text: "Fixed the remaining overlap.",
+          messageId: "assistant-item-final",
+          presentation: "response",
         },
       },
     ]);

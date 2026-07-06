@@ -177,6 +177,36 @@ describe("buildCollapseThinkingGroups", () => {
     expect(index.groupByItemId.has("final")).toBe(false);
   });
 
+  it("records completed group timing from that group's own first and last work item", () => {
+    const index = buildCompletedThinkingGroups([
+      userMessage("u1", 1),
+      thought("t1", 2),
+      toolCall("tool-1", 5),
+      assistantMessage("visible-output", 9),
+      toolCall("tool-2", 11),
+      assistantMessage("final", 20),
+    ]);
+
+    expect(
+      index.groups.map((group) => ({
+        itemIds: group.itemIds,
+        startedAt: group.startedAt,
+        lastActivityAt: group.lastActivityAt,
+      })),
+    ).toEqual([
+      {
+        itemIds: ["t1", "tool-1"],
+        startedAt: timestamp(2),
+        lastActivityAt: timestamp(5),
+      },
+      {
+        itemIds: ["tool-2"],
+        startedAt: timestamp(11),
+        lastActivityAt: timestamp(11),
+      },
+    ]);
+  });
+
   it("keeps progress assistant text inside thinking groups between tools", () => {
     const index = buildCompletedThinkingGroups([
       userMessage("u1", 1),
@@ -216,6 +246,17 @@ describe("buildCollapseThinkingGroups", () => {
     expect(index.groups[0]?.itemIds).toEqual(["tool-1"]);
     expect(index.groups[0]?.finalAssistantItemId).toBe("final");
     expect(index.groupByItemId.has("final")).toBe(false);
+  });
+
+  it("leaves response-presented assistant text outside thinking groups", () => {
+    const index = buildCompletedThinkingGroups([
+      userMessage("u1", 1),
+      toolCall("tool-1", 2),
+      assistantMessage("final-response", 3, { presentation: "response" }),
+    ]);
+
+    expect(index.groups[0]?.itemIds).toEqual(["tool-1"]);
+    expect(index.groupByItemId.has("final-response")).toBe(false);
   });
 
   it("keeps plan cards outside collapsed thinking", () => {
@@ -313,6 +354,23 @@ describe("buildCollapseThinkingGroups", () => {
     });
     expect(index.groupByItemId.has("progress-1")).toBe(false);
     expect(index.groupByItemId.has("progress-2")).toBe(true);
+  });
+
+  it("records active group timing from the active group's own first and latest work item", () => {
+    const index = buildRunningThinkingGroups([
+      userMessage("u1", 1),
+      thought("t1", 2),
+      assistantMessage("visible-output", 8),
+      toolCall("tool-1", 13),
+      assistantMessage("progress-2", 17),
+    ]);
+
+    expect(index.groups.map((group) => group.status)).toEqual(["completed", "active"]);
+    expect(index.groups[1]).toMatchObject({
+      itemIds: ["tool-1", "progress-2"],
+      startedAt: timestamp(13),
+      lastActivityAt: timestamp(17),
+    });
   });
 
   it("converts earlier running work to completed when later work follows assistant output", () => {

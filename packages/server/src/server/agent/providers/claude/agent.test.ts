@@ -1211,6 +1211,42 @@ describe("ClaudeAgentSession context window usage", () => {
     };
   }
 
+  test("marks streamed Claude assistant text as progress presentation", async () => {
+    const session = await createSessionForTurns([
+      [
+        createInitMessage(),
+        {
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            message_id: "assistant-live-1",
+            delta: { type: "text_delta", text: "Now checking the files." },
+          },
+          session_id: "session-1",
+        },
+        createSuccessResult({ result: "Now checking the files." }),
+      ],
+    ]);
+
+    try {
+      const events = await collectStreamEvents(session);
+
+      expect(events).toContainEqual({
+        type: "timeline",
+        provider: "claude",
+        turnId: "foreground-turn-1",
+        item: {
+          type: "assistant_message",
+          text: "Now checking the files.",
+          messageId: "assistant-live-1",
+          presentation: "progress",
+        },
+      });
+    } finally {
+      await session.close();
+    }
+  });
+
   function createMessageStartEvent(
     usage: Record<string, unknown> = {
       input_tokens: 100,
@@ -1967,6 +2003,7 @@ describe("ClaudeAgentSession context window usage", () => {
         type: "assistant_message",
         text: "Here is the answer.",
         messageId: "assistant-third-party-1",
+        presentation: "progress",
       },
     ]);
   });
