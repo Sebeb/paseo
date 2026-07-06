@@ -201,26 +201,29 @@ describe("applyDraftToConfig", () => {
   });
 
   it("writes and clears the project icon path", () => {
-    const base = PaseoConfigRawSchema.parse({});
+    const base = PaseoConfigRawSchema.parse({ color: "#12aabb" });
     const draft = configToDraft(base);
     draft.iconPath = "public/favicon.svg";
 
     const withIcon = applyDraftToConfig({ draft, base });
     expect(withIcon.icon).toBe("public/favicon.svg");
+    expect(withIcon.color).toBe("#12aabb");
 
     draft.iconPath = " ";
     const withoutIcon = applyDraftToConfig({ draft, base: withIcon });
     expect(withoutIcon.icon).toBeUndefined();
+    expect(withoutIcon.color).toBeUndefined();
   });
 
   it("persists an empty icon when the icon is explicitly disabled", () => {
-    const base = PaseoConfigRawSchema.parse({ icon: "public/favicon.svg" });
+    const base = PaseoConfigRawSchema.parse({ icon: "public/favicon.svg", color: "#12aabb" });
     const draft = configToDraft(base);
     draft.iconPath = "";
     draft.iconDisabled = true;
 
     const cleared = applyDraftToConfig({ draft, base });
     expect(cleared.icon).toBe("");
+    expect(cleared.color).toBeUndefined();
 
     const roundTripped = configToDraft(cleared);
     expect(roundTripped.iconDisabled).toBe(true);

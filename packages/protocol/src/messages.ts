@@ -3857,6 +3857,7 @@ const ProjectIconSchema = z.object({
   data: z.string(),
   mimeType: z.string(),
   path: z.string().optional(),
+  color: z.string().optional(),
 });
 
 export const ProjectIconResponseSchema = z.object({

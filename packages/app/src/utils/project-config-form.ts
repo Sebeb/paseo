@@ -240,8 +240,10 @@ export function applyDraftToConfig(input: ApplyDraftInput): PaseoConfigRaw {
   } else if (input.draft.iconDisabled) {
     // "" is the persisted "no icon" sentinel: it suppresses auto-discovery on the daemon.
     result.icon = "";
+    delete result.color;
   } else {
     delete result.icon;
+    delete result.color;
   }
   if (Object.keys(nextWorktree).length === 0) {
     delete result.worktree;

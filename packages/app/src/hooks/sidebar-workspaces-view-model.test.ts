@@ -9,6 +9,7 @@ import {
   buildSidebarProjectsFromStructure,
   computeSidebarOrderUpdates,
   deriveSidebarLoadingState,
+  resolveProjectActivationWorkspace,
   sortSidebarWorkspaceProjects,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
@@ -334,12 +335,12 @@ describe("shared sidebar workspace model", () => {
           expect.objectContaining({
             workspaceKey: "host-a:main",
             serverId: "host-a",
-            name: "main",
+            name: "paseo",
           }),
           expect.objectContaining({
             workspaceKey: "host-b:feature",
             serverId: "host-b",
-            name: "feature",
+            name: "paseo",
           }),
         ],
       }),
@@ -351,6 +352,47 @@ describe("shared sidebar workspace model", () => {
       ],
     );
     expect(model.projectNamesByKey).toEqual(new Map([["getpaseo/paseo", "getpaseo/paseo"]]));
+  });
+});
+
+describe("resolveProjectActivationWorkspace", () => {
+  it("uses the remembered workspace for the project when it is still visible", () => {
+    const projectEntry = sidebarProject({
+      projectKey: "project-a",
+      workspaceKeys: ["main", "feature"],
+    });
+
+    const targetWorkspace = resolveProjectActivationWorkspace({
+      project: projectEntry,
+      lastSelectedWorkspaceIdByProjectKey: { "project-a": "feature" },
+    });
+
+    expect(targetWorkspace?.workspaceId).toBe("feature");
+  });
+
+  it("falls back to the first workspace when the remembered workspace is missing", () => {
+    const projectEntry = sidebarProject({
+      projectKey: "project-a",
+      workspaceKeys: ["main", "feature"],
+    });
+
+    const targetWorkspace = resolveProjectActivationWorkspace({
+      project: projectEntry,
+      lastSelectedWorkspaceIdByProjectKey: { "project-a": "stale" },
+    });
+
+    expect(targetWorkspace?.workspaceId).toBe("main");
+  });
+
+  it("returns null for an empty project", () => {
+    const projectEntry = sidebarProject({ projectKey: "project-a", workspaceKeys: [] });
+
+    const targetWorkspace = resolveProjectActivationWorkspace({
+      project: projectEntry,
+      lastSelectedWorkspaceIdByProjectKey: {},
+    });
+
+    expect(targetWorkspace).toBeNull();
   });
 });
 

@@ -6,6 +6,7 @@ import sharp from "sharp";
 import {
   findProjectIcon,
   getProjectIcon,
+  deriveProjectIconEdgeColor,
   ICON_PATTERNS,
   PRIORITY_DIRS,
   IGNORED_DIRS,
@@ -255,6 +256,70 @@ describe("findProjectIcon", () => {
       const result = await findProjectIcon(tempDir);
       expect(result).toBe(join(tempDir, "packages", "app", "public", "favicon.ico"));
     });
+  });
+});
+
+describe("deriveProjectIconEdgeColor", () => {
+  it("returns the most present visible color from the icon edge", async () => {
+    const icon = await sharp({
+      create: {
+        width: 16,
+        height: 16,
+        channels: 4,
+        background: "#12aabb",
+      },
+    })
+      .composite([
+        {
+          input: await sharp({
+            create: {
+              width: 8,
+              height: 8,
+              channels: 4,
+              background: "#ff0000",
+            },
+          })
+            .png()
+            .toBuffer(),
+          left: 4,
+          top: 4,
+        },
+      ])
+      .png()
+      .toBuffer();
+
+    await expect(deriveProjectIconEdgeColor(icon)).resolves.toBe("#12aabb");
+  });
+
+  it("ignores transparent edge pixels", async () => {
+    const icon = await sharp({
+      create: {
+        width: 16,
+        height: 16,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([
+        {
+          input: await sharp({
+            create: {
+              width: 16,
+              height: 4,
+              channels: 4,
+              background: "#336699",
+            },
+          })
+            .png()
+            .toBuffer(),
+          left: 0,
+          top: 0,
+        },
+      ])
+      .png()
+      .toBuffer();
+
+    await expect(deriveProjectIconEdgeColor(icon)).resolves.toBe("#336699");
   });
 });
 
