@@ -93,6 +93,7 @@ interface StatusWorkspaceListProps {
   workspaces: SidebarStatusWorkspacePlacement[];
   projectNamesByKey: Map<string, string>;
   shortcutIndexByWorkspaceKey: Map<string, number>;
+  messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>;
   showShortcutBadges: boolean;
   onWorkspacePress?: () => void;
   hostLabelByServerId: ReadonlyMap<string, string>;
@@ -103,6 +104,7 @@ export function SidebarStatusWorkspaceList({
   workspaces,
   projectNamesByKey,
   shortcutIndexByWorkspaceKey: _projectShortcutIndex,
+  messageStatusCountsByWorkspaceKey,
   showShortcutBadges,
   onWorkspacePress,
   hostLabelByServerId,
@@ -144,6 +146,7 @@ export function SidebarStatusWorkspaceList({
             onWorkspacePress={onWorkspacePress}
             hostLabelByServerId={hostLabelByServerId}
             showHostLabels={showHostLabels}
+            messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
           />
         </NestableScrollContainer>
       ) : (
@@ -162,6 +165,7 @@ export function SidebarStatusWorkspaceList({
             onWorkspacePress={onWorkspacePress}
             hostLabelByServerId={hostLabelByServerId}
             showHostLabels={showHostLabels}
+            messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
           />
         </ScrollView>
       )}
@@ -178,6 +182,7 @@ function StatusGroupList({
   onWorkspacePress,
   hostLabelByServerId,
   showHostLabels,
+  messageStatusCountsByWorkspaceKey,
 }: {
   groups: StatusGroup[];
   collapsedStatusGroupKeys: ReadonlySet<string>;
@@ -187,6 +192,7 @@ function StatusGroupList({
   onWorkspacePress?: () => void;
   hostLabelByServerId: ReadonlyMap<string, string>;
   showHostLabels: boolean;
+  messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>;
 }) {
   return (
     <>
@@ -210,6 +216,9 @@ function StatusGroupList({
                   })}
                   shortcutNumber={shortcutIndex.get(workspace.workspaceKey) ?? null}
                   showShortcutBadge={showShortcutBadges}
+                  messageStatusCount={
+                    messageStatusCountsByWorkspaceKey.get(workspace.workspaceKey) ?? 0
+                  }
                   onWorkspacePress={onWorkspacePress}
                 />
               ))}
@@ -323,12 +332,14 @@ const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
   subtitle,
   shortcutNumber,
   showShortcutBadge,
+  messageStatusCount,
   onWorkspacePress,
 }: {
   workspace: SidebarStatusWorkspacePlacement;
   subtitle: string;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
+  messageStatusCount: number;
   onWorkspacePress?: () => void;
 }) {
   const workspaceEntry = useSidebarWorkspaceEntry(workspace.serverId, workspace.workspaceId);
@@ -352,6 +363,7 @@ const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
       selected={selected}
       shortcutNumber={shortcutNumber}
       showShortcutBadge={showShortcutBadge}
+      messageStatusCount={messageStatusCount}
       onPress={handlePress}
     />
   );
@@ -363,6 +375,7 @@ function StatusWorkspaceRowWithMenu({
   selected,
   shortcutNumber,
   showShortcutBadge,
+  messageStatusCount,
   onPress,
 }: {
   workspace: SidebarWorkspaceEntry;
@@ -370,6 +383,7 @@ function StatusWorkspaceRowWithMenu({
   selected: boolean;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
+  messageStatusCount: number;
   onPress: () => void;
 }) {
   const { t } = useTranslation();
@@ -491,6 +505,7 @@ function StatusWorkspaceRowWithMenu({
         selected={selected}
         shortcutNumber={shortcutNumber}
         showShortcutBadge={showShortcutBadge}
+        messageStatusCount={messageStatusCount}
         onPress={onPress}
         isArchiving={isArchiving}
         archiveLabel={t("sidebar.workspace.actions.archive")}
@@ -523,6 +538,7 @@ function StatusWorkspaceRowInner({
   selected,
   shortcutNumber,
   showShortcutBadge,
+  messageStatusCount,
   onPress,
   isArchiving,
   archiveLabel,
@@ -540,6 +556,7 @@ function StatusWorkspaceRowInner({
   selected: boolean;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
+  messageStatusCount: number;
   onPress: () => void;
   isArchiving: boolean;
   archiveLabel?: string;
@@ -592,6 +609,7 @@ function StatusWorkspaceRowInner({
                 isLoading={isArchiving}
                 shortcutNumber={shortcutNumber}
                 showShortcutBadge={showShortcutBadge}
+                messageStatusCount={messageStatusCount}
               >
                 {shouldRenderActionSlot ? (
                   <StatusWorkspaceActionSlot

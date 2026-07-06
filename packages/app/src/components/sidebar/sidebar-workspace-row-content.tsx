@@ -100,6 +100,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   isCreating = false,
   shortcutNumber = null,
   showShortcutBadge = false,
+  messageStatusCount = 0,
   children,
 }: {
   workspace: SidebarWorkspaceEntry;
@@ -110,6 +111,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   isCreating?: boolean;
   shortcutNumber?: number | null;
   showShortcutBadge?: boolean;
+  messageStatusCount?: number;
   children?: ReactNode;
 }) {
   const {
@@ -142,7 +144,10 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
               </Text>
               {scriptIconKind ? <WorkspaceScriptIcon kind={scriptIconKind} /> : null}
             </View>
-            <View style={styles.workspaceRowRight}>{children}</View>
+            <View style={styles.workspaceRowRight}>
+              <SidebarWorkspaceMessageStatusBadge count={messageStatusCount} />
+              {children}
+            </View>
           </View>
           {subtitle ? (
             <Text style={styles.workspaceSubtitle} numberOfLines={1}>
@@ -165,6 +170,15 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
     </View>
   );
 });
+
+function SidebarWorkspaceMessageStatusBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <View style={styles.messageStatusBadge} testID="sidebar-message-status-badge">
+      <Text style={styles.messageStatusBadgeText}>{count}</Text>
+    </View>
+  );
+}
 
 function WorkspaceScriptIcon({ kind }: { kind: SidebarWorkspaceScriptIconKind }) {
   return (
@@ -503,6 +517,24 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
   },
   workspaceRowRight: sidebarWorkspaceRowStyles.rowRight,
+  messageStatusBadge: {
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: theme.spacing[1],
+    borderRadius: theme.borderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface2,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    flexShrink: 0,
+  },
+  messageStatusBadgeText: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.medium,
+    lineHeight: 14,
+  },
   shortcutBadgeOverlay: {
     position: "absolute",
     top: 1,

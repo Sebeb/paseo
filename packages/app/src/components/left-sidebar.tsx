@@ -12,6 +12,7 @@ import {
 } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useShallow } from "zustand/shallow";
 import {
   Pressable,
   StyleSheet as RNStyleSheet,
@@ -54,7 +55,9 @@ import { useSidebarViewStore, type SidebarGroupMode } from "@/stores/sidebar-vie
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useHosts } from "@/runtime/host-runtime";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
+import { useSchedules } from "@/hooks/use-schedules";
 import { useWorkspace } from "@/stores/session-store-hooks";
+import { useSessionStore } from "@/stores/session-store";
 import {
   MAX_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
@@ -76,6 +79,10 @@ import type { ShortcutKey } from "@/utils/format-shortcut";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
+import {
+  buildAgentWorkspaceLookupKey,
+  countScheduledComposerMessagesByWorkspace,
+} from "@/composer/scheduled-messages";
 
 const MIN_CHAT_WIDTH = 400;
 
@@ -97,6 +104,7 @@ interface SidebarSharedProps {
   groupMode: SidebarGroupMode;
   collapsedProjectKeys: SidebarShortcutModel["collapsedProjectKeys"];
   shortcutIndexByWorkspaceKey: SidebarShortcutModel["shortcutIndexByWorkspaceKey"];
+  messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>;
   toggleProjectCollapsed: SidebarShortcutModel["toggleProjectCollapsed"];
   handleRefresh: () => void;
   handleOpenProject: () => void;
@@ -136,6 +144,43 @@ interface DesktopSidebarProps extends SidebarSharedProps {
   handleViewSchedules: () => void;
 }
 
+function useMessageStatusCountsByWorkspace(
+  schedules: ReturnType<typeof useSchedules>["schedules"],
+): ReadonlyMap<string, number> {
+  const queueState = useSessionStore(
+    useShallow((state) => {
+      const queuedCounts = new Map<string, number>();
+      const agentWorkspaceKeys = new Map<string, string>();
+      for (const [serverId, session] of Object.entries(state.sessions)) {
+        for (const agent of session.agents.values()) {
+          if (!agent.workspaceId) continue;
+          const workspaceKey = `${serverId}:${agent.workspaceId}`;
+          agentWorkspaceKeys.set(buildAgentWorkspaceLookupKey(serverId, agent.id), workspaceKey);
+        }
+        for (const [agentId, messages] of session.queuedMessages.entries()) {
+          const workspaceKey = agentWorkspaceKeys.get(
+            buildAgentWorkspaceLookupKey(serverId, agentId),
+          );
+          if (!workspaceKey || messages.length === 0) continue;
+          queuedCounts.set(workspaceKey, (queuedCounts.get(workspaceKey) ?? 0) + messages.length);
+        }
+      }
+      return { queuedCounts, agentWorkspaceKeys };
+    }),
+  );
+
+  return useMemo(() => {
+    const counts = new Map(queueState.queuedCounts);
+    for (const entry of countScheduledComposerMessagesByWorkspace({
+      schedules,
+      agentWorkspaceKeys: queueState.agentWorkspaceKeys,
+    })) {
+      counts.set(entry.workspaceKey, (counts.get(entry.workspaceKey) ?? 0) + entry.count);
+    }
+    return counts;
+  }, [queueState.agentWorkspaceKeys, queueState.queuedCounts, schedules]);
+}
+
 export const LeftSidebar = memo(function LeftSidebar({
   selectedAgentId: _selectedAgentId,
 }: LeftSidebarProps) {
@@ -165,6 +210,10 @@ export const LeftSidebar = memo(function LeftSidebar({
   });
   const { collapsedProjectKeys, shortcutIndexByWorkspaceKey, toggleProjectCollapsed } =
     useSidebarShortcutModel({ projects });
+  const schedulesQuery = useSchedules();
+  const messageStatusCountsByWorkspaceKey = useMessageStatusCountsByWorkspace(
+    schedulesQuery.schedules,
+  );
 
   const groupMode = useSidebarViewStore((state) => state.groupMode);
 
@@ -266,6 +315,7 @@ export const LeftSidebar = memo(function LeftSidebar({
     groupMode,
     collapsedProjectKeys,
     shortcutIndexByWorkspaceKey,
+    messageStatusCountsByWorkspaceKey,
     toggleProjectCollapsed,
     handleRefresh,
     labels,
@@ -564,6 +614,7 @@ function MobileSidebar({
   groupMode,
   collapsedProjectKeys,
   shortcutIndexByWorkspaceKey,
+  messageStatusCountsByWorkspaceKey,
   toggleProjectCollapsed,
   handleRefresh,
   newWorkspaceKeys,
@@ -814,6 +865,7 @@ function MobileSidebar({
                 collapsedProjectKeys={collapsedProjectKeys}
                 onToggleProjectCollapsed={toggleProjectCollapsed}
                 shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+                messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
                 groupMode={groupMode}
                 statusWorkspacePlacements={statusWorkspacePlacements}
                 projects={projects}
@@ -853,6 +905,7 @@ function DesktopSidebar({
   groupMode,
   collapsedProjectKeys,
   shortcutIndexByWorkspaceKey,
+  messageStatusCountsByWorkspaceKey,
   toggleProjectCollapsed,
   handleRefresh,
   newWorkspaceKeys,
@@ -968,6 +1021,7 @@ function DesktopSidebar({
             collapsedProjectKeys={collapsedProjectKeys}
             onToggleProjectCollapsed={toggleProjectCollapsed}
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+            messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
             groupMode={groupMode}
             statusWorkspacePlacements={statusWorkspacePlacements}
             projects={projects}

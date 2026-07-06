@@ -234,6 +234,7 @@ interface SidebarWorkspaceListProps {
   collapsedProjectKeys: ReadonlySet<string>;
   onToggleProjectCollapsed: (projectKey: string) => void;
   shortcutIndexByWorkspaceKey: Map<string, number>;
+  messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>;
   groupMode: "project" | "status";
   isRefreshing?: boolean;
   onRefresh?: () => void;
@@ -273,6 +274,7 @@ interface WorkspaceRowInnerProps {
   selected: boolean;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
+  messageStatusCount: number;
   onPress: () => void;
   drag: () => void;
   isDragging: boolean;
@@ -1424,6 +1426,7 @@ function WorkspaceRowInner({
   selected,
   shortcutNumber,
   showShortcutBadge,
+  messageStatusCount,
   onPress,
   drag,
   isDragging,
@@ -1509,6 +1512,7 @@ function WorkspaceRowInner({
                 isCreating={isCreating}
                 shortcutNumber={shortcutNumber}
                 showShortcutBadge={showShortcutBadge}
+                messageStatusCount={messageStatusCount}
               >
                 <WorkspaceRowRightGroup
                   workspace={workspace}
@@ -1541,6 +1545,7 @@ function WorkspaceRowWithMenu({
   selected,
   shortcutNumber,
   showShortcutBadge,
+  messageStatusCount,
   onPress,
   drag,
   isDragging,
@@ -1553,6 +1558,7 @@ function WorkspaceRowWithMenu({
   selected: boolean;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
+  messageStatusCount: number;
   onPress: () => void;
   drag: () => void;
   isDragging: boolean;
@@ -1686,6 +1692,7 @@ function WorkspaceRowWithMenu({
         selected={selected}
         shortcutNumber={shortcutNumber}
         showShortcutBadge={showShortcutBadge}
+        messageStatusCount={messageStatusCount}
         onPress={onPress}
         drag={drag}
         isDragging={isDragging}
@@ -1726,6 +1733,7 @@ interface WorkspaceRowItemProps {
   subtitle?: string | null;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
+  messageStatusCount: number;
   canCopyBranchName: boolean;
   isCreating?: boolean;
   selectionEnabled: boolean;
@@ -1741,6 +1749,7 @@ function WorkspaceRowItem({
   subtitle,
   shortcutNumber,
   showShortcutBadge,
+  messageStatusCount,
   canCopyBranchName,
   isCreating = false,
   selectionEnabled,
@@ -1764,6 +1773,7 @@ function WorkspaceRowItem({
       subtitle={subtitle}
       shortcutNumber={shortcutNumber}
       showShortcutBadge={showShortcutBadge}
+      messageStatusCount={messageStatusCount}
       canCopyBranchName={canCopyBranchName}
       isCreating={isCreating}
       selected={isWorkspaceSelected({
@@ -1801,6 +1811,7 @@ function areWorkspaceRowItemPropsEqual(
     previous.subtitle === next.subtitle &&
     previous.shortcutNumber === next.shortcutNumber &&
     previous.showShortcutBadge === next.showShortcutBadge &&
+    previous.messageStatusCount === next.messageStatusCount &&
     previous.canCopyBranchName === next.canCopyBranchName &&
     previous.isCreating === next.isCreating &&
     previous.onWorkspacePress === next.onWorkspacePress &&
@@ -1818,6 +1829,7 @@ function WorkspaceRow({
   subtitle,
   shortcutNumber,
   showShortcutBadge,
+  messageStatusCount,
   onPress,
   drag,
   isDragging,
@@ -1830,6 +1842,7 @@ function WorkspaceRow({
   subtitle?: string | null;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
+  messageStatusCount: number;
   onPress: () => void;
   drag: () => void;
   isDragging: boolean;
@@ -1851,6 +1864,7 @@ function WorkspaceRow({
       selected={selected}
       shortcutNumber={shortcutNumber}
       showShortcutBadge={showShortcutBadge}
+      messageStatusCount={messageStatusCount}
       onPress={onPress}
       drag={drag}
       isDragging={isDragging}
@@ -1869,6 +1883,7 @@ function ProjectBlock({
   selectionEnabled,
   showShortcutBadges,
   shortcutIndexByWorkspaceKey,
+  messageStatusCountsByWorkspaceKey,
   parentGestureRef,
   onToggleCollapsed,
   onWorkspacePress,
@@ -1891,6 +1906,7 @@ function ProjectBlock({
   selectionEnabled: boolean;
   showShortcutBadges: boolean;
   shortcutIndexByWorkspaceKey: Map<string, number>;
+  messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>;
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
   onToggleCollapsed: (projectKey: string) => void;
   onWorkspacePress?: () => void;
@@ -1939,6 +1955,7 @@ function ProjectBlock({
           }
           shortcutNumber={shortcutIndexByWorkspaceKey.get(item.workspaceKey) ?? null}
           showShortcutBadge={showShortcutBadges}
+          messageStatusCount={messageStatusCountsByWorkspaceKey.get(item.workspaceKey) ?? 0}
           canCopyBranchName={project.projectKind === "git"}
           isCreating={creatingWorkspaceIds.has(item.workspaceId)}
           selectionEnabled={selectionEnabled}
@@ -1959,6 +1976,7 @@ function ProjectBlock({
       onWorkspacePress,
       selectionEnabled,
       shortcutIndexByWorkspaceKey,
+      messageStatusCountsByWorkspaceKey,
       showShortcutBadges,
     ],
   );
@@ -2172,6 +2190,7 @@ export function SidebarWorkspaceList({
   collapsedProjectKeys,
   onToggleProjectCollapsed,
   shortcutIndexByWorkspaceKey,
+  messageStatusCountsByWorkspaceKey,
   groupMode,
   isRefreshing: _isRefreshing = false,
   onRefresh: _onRefresh,
@@ -2199,6 +2218,7 @@ export function SidebarWorkspaceList({
         statusWorkspacePlacements={statusWorkspacePlacements}
         projectNamesByKey={projectNamesByKey}
         shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+        messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
         onWorkspacePress={onWorkspacePress}
         hostLabelByServerId={hostLabelByServerId}
         showHostLabels={showHostLabels}
@@ -2209,6 +2229,7 @@ export function SidebarWorkspaceList({
         collapsedProjectKeys={collapsedProjectKeys}
         onToggleProjectCollapsed={onToggleProjectCollapsed}
         shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+        messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
         onWorkspacePress={onWorkspacePress}
         onAddProject={onAddProject}
         listFooterComponent={listFooterComponent}
@@ -2227,6 +2248,7 @@ function SidebarStatusModeWrapper({
   statusWorkspacePlacements,
   projectNamesByKey,
   shortcutIndexByWorkspaceKey: _projectShortcutIndex,
+  messageStatusCountsByWorkspaceKey,
   onWorkspacePress,
   hostLabelByServerId,
   showHostLabels,
@@ -2234,6 +2256,7 @@ function SidebarStatusModeWrapper({
   statusWorkspacePlacements: SidebarStatusWorkspacePlacement[];
   projectNamesByKey: Map<string, string>;
   shortcutIndexByWorkspaceKey: Map<string, number>;
+  messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>;
   onWorkspacePress?: () => void;
   hostLabelByServerId: ReadonlyMap<string, string>;
   showHostLabels: boolean;
@@ -2245,6 +2268,7 @@ function SidebarStatusModeWrapper({
       workspaces={statusWorkspacePlacements}
       projectNamesByKey={projectNamesByKey}
       shortcutIndexByWorkspaceKey={_projectShortcutIndex}
+      messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
       showShortcutBadges={showShortcutBadges}
       onWorkspacePress={onWorkspacePress}
       hostLabelByServerId={hostLabelByServerId}
@@ -2258,6 +2282,7 @@ function ProjectModeList({
   collapsedProjectKeys,
   onToggleProjectCollapsed,
   shortcutIndexByWorkspaceKey,
+  messageStatusCountsByWorkspaceKey,
   onWorkspacePress,
   onAddProject,
   listFooterComponent,
@@ -2449,6 +2474,7 @@ function ProjectModeList({
           selectionEnabled={selectionEnabled}
           showShortcutBadges={showShortcutBadges}
           shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+          messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
           parentGestureRef={parentGestureRef}
           onToggleCollapsed={onToggleProjectCollapsed}
           onWorkspacePress={onWorkspacePress}
@@ -2480,6 +2506,7 @@ function ProjectModeList({
       projectIconByProjectKey,
       selectionEnabled,
       shortcutIndexByWorkspaceKey,
+      messageStatusCountsByWorkspaceKey,
       showShortcutBadges,
       creatingWorkspaceIds,
     ],
