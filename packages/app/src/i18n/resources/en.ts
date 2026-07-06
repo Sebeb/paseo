@@ -182,8 +182,8 @@ export const en = {
     },
     thinking: {
       label: "Thinking",
-      workedFor: "Worked for {{duration}}",
-      workingFor: "Working for {{duration}}",
+      workedFor: "Thought for {{duration}}",
+      workingFor: "Thinking for {{duration}}",
       messageCount: "{{count}} messages in thinking",
       toolCallCount: "{{count}} tool calls in thinking",
     },

@@ -1240,7 +1240,12 @@ class TimelineAssembler {
       !isClaudeTranscriptNoiseText(nextAssistantText)
     ) {
       state.emittedAssistantLength = state.assistantText.length;
-      items.push({ type: "assistant_message", text: nextAssistantText, messageId: state.id });
+      items.push({
+        type: "assistant_message",
+        text: nextAssistantText,
+        messageId: state.id,
+        presentation: "progress",
+      });
     }
 
     const nextReasoningText = state.reasoningText.slice(state.emittedReasoningLength);
@@ -4377,7 +4382,13 @@ class ClaudeAgentSession implements AgentSession {
       if (suppressText) {
         return [];
       }
-      return [{ type: textMessageType, text: content }];
+      return [
+        {
+          type: textMessageType,
+          text: content,
+          ...(textMessageType === "assistant_message" ? { presentation: "progress" } : {}),
+        },
+      ];
     }
 
     const items: AgentTimelineItem[] = [];
@@ -4428,7 +4439,7 @@ class ClaudeAgentSession implements AgentSession {
       return;
     }
     if (!suppressText) {
-      items.push({ type: "assistant_message", text });
+      items.push({ type: "assistant_message", text, presentation: "progress" });
     }
   }
 
