@@ -11,6 +11,7 @@ import type { Theme } from "@/styles/theme";
 // Every attachment pill body — image thumbnail or labelled — renders at this
 // height so mixed attachment trays line up.
 const ATTACHMENT_CONTENT_HEIGHT = 48;
+const ATTACHMENT_THUMBNAIL_SMALL_HEIGHT = ATTACHMENT_CONTENT_HEIGHT / 2;
 
 interface AttachmentPillProps {
   onOpen: () => void;
@@ -131,14 +132,27 @@ export function AttachmentLabel({ icon, title, subtitle }: AttachmentLabelProps)
   );
 }
 
+type AttachmentThumbnailSize = "default" | "small";
+
 /** Square image preview pill body. */
-export function AttachmentThumbnail({ metadata }: { metadata: AttachmentMetadata }) {
+export function AttachmentThumbnail({
+  metadata,
+  size = "default",
+}: {
+  metadata: AttachmentMetadata;
+  size?: AttachmentThumbnailSize;
+}) {
   const uri = useAttachmentPreviewUrl(metadata);
   const source = useMemo(() => ({ uri: uri ?? "" }), [uri]);
+  const thumbnailStyle = size === "small" ? styles.thumbnailSmall : styles.thumbnail;
+  const placeholderStyle = useMemo(
+    () => [styles.thumbnailPlaceholder, thumbnailStyle],
+    [thumbnailStyle],
+  );
   if (!uri) {
-    return <View style={styles.thumbnailPlaceholder} />;
+    return <View style={placeholderStyle} />;
   }
-  return <Image source={source} style={styles.thumbnail} />;
+  return <Image source={source} style={thumbnailStyle} />;
 }
 
 const ThemedX = withUnistyles(X);
@@ -183,6 +197,10 @@ const styles = StyleSheet.create((theme) => ({
   thumbnail: {
     width: ATTACHMENT_CONTENT_HEIGHT,
     height: ATTACHMENT_CONTENT_HEIGHT,
+  },
+  thumbnailSmall: {
+    width: ATTACHMENT_THUMBNAIL_SMALL_HEIGHT,
+    height: ATTACHMENT_THUMBNAIL_SMALL_HEIGHT,
   },
   thumbnailPlaceholder: {
     width: ATTACHMENT_CONTENT_HEIGHT,
