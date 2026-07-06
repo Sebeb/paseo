@@ -17,6 +17,7 @@ import {
   computeSidebarOrderUpdates,
   deriveSidebarLoadingState,
   applyStoredOrdering,
+  sortSidebarProjects,
   sortSidebarWorkspaceProjects,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
@@ -222,18 +223,25 @@ export function useSidebarWorkspacesList(options?: {
   const workspaceSortMode = useSidebarViewStore((state) =>
     isActive && serverId ? state.getWorkspaceSortMode(serverId) : "manual",
   );
+  const projectSortMode = useSidebarViewStore((state) =>
+    isActive && serverId ? state.getProjectSortMode(serverId) : "manual",
+  );
+  const needsHydratedWorkspaceEntries =
+    workspaceSortMode !== "manual" || projectSortMode !== "manual";
   const workspaceMap = useSessionStore((state) =>
-    workspaceSortMode !== "manual" && isActive && serverId
+    needsHydratedWorkspaceEntries && isActive && serverId
       ? state.sessions[serverId]?.workspaces
       : undefined,
   );
   const agents = useSessionStore((state) =>
-    workspaceSortMode === "status" && isActive && serverId
+    (workspaceSortMode === "status" || projectSortMode === "status") && isActive && serverId
       ? state.sessions[serverId]?.agents
       : undefined,
   );
   const pendingCreateAttempts = useCreateFlowStore((state) =>
-    workspaceSortMode === "status" && isActive ? state.pendingByDraftId : undefined,
+    (workspaceSortMode === "status" || projectSortMode === "status") && isActive
+      ? state.pendingByDraftId
+      : undefined,
   );
 
   const connectionStatus = useSyncExternalStore(
@@ -264,67 +272,74 @@ export function useSidebarWorkspacesList(options?: {
     });
   }, [hostProjects, serverId]);
 
-  const orderedBaseProjects = useMemo(() => {
-    if (!serverId || baseProjects.length === 0 || workspaceSortMode !== "manual") {
+  const projects = useMemo(() => {
+    if (!serverId || baseProjects.length === 0) {
       return baseProjects;
     }
 
-    const orderedProjects = applyStoredOrdering({
-      items: baseProjects,
-      storedOrder: persistedProjectOrder,
-      getKey: (project) => project.projectKey,
-    });
+    const hydratedProjects = needsHydratedWorkspaceEntries
+      ? baseProjects.map((project) => ({
+          ...project,
+          workspaces: project.workspaces.map((placedWorkspace) => {
+            const workspace = workspaceMap?.get(placedWorkspace.workspaceId);
+            return workspace
+              ? createSidebarWorkspaceEntry({
+                  serverId,
+                  workspace,
+                  pendingCreateAttempts,
+                  agents,
+                })
+              : placedWorkspace;
+          }),
+        }))
+      : baseProjects;
 
-    return orderedProjects.map((project) => {
-      const workspaceOrder =
-        persistedWorkspaceOrderByServerAndProject[`${serverId}::${project.projectKey}`] ??
-        EMPTY_ORDER;
-      if (workspaceOrder.length === 0) {
-        return project;
-      }
-      const workspaces = applyStoredOrdering({
-        items: project.workspaces,
-        storedOrder: workspaceOrder,
-        getKey: (workspace) => workspace.workspaceKey,
-      });
-      return workspaces === project.workspaces
-        ? project
-        : Object.assign({}, project, { workspaces });
-    });
-  }, [
-    baseProjects,
-    persistedProjectOrder,
-    persistedWorkspaceOrderByServerAndProject,
-    serverId,
-    workspaceSortMode,
-  ]);
+    const workspaceOrderedProjects =
+      workspaceSortMode === "manual"
+        ? hydratedProjects.map((project) => {
+            const workspaceOrder =
+              persistedWorkspaceOrderByServerAndProject[`${serverId}::${project.projectKey}`] ??
+              EMPTY_ORDER;
+            if (workspaceOrder.length === 0) {
+              return project;
+            }
+            const workspaces = applyStoredOrdering({
+              items: project.workspaces,
+              storedOrder: workspaceOrder,
+              getKey: (workspace) => workspace.workspaceKey,
+            });
+            return workspaces === project.workspaces
+              ? project
+              : Object.assign({}, project, { workspaces });
+          })
+        : hydratedProjects;
 
-  const projects = useMemo(() => {
-    if (!serverId || workspaceSortMode === "manual" || orderedBaseProjects.length === 0) {
-      return orderedBaseProjects;
-    }
-
-    return sortSidebarWorkspaceProjects({
-      projects: orderedBaseProjects.map((project) => ({
-        ...project,
-        workspaces: project.workspaces.map((placedWorkspace) => {
-          const workspace = workspaceMap?.get(placedWorkspace.workspaceId);
-          return workspace
-            ? createSidebarWorkspaceEntry({
-                serverId,
-                workspace,
-                pendingCreateAttempts,
-                agents,
-              })
-            : placedWorkspace;
-        }),
-      })),
+    const workspaceSortedProjects = sortSidebarWorkspaceProjects({
+      projects: workspaceOrderedProjects,
       sortMode: workspaceSortMode,
+    });
+
+    const projectOrderedProjects =
+      projectSortMode === "manual"
+        ? applyStoredOrdering({
+            items: workspaceSortedProjects,
+            storedOrder: persistedProjectOrder,
+            getKey: (project) => project.projectKey,
+          })
+        : workspaceSortedProjects;
+
+    return sortSidebarProjects({
+      projects: projectOrderedProjects,
+      sortMode: projectSortMode,
     });
   }, [
     agents,
-    orderedBaseProjects,
+    baseProjects,
+    needsHydratedWorkspaceEntries,
     pendingCreateAttempts,
+    persistedProjectOrder,
+    persistedWorkspaceOrderByServerAndProject,
+    projectSortMode,
     serverId,
     workspaceMap,
     workspaceSortMode,

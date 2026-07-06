@@ -27,6 +27,18 @@ vi.hoisted(() => {
   (globalThis as unknown as { __DEV__: boolean }).__DEV__ = false;
 });
 
+const pathnameState = vi.hoisted(() => ({
+  value: "/",
+}));
+
+vi.mock("expo-router", () => ({
+  router: {
+    dismissTo: vi.fn(),
+  },
+  useLocalSearchParams: () => ({}),
+  usePathname: () => pathnameState.value,
+}));
+
 function workspaceDescriptor(input: {
   id: string;
   name?: string;
@@ -97,6 +109,7 @@ describe("WorkspaceShortcutTargetsSubscriber", () => {
     useSidebarViewStore.setState({
       groupMode: "project",
     });
+    pathnameState.value = "/";
 
     act(() => {
       setHostProfiles([hostProfile()]);
@@ -126,6 +139,7 @@ describe("WorkspaceShortcutTargetsSubscriber", () => {
       useSessionStore.getState().clearSession("srv");
       useSessionStore.getState().clearSession("host-a");
       useSessionStore.getState().clearSession("host-b");
+      pathnameState.value = "/";
     });
   });
 
@@ -142,7 +156,8 @@ describe("WorkspaceShortcutTargetsSubscriber", () => {
 
   it("publishes status-mode shortcut targets in visual status order", async () => {
     act(() => {
-      useSidebarViewStore.getState().setGroupMode("status");
+      useSidebarViewStore.getState().setGroupMode("srv", "status");
+      pathnameState.value = "/h/srv/workspace/ws-needs-input";
       useSessionStore.getState().setWorkspaces(
         "srv",
         new Map([
@@ -200,8 +215,6 @@ describe("WorkspaceShortcutTargetsSubscriber", () => {
 
     expect(useKeyboardShortcutsStore.getState().sidebarShortcutWorkspaceTargets).toEqual([
       { serverId: "srv", workspaceId: "ws-needs-input" },
-      { serverId: "srv", workspaceId: "ws-running-new" },
-      { serverId: "srv", workspaceId: "ws-running-old" },
       { serverId: "srv", workspaceId: "ws-done" },
     ]);
   });
@@ -236,12 +249,26 @@ describe("WorkspaceShortcutTargetsSubscriber", () => {
     ]);
 
     await act(async () => {
-      useSidebarViewStore.getState().setGroupMode("status");
+      useSidebarViewStore.getState().setGroupMode("host-b", "status");
+      pathnameState.value = "/h/host-b/workspace/b-1";
     });
 
     expect(useKeyboardShortcutsStore.getState().sidebarShortcutWorkspaceTargets).toEqual([
       { serverId: "host-b", workspaceId: "b-1" },
     ]);
+  });
+
+  it("publishes no status-mode shortcut targets without a selected project", async () => {
+    act(() => {
+      useSidebarViewStore.getState().setGroupMode("srv", "status");
+      pathnameState.value = "/";
+    });
+
+    await act(async () => {
+      root?.render(<WorkspaceShortcutTargetsSubscriber enabled={true} serverId="srv" />);
+    });
+
+    expect(useKeyboardShortcutsStore.getState().sidebarShortcutWorkspaceTargets).toEqual([]);
   });
 
   it("clears targets when disabled", async () => {

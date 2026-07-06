@@ -20,6 +20,7 @@ const pathnameState = vi.hoisted(() => ({
 vi.mock("expo-router", () => ({
   router: {
     dismissTo: vi.fn(),
+    navigate: vi.fn(),
   },
   useLocalSearchParams: () => ({}),
   usePathname: () => pathnameState.value,
@@ -41,6 +42,7 @@ import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-stor
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
+import { buildStatusTabLine } from "@/utils/sidebar-status-tab-line";
 
 vi.mock("@react-native-async-storage/async-storage", () => ({
   default: {
@@ -476,6 +478,53 @@ describe("sidebar workspace render isolation", () => {
       "b-main": 1,
       "b-one": 1,
       "b-two": 1,
+    });
+  });
+});
+
+describe("buildStatusTabLine", () => {
+  it("uses project identity for full status tab rows", () => {
+    expect(
+      buildStatusTabLine({
+        lineKind: "project",
+        project: { projectKey: "project-a", projectName: "Project A" },
+        workspace: {
+          workspaceKey: "srv:workspace-a",
+          workspaceKind: "worktree",
+          name: "Workspace A",
+          currentBranch: "feat/a",
+        },
+        iconDataUri: "data:image/png;base64,abc",
+        workspaceTitleSource: "branch",
+      }),
+    ).toEqual({
+      projectKey: "project-a",
+      projectName: "Project A",
+      iconDataUri: "data:image/png;base64,abc",
+      kind: "project",
+    });
+  });
+
+  it("uses workspace identity and title preference for scoped status tab rows", () => {
+    expect(
+      buildStatusTabLine({
+        lineKind: "workspace",
+        project: { projectKey: "project-a", projectName: "Project A" },
+        workspace: {
+          workspaceKey: "srv:workspace-a",
+          workspaceKind: "worktree",
+          name: "Workspace A",
+          currentBranch: "feat/a",
+        },
+        iconDataUri: "data:image/png;base64,abc",
+        workspaceTitleSource: "branch",
+      }),
+    ).toEqual({
+      projectKey: "srv:workspace-a",
+      projectName: "feat/a",
+      iconDataUri: null,
+      kind: "workspace",
+      workspaceKind: "worktree",
     });
   });
 });

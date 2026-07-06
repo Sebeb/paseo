@@ -30,7 +30,10 @@ import { isEmphasizedStatusDotBucket } from "@/utils/status-dot-color";
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
 import { isNative as platformIsNative } from "@/constants/platform";
 import { useTranslation } from "react-i18next";
-import type { SidebarEntryStatusKind } from "@/utils/sidebar-tab-status-summary";
+import type {
+  SidebarEntryStatusKind,
+  SidebarTabStatusSummary,
+} from "@/utils/sidebar-tab-status-summary";
 import { resolveSidebarWorkspacePrimaryLabel } from "@/components/sidebar/sidebar-workspace-title";
 import type { WorkspaceTitleSource } from "@/hooks/use-settings";
 
@@ -62,10 +65,14 @@ type SidebarWorkspaceScriptIconKind = "service" | "command";
 export function SidebarWorkspaceRowFrame({
   workspace,
   isDragging = false,
+  statusSummary = null,
+  statusExcludeKinds,
   children,
 }: {
   workspace: SidebarWorkspaceEntry;
   isDragging?: boolean;
+  statusSummary?: SidebarTabStatusSummary | null;
+  statusExcludeKinds?: readonly SidebarEntryStatusKind[];
   children: (input: {
     isHovered: boolean;
     hoverHandlers: { onPointerEnter: () => void; onPointerLeave: () => void };
@@ -80,7 +87,13 @@ export function SidebarWorkspaceRowFrame({
   );
 
   return (
-    <WorkspaceHoverCard workspace={workspace} prHint={workspace.prHint} isDragging={isDragging}>
+    <WorkspaceHoverCard
+      workspace={workspace}
+      prHint={workspace.prHint}
+      isDragging={isDragging}
+      statusSummary={statusSummary}
+      statusExcludeKinds={statusExcludeKinds}
+    >
       {children({ isHovered, hoverHandlers })}
     </WorkspaceHoverCard>
   );
@@ -127,8 +140,9 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
     workspaceTitleSource,
   });
   const shouldRenderTrailingContent = hasTrailingContent ?? children != null;
-  const shouldRenderScriptIcon = scriptIconKind != null && !shouldRenderTrailingContent;
-  const shouldRenderRightContext = shouldRenderTrailingContent || shouldRenderScriptIcon;
+  const trailingContent = shouldRenderTrailingContent ? children : null;
+  const shouldRenderScriptIcon = scriptIconKind != null;
+  const shouldRenderRightContext = trailingContent != null || shouldRenderScriptIcon;
 
   return (
     <SidebarEntryRowContent
@@ -150,10 +164,10 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
           ? createElement(
               View,
               { style: styles.workspaceRowRight, testID: "workspace-row-right" },
+              trailingContent,
               shouldRenderScriptIcon
                 ? createElement(WorkspaceScriptIcon, { kind: scriptIconKind })
                 : null,
-              children,
             )
           : null
       }
