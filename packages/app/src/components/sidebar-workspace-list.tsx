@@ -48,6 +48,7 @@ import {
   ArrowLeftToLine,
   CalendarPlus,
   ArrowRightToLine,
+  Bot,
   CircleAlert,
   CircleCheck,
   CircleDot,
@@ -58,6 +59,7 @@ import {
   Copy,
   CopyX,
   ExternalLink,
+  Folder,
   GitPullRequest,
   MessageCircle,
   Settings,
@@ -157,6 +159,7 @@ import {
   SidebarEntryRowContent,
   SidebarEntryStatusBadges,
 } from "@/components/sidebar/sidebar-entry-row";
+import { SidebarEntryStatusExplainerRows } from "@/components/sidebar/sidebar-entry-status-explainer-rows";
 import { mergeEmbeddedVisibleTabOrder } from "@/components/sidebar/embedded-tabs-order";
 import {
   useProjectNamesMap,
@@ -263,8 +266,10 @@ const ThemedPlus = withUnistyles(Plus);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedChevronRight = withUnistyles(ChevronRight);
 const ThemedX = withUnistyles(X);
+const ThemedBot = withUnistyles(Bot);
 const ThemedCalendarPlus = withUnistyles(CalendarPlus);
 const ThemedClock3 = withUnistyles(Clock3);
+const ThemedFolder = withUnistyles(Folder);
 const ThemedMessageCircle = withUnistyles(MessageCircle);
 
 interface EmbeddedSidebarTabItem {
@@ -954,6 +959,8 @@ interface ProjectHeaderRowProps {
   project: SidebarProjectEntry;
   displayName: string;
   iconDataUri: string | null;
+  workspaceCount: number;
+  agentCount: number;
   workspace: SidebarWorkspaceEntry | null;
   statusSummary?: SidebarTabStatusSummary | null;
   showStatusSummary?: boolean;
@@ -2421,6 +2428,8 @@ function ProjectHeaderRow({
   project,
   displayName,
   iconDataUri,
+  workspaceCount,
+  agentCount,
   workspace,
   statusSummary = null,
   showStatusSummary = false,
@@ -2514,33 +2523,36 @@ function ProjectHeaderRow({
     removeProjectStatus,
     showTrailingActions,
   });
+  const hoverCardContent = createElement(ProjectHoverCardContent, {
+    project,
+    displayName,
+    workspaceCount,
+    agentCount,
+    statusSummary,
+  });
 
-  if (menuController) {
-    return (
-      <View
-        {...dragAttributes}
-        {...dragHandleProps?.listeners}
-        ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
-        onPointerEnter={handlePointerEnter}
-        onPointerLeave={handlePointerLeave}
+  const row = menuController ? (
+    <View
+      {...dragAttributes}
+      {...dragHandleProps?.listeners}
+      ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
+    >
+      <ContextMenuTrigger
+        enabledOnMobile={false}
+        accessibilityRole="button"
+        style={projectRowStyle}
+        onPressIn={interaction.handlePressIn}
+        onTouchMove={interaction.handleTouchMove}
+        onPressOut={interaction.handlePressOut}
+        onPress={handlePress}
+        testID={`sidebar-project-row-${project.projectKey}`}
       >
-        <ContextMenuTrigger
-          enabledOnMobile={false}
-          accessibilityRole="button"
-          style={projectRowStyle}
-          onPressIn={interaction.handlePressIn}
-          onTouchMove={interaction.handleTouchMove}
-          onPressOut={interaction.handlePressOut}
-          onPress={handlePress}
-          testID={`sidebar-project-row-${project.projectKey}`}
-        >
-          {rowChildren}
-        </ContextMenuTrigger>
-      </View>
-    );
-  }
-
-  return (
+        {rowChildren}
+      </ContextMenuTrigger>
+    </View>
+  ) : (
     <View
       {...dragAttributes}
       {...dragHandleProps?.listeners}
@@ -2560,6 +2572,17 @@ function ProjectHeaderRow({
         {rowChildren}
       </Pressable>
     </View>
+  );
+
+  return (
+    <InfoHoverCard
+      content={hoverCardContent}
+      accessibilityLabel={displayName}
+      testID={`sidebar-project-hover-card-${project.projectKey}`}
+      isDragging={isDragging}
+    >
+      {row}
+    </InfoHoverCard>
   );
 }
 
@@ -2735,7 +2758,12 @@ function WorkspaceRowInner({
   );
 
   return (
-    <SidebarWorkspaceRowFrame workspace={workspace} isDragging={isDragging}>
+    <SidebarWorkspaceRowFrame
+      workspace={workspace}
+      isDragging={isDragging}
+      statusSummary={tabStatusSummary}
+      statusExcludeKinds={WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS}
+    >
       {({ isHovered, hoverHandlers }) => {
         const isDesktop = !isTouchPlatform;
         const showScriptsIcon = isDesktop && workspace.hasRunningScripts;
@@ -3337,7 +3365,7 @@ function EmbeddedTabContextMenuContent({
   );
 }
 
-function EmbeddedTabHoverInfoRow({
+function SidebarHoverInfoRow({
   icon: Icon,
   label,
   testID,
@@ -3356,16 +3384,58 @@ function EmbeddedTabHoverInfoRow({
   );
 }
 
+function ProjectHoverCardContent({
+  project,
+  displayName,
+  workspaceCount,
+  agentCount,
+  statusSummary,
+}: {
+  project: SidebarProjectEntry;
+  displayName: string;
+  workspaceCount: number;
+  agentCount: number;
+  statusSummary: SidebarTabStatusSummary | null;
+}) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <View style={styles.embeddedTabHoverHeader}>
+        <Text style={styles.embeddedTabHoverTitle} numberOfLines={2}>
+          {displayName}
+        </Text>
+      </View>
+      <SidebarHoverInfoRow
+        icon={ThemedFolder}
+        label={t("sidebar.project.info.workspaceCount", { count: workspaceCount })}
+        testID={`sidebar-project-workspace-count-${project.projectKey}`}
+      />
+      <SidebarHoverInfoRow
+        icon={ThemedBot}
+        label={t("sidebar.project.info.agentCount", { count: agentCount })}
+        testID={`sidebar-project-agent-count-${project.projectKey}`}
+      />
+      <SidebarEntryStatusExplainerRows
+        summary={statusSummary}
+        excludeKinds={WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS}
+        testIDPrefix={`sidebar-project-status-${project.projectKey}`}
+      />
+    </>
+  );
+}
+
 function EmbeddedTabHoverCardContent({
   label,
   subtitle,
   tabId,
   info,
+  statusSummary,
 }: {
   label: string;
   subtitle: string;
   tabId: string;
   info: SidebarEmbeddedTabHoverInfo;
+  statusSummary: SidebarTabStatusSummary;
 }) {
   const { t } = useTranslation();
   return (
@@ -3381,7 +3451,7 @@ function EmbeddedTabHoverCardContent({
         ) : null}
       </View>
       {info.createdAt ? (
-        <EmbeddedTabHoverInfoRow
+        <SidebarHoverInfoRow
           icon={ThemedCalendarPlus}
           label={t("workspace.tabs.info.created", {
             value: formatAbsoluteDateTime(info.createdAt),
@@ -3390,7 +3460,7 @@ function EmbeddedTabHoverCardContent({
         />
       ) : null}
       {info.updatedAt ? (
-        <EmbeddedTabHoverInfoRow
+        <SidebarHoverInfoRow
           icon={ThemedClock3}
           label={t("workspace.tabs.info.updated", {
             value: formatRecentOrAbsoluteDateTime(info.updatedAt),
@@ -3399,7 +3469,7 @@ function EmbeddedTabHoverCardContent({
         />
       ) : null}
       {info.userInputMessageCount !== null ? (
-        <EmbeddedTabHoverInfoRow
+        <SidebarHoverInfoRow
           icon={ThemedMessageCircle}
           label={t("workspace.tabs.info.promptCount", {
             count: info.userInputMessageCount,
@@ -3407,6 +3477,10 @@ function EmbeddedTabHoverCardContent({
           testID={`sidebar-embedded-tab-prompt-count-${tabId}`}
         />
       ) : null}
+      <SidebarEntryStatusExplainerRows
+        summary={statusSummary}
+        testIDPrefix={`sidebar-embedded-tab-status-${tabId}`}
+      />
     </>
   );
 }
@@ -3548,6 +3622,7 @@ function EmbeddedWorkspaceTabRow({
           subtitle: presentation.subtitle,
           tabId: item.tab.tabId,
           info: hoverInfo,
+          statusSummary: row.statusSummary,
         });
         return (
           <InfoHoverCard
@@ -4713,12 +4788,34 @@ function ProjectBlock({
     project,
     enabled: selectionEnabled,
   });
+  const projectWorkspaceIds = useMemo(
+    () => new Set(project.workspaces.map((workspace) => workspace.workspaceId)),
+    [project.workspaces],
+  );
+  const projectAgentCount = useSessionStore((state) => {
+    if (!serverId) {
+      return 0;
+    }
+    const agents = state.sessions[serverId]?.agents;
+    if (!agents) {
+      return 0;
+    }
+    let count = 0;
+    for (const agent of agents.values()) {
+      const workspaceId = agent.workspaceId;
+      if (agent.archivedAt || !workspaceId || !projectWorkspaceIds.has(workspaceId)) {
+        continue;
+      }
+      count += 1;
+    }
+    return count;
+  });
   const tabStatusSummaries = useSidebarTabStatusSummaries({
     workspaces: project.workspaces,
     enabled: collapsed || badgeMode === "status",
   });
   const projectStatusSummary = useMemo(() => {
-    if (!collapsed) {
+    if (!collapsed && badgeMode !== "status") {
       return null;
     }
     return combineSidebarTabStatusSummaries(
@@ -4726,7 +4823,7 @@ function ProjectBlock({
         (workspace) => tabStatusSummaries.get(workspace.workspaceKey) ?? EMPTY_TAB_STATUS_SUMMARY,
       ),
     );
-  }, [collapsed, project.workspaces, tabStatusSummaries]);
+  }, [badgeMode, collapsed, project.workspaces, tabStatusSummaries]);
   const projectLeadingStatusKind =
     badgeMode === "status" || !projectStatusSummary
       ? null
@@ -4897,6 +4994,8 @@ function ProjectBlock({
         project={project}
         displayName={displayName}
         iconDataUri={iconDataUri}
+        workspaceCount={project.workspaces.length}
+        agentCount={projectAgentCount}
         workspace={null}
         statusSummary={projectStatusSummary}
         showStatusSummary={badgeMode === "status" && collapsed}

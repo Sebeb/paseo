@@ -770,7 +770,29 @@ export const zhCN: TranslationResources = {
       description: "添加 setup 命令，让新的 worktree 自动安装依赖并完成准备。",
       openProjectSettings: "打开 project 设置",
     },
+    statusBadges: {
+      explainers: {
+        queuedMessages_one: "{{count}} message queued",
+        queuedMessages_other: "{{count}} messages queued",
+        draft_one: "{{count}} draft message",
+        draft_other: "{{count}} draft messages",
+        inputRequired_one: "{{count}} chat requires input",
+        inputRequired_other: "{{count}} chats require input",
+        unread_one: "{{count}} new message",
+        unread_other: "{{count}} new messages",
+        inProgress_one: "{{count}} chat in progress",
+        inProgress_other: "{{count}} chats in progress",
+        failed_one: "{{count}} failed chat",
+        failed_other: "{{count}} failed chats",
+      },
+    },
     project: {
+      info: {
+        workspaceCount_one: "{{count}} workspace",
+        workspaceCount_other: "{{count}} workspaces",
+        agentCount_one: "{{count}} agent",
+        agentCount_other: "{{count}} agents",
+      },
       actions: {
         menu: "Project 操作",
         openSettings: "打开 project 设置",

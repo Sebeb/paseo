@@ -14,6 +14,7 @@ import {
   getSidebarEntryStatusCount,
   getVisibleSidebarEntryStatusKinds,
 } from "@/utils/sidebar-tab-status-summary";
+import { isWeb } from "@/constants/platform";
 import type { Theme } from "@/styles/theme";
 
 const ThemedCircleAlert = withUnistyles(CircleAlert);
@@ -112,11 +113,12 @@ function SidebarEntryLeadingSlot({
 }
 
 function SidebarEntryLabel({ label, labelPrefix }: { label: string; labelPrefix: ReactNode }) {
+  const displayLabel = normalizeSidebarEntrySingleLineText(label);
   return (
     <View style={styles.labelRow}>
       {labelPrefix ? <View style={styles.labelPrefix}>{labelPrefix}</View> : null}
       <Text style={styles.label} numberOfLines={1} ellipsizeMode="tail">
-        {label}
+        {displayLabel}
       </Text>
     </View>
   );
@@ -132,14 +134,19 @@ function SidebarEntrySubtitle({
   if (!subtitle) {
     return null;
   }
+  const displaySubtitle = normalizeSidebarEntrySingleLineText(subtitle);
   return (
     <View style={styles.subtitleRow}>
       {subtitleLeading ? <View style={styles.subtitleLeading}>{subtitleLeading}</View> : null}
       <Text style={styles.subtitle} numberOfLines={1} ellipsizeMode="tail">
-        {subtitle}
+        {displaySubtitle}
       </Text>
     </View>
   );
+}
+
+function normalizeSidebarEntrySingleLineText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 export function SidebarEntryStatusBadges({
@@ -175,27 +182,12 @@ export function SidebarEntryPrimaryStatusBadge({ summary }: { summary: SidebarTa
 }
 
 function SidebarEntryStatusBadge({ kind, count }: { kind: SidebarEntryStatusKind; count: number }) {
-  const definition = SIDEBAR_ENTRY_STATUS_DEFINITIONS[kind];
   const badgeStyle = useMemo(() => [styles.statusBadge, getStatusBadgeColorStyle(kind)], [kind]);
   const countLabel = formatStatusBadgeCount(count);
   if (count <= 0) {
     return null;
   }
-  if (count === 1 && definition.singleIcon) {
-    return (
-      <View style={styles.statusBadgeCustomIcon} testID={`sidebar-entry-status-badge-${kind}`}>
-        <SingleStatusIcon icon={definition.singleIcon} />
-      </View>
-    );
-  }
-  if (kind === "draft") {
-    return (
-      <View style={styles.statusBadgePlain} testID={`sidebar-entry-status-badge-${kind}`}>
-        <ThemedSquarePen size={12} uniProps={mutedColorMapping} />
-      </View>
-    );
-  }
-  if (kind === "in_progress") {
+  if (kind === "in_progress" && shouldShowStatusCount(kind, count)) {
     return (
       <View style={styles.statusBadgePlain} testID={`sidebar-entry-status-badge-${kind}`}>
         <ThemedSyncedLoader
@@ -210,13 +202,54 @@ function SidebarEntryStatusBadge({ kind, count }: { kind: SidebarEntryStatusKind
       </View>
     );
   }
+  if (!shouldShowStatusCount(kind, count)) {
+    return (
+      <SidebarEntryStatusIconBadge kind={kind} testID={`sidebar-entry-status-badge-${kind}`} />
+    );
+  }
   return (
     <View style={badgeStyle} testID={`sidebar-entry-status-badge-${kind}`}>
-      {shouldShowStatusCount(kind, count) ? (
-        <Text style={styles.statusBadgeCount}>{countLabel}</Text>
-      ) : (
-        <StatusBadgeIcon kind={kind} />
-      )}
+      <Text style={styles.statusBadgeCount}>{countLabel}</Text>
+    </View>
+  );
+}
+
+export function SidebarEntryStatusIconBadge({
+  kind,
+  testID = `sidebar-entry-status-icon-badge-${kind}`,
+}: {
+  kind: SidebarEntryStatusKind;
+  testID?: string;
+}) {
+  const definition = SIDEBAR_ENTRY_STATUS_DEFINITIONS[kind];
+  const badgeStyle = useMemo(() => [styles.statusBadge, getStatusBadgeColorStyle(kind)], [kind]);
+  if (definition.singleIcon) {
+    return (
+      <View style={styles.statusBadgeCustomIcon} testID={testID}>
+        <SingleStatusIcon icon={definition.singleIcon} />
+      </View>
+    );
+  }
+  if (kind === "draft") {
+    return (
+      <View style={styles.statusBadgePlain} testID={testID}>
+        <ThemedSquarePen size={12} uniProps={mutedColorMapping} />
+      </View>
+    );
+  }
+  if (kind === "in_progress") {
+    return (
+      <View style={styles.statusBadgePlain} testID={testID}>
+        <ThemedSyncedLoader
+          size={STATUS_BADGE_IN_PROGRESS_LOADER_SIZE}
+          uniProps={blueColorMapping}
+        />
+      </View>
+    );
+  }
+  return (
+    <View style={badgeStyle} testID={testID}>
+      <StatusBadgeIcon kind={kind} />
     </View>
   );
 }
@@ -346,9 +379,12 @@ const styles = StyleSheet.create((theme) => ({
   },
   labelRow: {
     minWidth: 0,
+    height: 20,
+    maxHeight: 20,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
+    overflow: "hidden",
   },
   labelPrefix: {
     flexShrink: 0,
@@ -358,20 +394,43 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
     lineHeight: 20,
+    height: 20,
+    maxHeight: 20,
     minWidth: 0,
+    overflow: "hidden",
+    flexGrow: 1,
     flexShrink: 1,
+    ...(isWeb
+      ? {
+          whiteSpace: "nowrap",
+          overflowWrap: "normal",
+        }
+      : null),
   },
   subtitle: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
     lineHeight: 14,
+    height: 14,
+    maxHeight: 14,
     minWidth: 0,
+    overflow: "hidden",
+    flexShrink: 1,
+    ...(isWeb
+      ? {
+          whiteSpace: "nowrap",
+          overflowWrap: "normal",
+        }
+      : null),
   },
   subtitleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
+    height: 14,
+    maxHeight: 14,
     minWidth: 0,
+    overflow: "hidden",
   },
   subtitleLeading: {
     width: 10,

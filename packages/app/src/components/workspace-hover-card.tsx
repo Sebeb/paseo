@@ -35,23 +35,38 @@ import { copyToClipboard } from "@/utils/copy-to-clipboard";
 import { PrBadge } from "@/components/sidebar-workspace-list";
 import { formatAbsoluteDateTime, formatRecentOrAbsoluteDateTime } from "@/utils/time";
 import { InfoHoverCard } from "@/components/info-hover-card";
+import { SidebarEntryStatusExplainerRows } from "@/components/sidebar/sidebar-entry-status-explainer-rows";
+import type {
+  SidebarEntryStatusKind,
+  SidebarTabStatusSummary,
+} from "@/utils/sidebar-tab-status-summary";
 
 interface WorkspaceHoverCardProps {
   workspace: SidebarWorkspaceEntry;
   prHint: PrHint | null;
   isDragging: boolean;
+  statusSummary?: SidebarTabStatusSummary | null;
+  statusExcludeKinds?: readonly SidebarEntryStatusKind[];
 }
 
 export function WorkspaceHoverCard({
   workspace,
   prHint,
   isDragging,
+  statusSummary = null,
+  statusExcludeKinds,
   children,
 }: PropsWithChildren<WorkspaceHoverCardProps>): ReactNode {
   const { t } = useTranslation();
   const content = useMemo(
-    () => createElement(WorkspaceHoverCardContent, { workspace, prHint }),
-    [prHint, workspace],
+    () =>
+      createElement(WorkspaceHoverCardContent, {
+        workspace,
+        prHint,
+        statusSummary,
+        statusExcludeKinds,
+      }),
+    [prHint, statusExcludeKinds, statusSummary, workspace],
   );
   return (
     <InfoHoverCard
@@ -68,9 +83,13 @@ export function WorkspaceHoverCard({
 function WorkspaceHoverCardContent({
   workspace,
   prHint,
+  statusSummary,
+  statusExcludeKinds,
 }: {
   workspace: SidebarWorkspaceEntry;
   prHint: PrHint | null;
+  statusSummary: SidebarTabStatusSummary | null;
+  statusExcludeKinds?: readonly SidebarEntryStatusKind[];
 }): ReactElement {
   const { t } = useTranslation();
   const cwdDisplay = shortenPath(workspace.workspaceDirectory);
@@ -135,6 +154,11 @@ function WorkspaceHoverCardContent({
           <ChecksSummaryPressable checks={prHint.checks} url={prHint.url} />
         </>
       ) : null}
+      <SidebarEntryStatusExplainerRows
+        summary={statusSummary}
+        excludeKinds={statusExcludeKinds}
+        testIDPrefix={`workspace-hover-card-status-${workspace.workspaceKey}`}
+      />
     </>
   );
 }
