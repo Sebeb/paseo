@@ -27,7 +27,7 @@ import { closeAllTransportSessions } from "./daemon/local-transport.js";
 import {
   registerWindowManager,
   getMainWindowChromeOptions,
-  getWindowBackgroundColor,
+  getMainWindowBackgroundColor,
   resolveSystemWindowTheme,
   resolveWindowBounds,
   setupWindowResizeEvents,
@@ -407,7 +407,10 @@ async function createWindow(
     title,
     ...resolveWindowBounds(restoredWindowState),
     show: false,
-    backgroundColor: getWindowBackgroundColor(systemTheme),
+    backgroundColor: getMainWindowBackgroundColor({
+      platform: process.platform,
+      theme: systemTheme,
+    }),
     ...(iconPath ? { icon: iconPath } : {}),
     ...getMainWindowChromeOptions({
       platform: process.platform,

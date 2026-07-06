@@ -91,6 +91,7 @@ import { usePanelStore } from "@/stores/panel-store";
 import { THEME_TO_UNISTYLES, type ThemeName } from "@/styles/theme";
 import type { HostProfile } from "@/types/host-connection";
 import { toggleDesktopSidebarsWithCheckoutIntent } from "@/utils/desktop-sidebar-toggle";
+import { getIsSidebarGlassEnabled } from "@/utils/sidebar-glass";
 import { canOpenLeftSidebarGesture } from "@/utils/sidebar-animation-state";
 import {
   buildOpenProjectRoute,
@@ -430,6 +431,7 @@ function AppContainer({
   useCompactWebViewportZoomLock(isCompactLayout);
   const pathname = usePathname();
   const chromeEnabled = chromeEnabledOverride ?? daemons.length > 0;
+  const isDesktopSidebarGlassEnabled = getIsSidebarGlassEnabled() && !isCompactLayout;
   const toggleAgentList = isCompactLayout ? toggleMobileAgentList : toggleDesktopAgentList;
   const toggleDesktopSidebars = useCallback(() => {
     const { desktop } = usePanelStore.getState();
@@ -472,17 +474,25 @@ function AppContainer({
       {isCompactLayout && chromeEnabled ? (
         <ExplorerSidebarAnimationProvider>
           <CompactExplorerSidebarHost enabled={chromeEnabled}>
-            <View style={flexStyle}>{children}</View>
+            <View style={layoutStyles.contentPane}>{children}</View>
           </CompactExplorerSidebarHost>
         </ExplorerSidebarAnimationProvider>
       ) : (
-        <View style={flexStyle}>{children}</View>
+        <View style={layoutStyles.contentPane}>{children}</View>
       )}
     </View>
   );
 
+  const shellStyle = useMemo(
+    () =>
+      isDesktopSidebarGlassEnabled
+        ? [layoutStyles.surfaceFill, layoutStyles.transparentShell]
+        : layoutStyles.surfaceFill,
+    [isDesktopSidebarGlassEnabled],
+  );
+
   const content = (
-    <View style={layoutStyles.surfaceFill}>
+    <View style={shellStyle}>
       {workspaceChrome}
       <FloatingPanelPortalHost />
       {isCompactLayout && chromeEnabled && <LeftSidebar selectedAgentId={selectedAgentId} />}
@@ -695,16 +705,18 @@ function DesktopWindowControlsSync({ enabled }: { enabled: boolean }) {
   const { theme } = useUnistyles();
   const surface0 = theme.colors.surface0;
   const foreground = theme.colors.foreground;
+  const isSidebarGlassEnabled = getIsSidebarGlassEnabled();
+  const backgroundColor = isSidebarGlassEnabled ? "#00000000" : surface0;
 
   useEffect(() => {
     if (!enabled || isNative) return;
     void updateDesktopWindowControls({
-      backgroundColor: surface0,
+      backgroundColor,
       foregroundColor: foreground,
     }).catch((error) => {
       console.warn("[DesktopWindow] Failed to update window controls overlay", error);
     });
-  }, [enabled, surface0, foreground]);
+  }, [enabled, backgroundColor, foreground]);
 
   return null;
 }
@@ -1000,9 +1012,18 @@ function RootProviders({ children }: { children: ReactNode }) {
 }
 
 export default function RootLayout() {
+  const isSidebarGlassEnabled = getIsSidebarGlassEnabled();
+  const rootShellStyle = useMemo(
+    () =>
+      isSidebarGlassEnabled
+        ? [layoutStyles.surfaceFill, layoutStyles.transparentShell]
+        : layoutStyles.surfaceFill,
+    [isSidebarGlassEnabled],
+  );
+
   return (
     <GestureHandlerRootView style={flexStyle}>
-      <View style={layoutStyles.surfaceFill}>
+      <View style={rootShellStyle}>
         <RootProviders>
           <RuntimeProviders>
             <AppShell />
@@ -1015,6 +1036,13 @@ export default function RootLayout() {
 
 const layoutStyles = StyleSheet.create((theme) => ({
   surfaceFill: {
+    flex: 1,
+    backgroundColor: theme.colors.surface0,
+  },
+  transparentShell: {
+    backgroundColor: "transparent",
+  },
+  contentPane: {
     flex: 1,
     backgroundColor: theme.colors.surface0,
   },

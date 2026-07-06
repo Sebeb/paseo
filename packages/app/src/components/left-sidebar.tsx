@@ -48,6 +48,7 @@ import {
   usePanelStore,
 } from "@/stores/panel-store";
 import { useWindowControlsPadding } from "@/utils/desktop-window";
+import { getIsSidebarGlassEnabled } from "@/utils/sidebar-glass";
 import { canCloseLeftSidebarGesture } from "@/utils/sidebar-animation-state";
 import {
   buildOpenProjectRoute,
@@ -795,6 +796,7 @@ function DesktopSidebar({
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
   const { width: viewportWidth } = useWindowDimensions();
+  const isSidebarGlassEnabled = getIsSidebarGlassEnabled();
 
   const startWidthRef = useRef(sidebarWidth);
   const resizeWidth = useSharedValue(sidebarWidth);
@@ -837,8 +839,12 @@ function DesktopSidebar({
     [resizeAnimatedStyle],
   );
   const desktopSidebarBorderStyle = useMemo(
-    () => [styles.desktopSidebarBorder, { flex: 1, paddingTop: insetsTop }],
-    [insetsTop],
+    () => [
+      styles.desktopSidebarBorder,
+      isSidebarGlassEnabled && styles.desktopSidebarBorderGlass,
+      { flex: 1, paddingTop: insetsTop },
+    ],
+    [insetsTop, isSidebarGlassEnabled],
   );
   const resizeHandleStyle = useMemo(
     () => [styles.resizeHandle, isWeb && ({ cursor: "col-resize" } as object)],
@@ -1057,6 +1063,10 @@ const styles = StyleSheet.create((theme) => ({
     borderRightWidth: 1,
     borderRightColor: theme.colors.border,
     backgroundColor: theme.colors.surfaceSidebar,
+  },
+  desktopSidebarBorderGlass: {
+    borderRightColor: `${theme.colors.border}99`,
+    backgroundColor: `${theme.colors.surfaceSidebar}cc`,
   },
   resizeHandle: {
     position: "absolute",
