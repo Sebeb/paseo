@@ -36,6 +36,7 @@ import {
   type MutableRefObject,
   type Ref,
 } from "react";
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { useTranslation } from "react-i18next";
 import { router, usePathname, type Href } from "expo-router";
 import {
@@ -299,6 +300,7 @@ const DEFAULT_STATUS_DOT_OFFSET = 0;
 const EMPHASIZED_STATUS_DOT_OFFSET = -1;
 const EMPTY_AGENT_MAP = new Map<string, Agent>();
 const EMPTY_TAB_STATUS_SUMMARY = createEmptySidebarTabStatusSummary();
+const EMPTY_TERMINALS_BY_ID = new Map<string, SidebarTerminalStatusRecord>();
 
 function getPressClickCount(event: GestureResponderEvent): number | null {
   const detail = Reflect.get(event.nativeEvent, "detail");
@@ -372,6 +374,81 @@ interface TerminalQueryRequest {
   workspaceDirectory: string;
 }
 
+function useSidebarTerminalStatusesByWorkspaceKey(input: {
+  workspaceTabs: readonly WorkspaceTabsForSummary[];
+  enabled: boolean;
+  client: DaemonClient | null;
+}): Map<string, Map<string, SidebarTerminalStatusRecord>> {
+  const terminalRequests = useMemo<TerminalQueryRequest[]>(() => {
+    const requests: TerminalQueryRequest[] = [];
+    if (!input.enabled) {
+      return requests;
+    }
+    for (const entry of input.workspaceTabs) {
+      const workspaceDirectory = resolveWorkspaceDirectory({
+        workspaceDirectory: entry.workspace.workspaceDirectory,
+      });
+      if (!workspaceDirectory) {
+        continue;
+      }
+      const hasTerminalTab = entry.tabs.some((tab) => tab.target.kind === "terminal");
+      if (!hasTerminalTab) {
+        continue;
+      }
+      requests.push({
+        workspaceKey: entry.workspace.workspaceKey,
+        serverId: entry.workspace.serverId,
+        workspaceId: entry.workspace.workspaceId,
+        workspaceDirectory,
+      });
+    }
+    return requests;
+  }, [input.enabled, input.workspaceTabs]);
+
+  const terminalQueries = useQueries({
+    queries: terminalRequests.map((request) => ({
+      queryKey: buildTerminalsQueryKey(
+        request.serverId,
+        request.workspaceDirectory,
+        request.workspaceId,
+      ),
+      enabled: input.enabled && Boolean(input.client),
+      queryFn: async (): Promise<ListTerminalsPayload> => {
+        if (!input.client) {
+          throw new Error("Host disconnected");
+        }
+        return input.client.listTerminals(request.workspaceDirectory, undefined, {
+          workspaceId: request.workspaceId,
+        });
+      },
+      staleTime: TERMINALS_QUERY_STALE_TIME,
+    })),
+  });
+
+  const terminalsByWorkspaceKey = useMemo(() => {
+    const byWorkspaceKey = new Map<string, Map<string, SidebarTerminalStatusRecord>>();
+    for (let index = 0; index < terminalRequests.length; index += 1) {
+      const request = terminalRequests[index];
+      const query = terminalQueries[index];
+      if (!request || !query?.data) {
+        continue;
+      }
+      byWorkspaceKey.set(
+        request.workspaceKey,
+        new Map(
+          query.data.terminals.map((terminal) => [
+            terminal.id,
+            { id: terminal.id, activity: terminal.activity ?? null },
+          ]),
+        ),
+      );
+    }
+    return byWorkspaceKey;
+  }, [terminalQueries, terminalRequests]);
+
+  return terminalsByWorkspaceKey;
+}
+
 function useSidebarTabStatusSummaries(input: {
   workspaces: readonly SidebarWorkspaceEntry[];
   enabled: boolean;
@@ -419,69 +496,11 @@ function useSidebarTabStatusSummaries(input: {
     });
   }, [input.enabled, input.workspaces, layoutByWorkspace]);
 
-  const terminalRequests = useMemo<TerminalQueryRequest[]>(() => {
-    const requests: TerminalQueryRequest[] = [];
-    for (const entry of workspaceTabs) {
-      const workspaceDirectory = resolveWorkspaceDirectory({
-        workspaceDirectory: entry.workspace.workspaceDirectory,
-      });
-      if (!workspaceDirectory) {
-        continue;
-      }
-      const hasTerminalTab = entry.tabs.some((tab) => tab.target.kind === "terminal");
-      if (!hasTerminalTab) {
-        continue;
-      }
-      requests.push({
-        workspaceKey: entry.workspace.workspaceKey,
-        serverId: entry.workspace.serverId,
-        workspaceId: entry.workspace.workspaceId,
-        workspaceDirectory,
-      });
-    }
-    return requests;
-  }, [workspaceTabs]);
-
-  const terminalQueries = useQueries({
-    queries: terminalRequests.map((request) => ({
-      queryKey: buildTerminalsQueryKey(
-        request.serverId,
-        request.workspaceDirectory,
-        request.workspaceId,
-      ),
-      enabled: input.enabled && Boolean(client),
-      queryFn: async (): Promise<ListTerminalsPayload> => {
-        if (!client) {
-          throw new Error("Host disconnected");
-        }
-        return client.listTerminals(request.workspaceDirectory, undefined, {
-          workspaceId: request.workspaceId,
-        });
-      },
-      staleTime: TERMINALS_QUERY_STALE_TIME,
-    })),
+  const terminalsByWorkspaceKey = useSidebarTerminalStatusesByWorkspaceKey({
+    workspaceTabs,
+    enabled: input.enabled,
+    client,
   });
-
-  const terminalsByWorkspaceKey = useMemo(() => {
-    const byWorkspaceKey = new Map<string, Map<string, SidebarTerminalStatusRecord>>();
-    for (let index = 0; index < terminalRequests.length; index += 1) {
-      const request = terminalRequests[index];
-      const query = terminalQueries[index];
-      if (!request || !query?.data) {
-        continue;
-      }
-      byWorkspaceKey.set(
-        request.workspaceKey,
-        new Map(
-          query.data.terminals.map((terminal) => [
-            terminal.id,
-            { id: terminal.id, activity: terminal.activity ?? null },
-          ]),
-        ),
-      );
-    }
-    return byWorkspaceKey;
-  }, [terminalQueries, terminalRequests]);
 
   return useMemo(() => {
     const summaries = new Map<string, SidebarTabStatusSummary>();
@@ -496,7 +515,8 @@ function useSidebarTabStatusSummaries(input: {
           pendingCreatesByDraftId,
           setupSnapshots,
           browsersById,
-          terminalsById: terminalsByWorkspaceKey.get(entry.workspace.workspaceKey) ?? new Map(),
+          terminalsById:
+            terminalsByWorkspaceKey.get(entry.workspace.workspaceKey) ?? EMPTY_TERMINALS_BY_ID,
           draftInputsByKey,
           queuedMessageCountsByAgentId: queuedMessages
             ? new Map(
@@ -546,6 +566,9 @@ function useSidebarStatusTabWorkspaceGroups(input: {
   const setupSnapshots = useWorkspaceSetupStore((state) => state.snapshots);
   const browsersById = useBrowserStore((state) => state.browsersById);
   const draftRecords = useDraftStore((state) => state.drafts);
+  const client = useSessionStore((state) =>
+    input.serverId ? (state.sessions[input.serverId]?.client ?? null) : null,
+  );
   const tabSortMode = useSidebarViewStore((state) =>
     input.serverId ? state.getEmbeddedTabSortMode(input.serverId) : "manual",
   );
@@ -570,11 +593,8 @@ function useSidebarStatusTabWorkspaceGroups(input: {
         : undefined,
     [queuedMessages],
   );
-  const emptyTerminalsById = useMemo(() => new Map<string, SidebarTerminalStatusRecord>(), []);
-
-  return useMemo(() => {
-    const candidatesByBucket = new Map<StatusBucket, StatusTabWorkspaceCandidate[]>();
-    const agentMap = agents ?? EMPTY_AGENT_MAP;
+  const workspaceTabs = useMemo<WorkspaceTabsForSummary[]>(() => {
+    const entries: WorkspaceTabsForSummary[] = [];
     for (const project of input.projects) {
       for (const workspace of project.workspaces) {
         const persistenceKey = buildWorkspaceTabPersistenceKey({
@@ -585,7 +605,39 @@ function useSidebarStatusTabWorkspaceGroups(input: {
         if (!workspaceLayout) {
           continue;
         }
-        const uiTabs = collectAllTabs(workspaceLayout.root);
+        entries.push({ workspace, tabs: collectAllTabs(workspaceLayout.root) });
+      }
+    }
+    return entries;
+  }, [input.projects, layoutByWorkspace]);
+  const workspaceTabsByWorkspaceKey = useMemo(
+    () => new Map(workspaceTabs.map((entry) => [entry.workspace.workspaceKey, entry])),
+    [workspaceTabs],
+  );
+  const terminalsByWorkspaceKey = useSidebarTerminalStatusesByWorkspaceKey({
+    workspaceTabs,
+    enabled: input.projects.length > 0 && Boolean(input.serverId),
+    client,
+  });
+
+  return useMemo(() => {
+    const candidatesByBucket = new Map<StatusBucket, StatusTabWorkspaceCandidate[]>();
+    const agentMap = agents ?? EMPTY_AGENT_MAP;
+    for (const project of input.projects) {
+      for (const workspace of project.workspaces) {
+        const workspaceTabEntry = workspaceTabsByWorkspaceKey.get(workspace.workspaceKey);
+        if (!workspaceTabEntry) {
+          continue;
+        }
+        const persistenceKey = buildWorkspaceTabPersistenceKey({
+          serverId: workspace.serverId,
+          workspaceId: workspace.workspaceId,
+        });
+        const workspaceLayout = persistenceKey ? (layoutByWorkspace[persistenceKey] ?? null) : null;
+        if (!workspaceLayout) {
+          continue;
+        }
+        const uiTabs = workspaceTabEntry.tabs;
         const mainPane = findMainPane(workspaceLayout.root);
         const panes = collectAllPanes(workspaceLayout.root);
         const allItems = buildEmbeddedSidebarTabItems({
@@ -606,7 +658,8 @@ function useSidebarStatusTabWorkspaceGroups(input: {
               pendingCreatesByDraftId,
               setupSnapshots,
               browsersById,
-              terminalsById: emptyTerminalsById,
+              terminalsById:
+                terminalsByWorkspaceKey.get(workspace.workspaceKey) ?? EMPTY_TERMINALS_BY_ID,
               draftInputsByKey,
               queuedMessageCountsByAgentId,
             }),
@@ -663,7 +716,6 @@ function useSidebarStatusTabWorkspaceGroups(input: {
     agents,
     browsersById,
     draftInputsByKey,
-    emptyTerminalsById,
     expandedParentTabKeys,
     input.projects,
     layoutByWorkspace,
@@ -671,6 +723,8 @@ function useSidebarStatusTabWorkspaceGroups(input: {
     queuedMessageCountsByAgentId,
     setupSnapshots,
     tabSortMode,
+    terminalsByWorkspaceKey,
+    workspaceTabsByWorkspaceKey,
   ]);
 }
 
@@ -4516,7 +4570,17 @@ function EmbeddedWorkspaceTabs({
         : undefined,
     [queuedMessages],
   );
-  const emptyTerminalsById = useMemo(() => new Map<string, SidebarTerminalStatusRecord>(), []);
+  const workspaceTabsForStatus = useMemo<WorkspaceTabsForSummary[]>(
+    () => [{ workspace, tabs: uiTabs }],
+    [uiTabs, workspace],
+  );
+  const terminalsByWorkspaceKey = useSidebarTerminalStatusesByWorkspaceKey({
+    workspaceTabs: workspaceTabsForStatus,
+    enabled: true,
+    client,
+  });
+  const terminalsById =
+    terminalsByWorkspaceKey.get(workspace.workspaceKey) ?? EMPTY_TERMINALS_BY_ID;
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const isActiveWorkspace = isWorkspaceSelected({
     selection: activeWorkspaceSelection,
@@ -4554,7 +4618,7 @@ function EmbeddedWorkspaceTabs({
           pendingCreatesByDraftId,
           setupSnapshots,
           browsersById,
-          terminalsById: emptyTerminalsById,
+          terminalsById,
           draftInputsByKey,
           queuedMessageCountsByAgentId,
         }),
@@ -4566,10 +4630,10 @@ function EmbeddedWorkspaceTabs({
     allItems,
     browsersById,
     draftInputsByKey,
-    emptyTerminalsById,
     pendingCreatesByDraftId,
     queuedMessageCountsByAgentId,
     setupSnapshots,
+    terminalsById,
     workspace.serverId,
     workspace.workspaceId,
   ]);
