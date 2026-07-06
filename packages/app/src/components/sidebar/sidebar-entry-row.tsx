@@ -3,6 +3,10 @@ import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { CircleAlert, CircleX, MessageSquareText, SquarePen } from "lucide-react-native";
 import { SyncedLoader } from "@/components/synced-loader";
+import {
+  SidebarStatusFlash,
+  type SidebarStatusFlashSignal,
+} from "@/components/sidebar/sidebar-status-flash";
 import type {
   SidebarEntryStatusKind,
   SidebarEntryStatusSingleIcon,
@@ -152,9 +156,11 @@ function normalizeSidebarEntrySingleLineText(value: string): string {
 export function SidebarEntryStatusBadges({
   summary,
   excludeKinds,
+  flashSignal,
 }: {
   summary: SidebarTabStatusSummary;
   excludeKinds?: readonly SidebarEntryStatusKind[];
+  flashSignal?: SidebarStatusFlashSignal | null;
 }) {
   const kinds = getVisibleSidebarEntryStatusKinds(summary, { excludeKinds });
   if (kinds.length === 0) {
@@ -167,6 +173,7 @@ export function SidebarEntryStatusBadges({
           key={kind}
           kind={kind}
           count={getSidebarEntryStatusCount(summary, kind)}
+          flashSignal={flashSignal?.kind === kind ? flashSignal : null}
         />
       ))}
     </View>
@@ -181,7 +188,15 @@ export function SidebarEntryPrimaryStatusBadge({ summary }: { summary: SidebarTa
   return <SidebarEntryLeadingStatusBadge kind={kind} />;
 }
 
-function SidebarEntryStatusBadge({ kind, count }: { kind: SidebarEntryStatusKind; count: number }) {
+function SidebarEntryStatusBadge({
+  kind,
+  count,
+  flashSignal,
+}: {
+  kind: SidebarEntryStatusKind;
+  count: number;
+  flashSignal?: SidebarStatusFlashSignal | null;
+}) {
   const badgeStyle = useMemo(() => [styles.statusBadge, getStatusBadgeColorStyle(kind)], [kind]);
   const countLabel = formatStatusBadgeCount(count);
   if (count <= 0) {
@@ -204,30 +219,40 @@ function SidebarEntryStatusBadge({ kind, count }: { kind: SidebarEntryStatusKind
   }
   if (!shouldShowStatusCount(kind, count)) {
     return (
-      <SidebarEntryStatusIconBadge kind={kind} testID={`sidebar-entry-status-badge-${kind}`} />
+      <SidebarEntryStatusIconBadge
+        kind={kind}
+        testID={`sidebar-entry-status-badge-${kind}`}
+        flashSignal={flashSignal}
+      />
     );
   }
   return (
-    <View style={badgeStyle} testID={`sidebar-entry-status-badge-${kind}`}>
-      <Text style={styles.statusBadgeCount}>{countLabel}</Text>
-    </View>
+    <StatusBadgeGlowFrame flashSignal={flashSignal}>
+      <View style={badgeStyle} testID={`sidebar-entry-status-badge-${kind}`}>
+        <Text style={styles.statusBadgeCount}>{countLabel}</Text>
+      </View>
+    </StatusBadgeGlowFrame>
   );
 }
 
 export function SidebarEntryStatusIconBadge({
   kind,
   testID = `sidebar-entry-status-icon-badge-${kind}`,
+  flashSignal = null,
 }: {
   kind: SidebarEntryStatusKind;
   testID?: string;
+  flashSignal?: SidebarStatusFlashSignal | null;
 }) {
   const definition = SIDEBAR_ENTRY_STATUS_DEFINITIONS[kind];
   const badgeStyle = useMemo(() => [styles.statusBadge, getStatusBadgeColorStyle(kind)], [kind]);
   if (definition.singleIcon) {
     return (
-      <View style={styles.statusBadgeCustomIcon} testID={testID}>
-        <SingleStatusIcon icon={definition.singleIcon} />
-      </View>
+      <StatusBadgeGlowFrame flashSignal={flashSignal}>
+        <View style={styles.statusBadgeCustomIcon} testID={testID}>
+          <SingleStatusIcon icon={definition.singleIcon} />
+        </View>
+      </StatusBadgeGlowFrame>
     );
   }
   if (kind === "draft") {
@@ -248,8 +273,28 @@ export function SidebarEntryStatusIconBadge({
     );
   }
   return (
-    <View style={badgeStyle} testID={testID}>
-      <StatusBadgeIcon kind={kind} />
+    <StatusBadgeGlowFrame flashSignal={flashSignal}>
+      <View style={badgeStyle} testID={testID}>
+        <StatusBadgeIcon kind={kind} />
+      </View>
+    </StatusBadgeGlowFrame>
+  );
+}
+
+function StatusBadgeGlowFrame({
+  flashSignal,
+  children,
+}: {
+  flashSignal?: SidebarStatusFlashSignal | null;
+  children: ReactNode;
+}) {
+  if (!flashSignal) {
+    return children;
+  }
+  return (
+    <View style={styles.statusBadgeGlowHost}>
+      <SidebarStatusFlash signal={flashSignal} variant="badge" showFill={false} />
+      {children}
     </View>
   );
 }
@@ -469,6 +514,13 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+  },
+  statusBadgeGlowHost: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    overflow: "visible",
   },
   statusBadgePlain: {
     position: "relative",

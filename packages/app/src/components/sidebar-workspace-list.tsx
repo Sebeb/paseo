@@ -881,8 +881,10 @@ function useVisibleEmbeddedTabRows(input: {
 
 function useSidebarStatusFlashSignals(
   candidates: readonly SidebarStatusFlashCandidate[],
+  options?: { suppressInitial?: boolean },
 ): Map<string, SidebarStatusFlashSignal> {
   const seenSourceKeysRef = useRef<Set<string>>(new Set());
+  const initializedRef = useRef(false);
   const sequenceRef = useRef(0);
   const [signals, setSignals] = useState<Map<string, SidebarStatusFlashSignal>>(() => new Map());
 
@@ -892,6 +894,12 @@ function useSidebarStatusFlashSignals(
       seenSourceKeys: seenSourceKeysRef.current,
     });
     seenSourceKeysRef.current = resolution.nextSeenSourceKeys;
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      if (options?.suppressInitial) {
+        return;
+      }
+    }
     if (resolution.triggeredKindByRecipientId.size === 0) {
       return;
     }
@@ -906,7 +914,7 @@ function useSidebarStatusFlashSignals(
       }
       return next;
     });
-  }, [candidates]);
+  }, [candidates, options?.suppressInitial]);
 
   return signals;
 }
@@ -991,7 +999,7 @@ function buildEmbeddedTabStatusFlashCandidates(input: {
     for (const kind of getFlashableStatusKinds(summary)) {
       candidates.push({
         kind,
-        sourceKey: `tab:${input.workspaceKey}:${item.tab.tabId}:${kind}`,
+        sourceKey: `tab:${input.workspaceKey}:${item.tab.tabId}:${kind}:${summary.entryCounts[kind]}`,
         recipientIds,
       });
     }
@@ -1781,6 +1789,7 @@ function WorkspaceRowRightGroup({
   pendingBranchActionIds,
   statusSummaryToggleActive = false,
   onStatusSummaryPress,
+  flashSignal,
 }: {
   workspace: SidebarWorkspaceEntry;
   badgeMode: SidebarBadgeMode;
@@ -1808,6 +1817,7 @@ function WorkspaceRowRightGroup({
   pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
   statusSummaryToggleActive?: boolean;
   onStatusSummaryPress?: (event: GestureResponderEvent) => void;
+  flashSignal?: SidebarStatusFlashSignal | null;
 }) {
   const { t } = useTranslation();
   const visibility =
@@ -1857,6 +1867,7 @@ function WorkspaceRowRightGroup({
           pendingBranchActionIds={pendingBranchActionIds}
           statusSummaryToggleActive={statusSummaryToggleActive}
           onStatusSummaryPress={onStatusSummaryPress}
+          flashSignal={flashSignal}
         />
       ) : null}
     </>
@@ -1885,6 +1896,7 @@ function WorkspaceRowActionSlot({
   pendingBranchActionIds,
   statusSummaryToggleActive,
   onStatusSummaryPress,
+  flashSignal,
 }: {
   workspace: SidebarWorkspaceEntry;
   statusSummary: SidebarTabStatusSummary;
@@ -1907,6 +1919,7 @@ function WorkspaceRowActionSlot({
   pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
   statusSummaryToggleActive: boolean;
   onStatusSummaryPress?: (event: GestureResponderEvent) => void;
+  flashSignal?: SidebarStatusFlashSignal | null;
 }) {
   const showActionControls = showCreateTab || showCreateTabMenu || showKebab;
   const actionControlCount = Number(showCreateTab) + Number(showCreateTabMenu) + Number(showKebab);
@@ -1934,6 +1947,7 @@ function WorkspaceRowActionSlot({
           pendingBranchActionIds={pendingBranchActionIds}
           statusSummaryToggleActive={statusSummaryToggleActive}
           onStatusSummaryPress={onStatusSummaryPress}
+          flashSignal={flashSignal}
         />
       </SidebarWorkspaceTrailingActionBase>
       <SidebarWorkspaceTrailingActionOverlay visible={showActionControls}>
@@ -1967,6 +1981,7 @@ function WorkspaceRowTrailingMeta({
   pendingBranchActionIds,
   statusSummaryToggleActive,
   onStatusSummaryPress,
+  flashSignal,
 }: {
   workspace: SidebarWorkspaceEntry;
   statusSummary: SidebarTabStatusSummary;
@@ -1976,6 +1991,7 @@ function WorkspaceRowTrailingMeta({
   pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
   statusSummaryToggleActive: boolean;
   onStatusSummaryPress?: (event: GestureResponderEvent) => void;
+  flashSignal?: SidebarStatusFlashSignal | null;
 }) {
   const showPrHint = Boolean(!showOperationBadges && showDiffStat && workspace.prHint);
   let statusBadges: ReactNode = null;
@@ -1984,6 +2000,7 @@ function WorkspaceRowTrailingMeta({
       <SidebarEntryStatusBadges
         summary={statusSummary}
         excludeKinds={WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS}
+        flashSignal={flashSignal}
       />
     );
     if (onStatusSummaryPress) {
@@ -2878,6 +2895,7 @@ function ProjectHeaderRow({
     onRemoveProject,
     removeProjectStatus,
     showTrailingActions,
+    flashSignal,
   });
   const hoverCardContent = createElement(ProjectHoverCardContent, {
     project,
@@ -2989,6 +3007,7 @@ function ProjectHeaderEntryContent({
   onRemoveProject,
   removeProjectStatus,
   showTrailingActions,
+  flashSignal,
 }: {
   project: SidebarProjectEntry;
   displayName: string;
@@ -3008,6 +3027,7 @@ function ProjectHeaderEntryContent({
   onRemoveProject?: () => void;
   removeProjectStatus: "idle" | "pending";
   showTrailingActions: boolean;
+  flashSignal?: SidebarStatusFlashSignal | null;
 }) {
   return (
     <SidebarEntryRowContent
@@ -3028,6 +3048,7 @@ function ProjectHeaderEntryContent({
           ? createElement(SidebarEntryStatusBadges, {
               summary: statusSummary,
               excludeKinds: WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS,
+              flashSignal,
             })
           : null
       }
@@ -3272,6 +3293,7 @@ function WorkspaceRowInner({
                   onStatusSummaryPress={
                     workspaceRightVisibility.showStatusSummary ? onStatusSummaryPress : undefined
                   }
+                  flashSignal={flashSignal}
                 />
               </SidebarWorkspaceRowContent>
             </ContextMenuTrigger>
@@ -4040,7 +4062,7 @@ function EmbeddedWorkspaceTabRow({
           badgeMode === "status" ? null : getPrimarySidebarEntryStatusKind(row.statusSummary);
         const rightContext =
           badgeMode === "status"
-            ? createElement(SidebarEntryStatusBadges, { summary: row.statusSummary })
+            ? createElement(SidebarEntryStatusBadges, { summary: row.statusSummary, flashSignal })
             : null;
         const hoverRightContext = createElement(
           View,
@@ -4718,7 +4740,9 @@ function EmbeddedWorkspaceTabs({
       workspaceLayout?.parentTabIdByTabId,
     ],
   );
-  const tabStatusFlashSignals = useSidebarStatusFlashSignals(tabStatusFlashCandidates);
+  const tabStatusFlashSignals = useSidebarStatusFlashSignals(tabStatusFlashCandidates, {
+    suppressInitial: true,
+  });
   const getTabStatusFlashSignal = useCallback(
     (tabId: string) =>
       tabStatusFlashSignals.get(

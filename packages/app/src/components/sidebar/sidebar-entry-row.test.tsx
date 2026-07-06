@@ -55,6 +55,22 @@ vi.mock("@/components/synced-loader", () => ({
     React.createElement("span", { ...props, "data-icon": "SyncedLoader" }),
 }));
 
+vi.mock("react-native-reanimated", () => ({
+  default: {
+    View: ({ children, ...props }: Record<string, unknown> & { children?: React.ReactNode }) =>
+      React.createElement("div", props, children),
+  },
+  Easing: {
+    cubic: (value: number) => value,
+    inOut: (easing: unknown) => easing,
+    out: (easing: unknown) => easing,
+  },
+  useAnimatedStyle: (factory: () => Record<string, unknown>) => factory(),
+  useSharedValue: (value: unknown) => ({ value }),
+  withSequence: (...values: unknown[]) => values.at(-1),
+  withTiming: (value: unknown) => value,
+}));
+
 vi.mock("lucide-react-native", () => {
   const createIcon = (name: string) => (props: Record<string, unknown>) =>
     React.createElement("span", { ...props, "data-icon": name });
