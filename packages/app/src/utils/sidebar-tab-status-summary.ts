@@ -26,6 +26,7 @@ export interface SidebarEntryStatusDefinition {
   countMode: SidebarEntryStatusCountMode;
   propagateUp: boolean;
   singleIcon?: SidebarEntryStatusSingleIcon;
+  flashOnIncrease: boolean;
 }
 
 export interface SidebarTabStatusSummary {
@@ -77,17 +78,34 @@ export const SIDEBAR_ENTRY_STATUS_DEFINITIONS: Record<
   SidebarEntryStatusKind,
   SidebarEntryStatusDefinition
 > = {
-  queued_messages: { kind: "queued_messages", countMode: "always", propagateUp: true },
-  draft: { kind: "draft", countMode: "off", propagateUp: true },
+  queued_messages: {
+    kind: "queued_messages",
+    countMode: "always",
+    propagateUp: true,
+    flashOnIncrease: false,
+  },
+  draft: { kind: "draft", countMode: "off", propagateUp: true, flashOnIncrease: false },
   input_required: {
     kind: "input_required",
     countMode: "onePlus",
     propagateUp: true,
     singleIcon: "input_required",
+    flashOnIncrease: true,
   },
-  unread: { kind: "unread", countMode: "onePlus", propagateUp: true },
-  in_progress: { kind: "in_progress", countMode: "onePlus", propagateUp: true },
-  failed: { kind: "failed", countMode: "onePlus", propagateUp: true, singleIcon: "failed" },
+  unread: { kind: "unread", countMode: "onePlus", propagateUp: true, flashOnIncrease: true },
+  in_progress: {
+    kind: "in_progress",
+    countMode: "onePlus",
+    propagateUp: true,
+    flashOnIncrease: false,
+  },
+  failed: {
+    kind: "failed",
+    countMode: "onePlus",
+    propagateUp: true,
+    singleIcon: "failed",
+    flashOnIncrease: true,
+  },
 };
 
 function createEmptyEntryStatusCounts(): Record<SidebarEntryStatusKind, number> {

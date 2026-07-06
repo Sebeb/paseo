@@ -7,6 +7,7 @@ import type { DraftInput } from "@/stores/draft-store";
 import {
   combineSidebarTabStatusSummaries,
   createEmptySidebarTabStatusSummary,
+  SIDEBAR_ENTRY_STATUS_DEFINITIONS,
   SIDEBAR_TAB_STATUS_BADGE_BUCKETS,
   getPrimarySidebarEntryStatusKind,
   getSidebarEntryStatusCount,
@@ -245,6 +246,24 @@ describe("sidebar tab status summary", () => {
       "running",
       "attention",
     ]);
+  });
+
+  it("enables flash only for input-required, unread, and failed status kinds", () => {
+    expect(
+      Object.fromEntries(
+        Object.entries(SIDEBAR_ENTRY_STATUS_DEFINITIONS).map(([kind, definition]) => [
+          kind,
+          definition.flashOnIncrease,
+        ]),
+      ),
+    ).toEqual({
+      queued_messages: false,
+      draft: false,
+      input_required: true,
+      unread: true,
+      in_progress: false,
+      failed: true,
+    });
   });
 
   it("combines workspace summaries for a collapsed project", () => {
