@@ -1,5 +1,6 @@
 import { useMemo, useRef } from "react";
 import { useQueries } from "@tanstack/react-query";
+import type { ProjectIcon } from "@getpaseo/protocol/messages";
 import { getHostRuntimeStore, isHostRuntimeConnected } from "@/runtime/host-runtime";
 import { projectIconQueryKey, projectIconToDataUri } from "@/hooks/use-project-icon-query";
 
@@ -20,9 +21,12 @@ function useStableProjectIconData(
   return stableRef.current.data;
 }
 
-export function useProjectIconDataByProjectKey(input: {
-  projects: readonly ProjectIconRequestTarget[];
-}): Map<string, string | null> {
+function useProjectIconFieldByProjectKey(
+  input: {
+    projects: readonly ProjectIconRequestTarget[];
+  },
+  select: (icon: ProjectIcon | null) => string | null,
+): Map<string, string | null> {
   const projectIconRequests = useMemo(() => {
     const unique = new Map<string, { serverId: string; cwd: string }>();
     for (const project of input.projects) {
@@ -46,7 +50,7 @@ export function useProjectIconDataByProjectKey(input: {
         const result = await client.requestProjectIcon(request.cwd);
         return result.icon;
       },
-      select: projectIconToDataUri,
+      select,
       enabled: Boolean(
         getHostRuntimeStore().getClient(request.serverId) &&
         isHostRuntimeConnected(getHostRuntimeStore().getSnapshot(request.serverId)) &&
@@ -91,4 +95,22 @@ export function useProjectIconDataByProjectKey(input: {
 
     return byProject;
   }, [input.projects, projectIconData, projectIconRequests]);
+}
+
+export function useProjectIconDataByProjectKey(input: {
+  projects: readonly ProjectIconRequestTarget[];
+}): Map<string, string | null> {
+  return useProjectIconFieldByProjectKey(input, projectIconToDataUri);
+}
+
+function projectIconToColor(icon: ProjectIcon | null): string | null {
+  return icon?.color ?? null;
+}
+
+// The daemon derives this from the most prominent edge color of the icon,
+// ignoring transparent pixels (see server/src/utils/project-icon.ts).
+export function useProjectIconColorByProjectKey(input: {
+  projects: readonly ProjectIconRequestTarget[];
+}): Map<string, string | null> {
+  return useProjectIconFieldByProjectKey(input, projectIconToColor);
 }

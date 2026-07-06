@@ -14,10 +14,7 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { deriveProjectIconColor } from "@/utils/project-icon-color";
-import {
-  getProjectStatusCountsFromStatuses,
-  orderSingleProjectViewProjects,
-} from "@/utils/sidebar-single-project-view";
+import { orderSingleProjectViewProjects } from "@/utils/sidebar-single-project-view";
 import equal from "fast-deep-equal";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { ProjectIconView } from "@/components/project-icon-view";
@@ -89,7 +86,10 @@ import {
   useHostRuntimeIsConnected,
 } from "@/runtime/host-runtime";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { useProjectIconDataByProjectKey } from "@/projects/project-icons";
+import {
+  useProjectIconColorByProjectKey,
+  useProjectIconDataByProjectKey,
+} from "@/projects/project-icons";
 import {
   buildHostNewWorkspaceRoute,
   buildProjectSettingsRoute,
@@ -235,6 +235,7 @@ import {
   combineSidebarTabStatusSummaries,
   createEmptySidebarTabStatusSummary,
   getPrimarySidebarEntryStatusKind,
+  getSidebarEntryStatusCount,
   getVisibleSidebarEntryStatusKinds,
   summarizeSidebarTabs,
   type SidebarEntryStatusKind,
@@ -2680,7 +2681,11 @@ function ProjectHeaderEntryContent({
         onRemoveProject,
         removeProjectStatus,
       })}
-      showHoverRightContext={showTrailingActions && !showShortcut && !showStatusSummary}
+      showHoverRightContext={
+        // Hover swaps the status badges for the row actions; without hover
+        // support (native/mobile) the badges keep the slot when present.
+        showTrailingActions && !showShortcut && (isHovered || !showStatusSummary)
+      }
       shortcutBadge={
         showShortcut && shortcutNumber !== null
           ? createElement(SidebarWorkspaceShortcutBadge, { number: shortcutNumber })
@@ -5405,6 +5410,43 @@ export function SidebarWorkspaceList({
     () => (selectedSingleProject ? [selectedSingleProject] : projects),
     [projects, selectedSingleProject],
   );
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const lastSelectedWorkspaceIdByProjectKey = useSidebarCollapsedSectionsStore(
+    (state) => state.lastSelectedWorkspaceIdByProjectKey,
+  );
+  // Selecting a capsule mirrors clicking a collapsed project with auto-collapse
+  // enabled: switch the visible project and activate its remembered workspace.
+  const handleSingleProjectSelected = useCallback(
+    (projectKey: string) => {
+      onSingleProjectSelected?.(projectKey);
+      const project = projects.find((entry) => entry.projectKey === projectKey);
+      if (!project) {
+        return;
+      }
+      const targetWorkspace = resolveProjectActivationWorkspace({
+        project,
+        lastSelectedWorkspaceIdByProjectKey,
+      });
+      if (!targetWorkspace) {
+        return;
+      }
+      const alreadyActive =
+        activeWorkspaceSelection?.serverId === targetWorkspace.serverId &&
+        activeWorkspaceSelection.workspaceId === targetWorkspace.workspaceId;
+      if (alreadyActive) {
+        return;
+      }
+      onWorkspacePress?.();
+      navigateToWorkspace(targetWorkspace.serverId, targetWorkspace.workspaceId);
+    },
+    [
+      activeWorkspaceSelection,
+      lastSelectedWorkspaceIdByProjectKey,
+      onSingleProjectSelected,
+      onWorkspacePress,
+      projects,
+    ],
+  );
 
   if (groupMode === "status") {
     return (
@@ -5423,7 +5465,7 @@ export function SidebarWorkspaceList({
         <SidebarProjectSelectorBar
           projects={projects}
           selectedProjectKey={selectedSingleProject.projectKey}
-          onSelectProject={onSingleProjectSelected}
+          onSelectProject={handleSingleProjectSelected}
           onHoverProject={onSingleProjectHover}
         />
       ) : null}
@@ -6300,6 +6342,7 @@ function SidebarProjectSelectorBar({
     [projects],
   );
   const iconDataByProjectKey = useProjectIconDataByProjectKey({ projects: projectIconTargets });
+  const iconColorByProjectKey = useProjectIconColorByProjectKey({ projects: projectIconTargets });
 
   const orderedProjects = useMemo(
     () =>
@@ -6401,6 +6444,7 @@ function SidebarProjectSelectorBar({
             key={project.projectKey}
             project={project}
             iconDataUri={iconDataByProjectKey.get(project.projectKey) ?? null}
+            iconColor={iconColorByProjectKey.get(project.projectKey) ?? null}
             selected={project.projectKey === selectedProjectKey}
             reduceMotionEnabled={reduceMotionEnabled}
             onSelect={handleSelectProject}
@@ -6417,6 +6461,7 @@ function SidebarProjectSelectorBar({
 function ProjectSelectorCapsule({
   project,
   iconDataUri,
+  iconColor,
   selected,
   reduceMotionEnabled,
   onSelect,
@@ -6424,27 +6469,48 @@ function ProjectSelectorCapsule({
 }: {
   project: SidebarProjectEntry;
   iconDataUri: string | null;
+  iconColor: string | null;
   selected: boolean;
   reduceMotionEnabled: boolean;
   onSelect: (projectKey: string) => void;
   onHoverProject?: (projectName: string | null) => void;
 }) {
-  const counts = useMemo(
+  // Same status source and badge component as the project row's right-side
+  // badges, so capsules and rows can never disagree.
+  const tabStatusSummaries = useSidebarTabStatusSummaries({
+    workspaces: project.workspaces,
+    enabled: true,
+  });
+  const statusSummary = useMemo(
     () =>
-      getProjectStatusCountsFromStatuses({
-        workspaceKeys: project.workspaces.map((workspace) => workspace.workspaceKey),
-        statusByWorkspaceKey: new Map(
-          project.workspaces.map((workspace) => [workspace.workspaceKey, workspace.statusBucket]),
+      combineSidebarTabStatusSummaries(
+        project.workspaces.map(
+          (workspace) => tabStatusSummaries.get(workspace.workspaceKey) ?? EMPTY_TAB_STATUS_SUMMARY,
         ),
+      ),
+    [project.workspaces, tabStatusSummaries],
+  );
+  const visibleStatusKinds = useMemo(
+    () =>
+      getVisibleSidebarEntryStatusKinds(statusSummary, {
+        excludeKinds: WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS,
       }),
-    [project],
+    [statusSummary],
+  );
+  const glowCounts = useMemo(
+    () => ({
+      failed: getSidebarEntryStatusCount(statusSummary, "failed"),
+      inputRequired: getSidebarEntryStatusCount(statusSummary, "input_required"),
+      unread: getSidebarEntryStatusCount(statusSummary, "unread"),
+    }),
+    [statusSummary],
   );
   const glowOpacity = useRef(new Animated.Value(0)).current;
   // Selected capsules animate their fill to the sidebar background so the
   // active tab reads as connected to the sidebar content below it.
   const selectedFillOpacity = useRef(new Animated.Value(selected ? 1 : 0)).current;
-  const previousCountsRef = useRef(counts);
-  const [glowBucket, setGlowBucket] = useState<"attention" | "needs_input" | "failed" | null>(null);
+  const previousGlowCountsRef = useRef(glowCounts);
+  const [glowKind, setGlowKind] = useState<"unread" | "input_required" | "failed" | null>(null);
   const placeholderLabel = projectIconPlaceholderLabelFromDisplayName(project.projectName);
   const placeholderInitial = placeholderLabel.charAt(0).toUpperCase();
 
@@ -6461,21 +6527,21 @@ function ProjectSelectorCapsule({
   }, [reduceMotionEnabled, selected, selectedFillOpacity]);
 
   useEffect(() => {
-    const previous = previousCountsRef.current;
-    previousCountsRef.current = counts;
+    const previous = previousGlowCountsRef.current;
+    previousGlowCountsRef.current = glowCounts;
     if (reduceMotionEnabled) return;
 
-    let nextGlowBucket: typeof glowBucket = null;
-    if (counts.failed > previous.failed) {
-      nextGlowBucket = "failed";
-    } else if (counts.needsInput > previous.needsInput) {
-      nextGlowBucket = "needs_input";
-    } else if (counts.attention > previous.attention) {
-      nextGlowBucket = "attention";
+    let nextGlowKind: typeof glowKind = null;
+    if (glowCounts.failed > previous.failed) {
+      nextGlowKind = "failed";
+    } else if (glowCounts.inputRequired > previous.inputRequired) {
+      nextGlowKind = "input_required";
+    } else if (glowCounts.unread > previous.unread) {
+      nextGlowKind = "unread";
     }
-    if (!nextGlowBucket) return;
+    if (!nextGlowKind) return;
 
-    setGlowBucket(nextGlowBucket);
+    setGlowKind(nextGlowKind);
     glowOpacity.setValue(0);
     Animated.sequence([
       Animated.timing(glowOpacity, {
@@ -6489,7 +6555,7 @@ function ProjectSelectorCapsule({
         useNativeDriver: true,
       }),
     ]).start();
-  }, [counts, glowBucket, glowOpacity, reduceMotionEnabled]);
+  }, [glowCounts, glowKind, glowOpacity, reduceMotionEnabled]);
 
   const handlePress = useCallback(
     () => onSelect(project.projectKey),
@@ -6505,24 +6571,24 @@ function ProjectSelectorCapsule({
       onHoverProject?.(null);
     }
   }, [onHoverProject, selected]);
+  const capsuleColor = iconColor ?? deriveProjectIconColor(project.projectKey);
   const pressableStyle = useCallback(
     ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.projectSelectorCapsule,
       {
-        backgroundColor: deriveProjectIconColor(project.projectKey),
+        backgroundColor: capsuleColor,
       },
       selected && styles.projectSelectorCapsuleSelected,
       (hovered || pressed) && !selected && styles.projectSelectorCapsuleHovered,
     ],
-    [project.projectKey, selected],
+    [capsuleColor, selected],
   );
-  const hasBadges = counts.attention > 0 || counts.needsInput > 0 || counts.failed > 0;
   const accessibilityLabel = [
     project.projectName,
     selected ? "selected" : null,
-    counts.attention > 0 ? `${counts.attention} unread` : null,
-    counts.needsInput > 0 ? `${counts.needsInput} need input` : null,
-    counts.failed > 0 ? `${counts.failed} failed` : null,
+    ...visibleStatusKinds.map(
+      (kind) => `${getSidebarEntryStatusCount(statusSummary, kind)} ${kind.split("_").join(" ")}`,
+    ),
   ]
     .filter(Boolean)
     .join(", ");
@@ -6533,14 +6599,14 @@ function ProjectSelectorCapsule({
   );
   const glowStyle = useMemo(
     () =>
-      glowBucket
+      glowKind
         ? [
             styles.projectSelectorCapsuleGlow,
-            getProjectSelectorGlowStyle(glowBucket),
+            getProjectSelectorGlowStyle(glowKind),
             { opacity: glowOpacity },
           ]
         : null,
-    [glowBucket, glowOpacity],
+    [glowKind, glowOpacity],
   );
 
   return (
@@ -6566,66 +6632,22 @@ function ProjectSelectorCapsule({
             projectKey={project.projectKey}
           />
         </View>
-        {hasBadges ? <ProjectSelectorStatusBadges counts={counts} /> : null}
+        {visibleStatusKinds.length > 0 ? (
+          <SidebarEntryStatusBadges
+            summary={statusSummary}
+            excludeKinds={WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS}
+          />
+        ) : null}
       </Pressable>
     </View>
   );
 }
 
-function ProjectSelectorStatusBadges({
-  counts,
-}: {
-  counts: ReturnType<typeof getProjectStatusCountsFromStatuses>;
-}) {
-  return (
-    <View style={styles.projectSelectorBadges}>
-      {counts.attention > 0 ? (
-        <ProjectSelectorStatusBadge bucket="attention" count={counts.attention} />
-      ) : null}
-      {counts.needsInput > 0 ? (
-        <ProjectSelectorStatusBadge bucket="needs_input" count={counts.needsInput} />
-      ) : null}
-      {counts.failed > 0 ? (
-        <ProjectSelectorStatusBadge bucket="failed" count={counts.failed} />
-      ) : null}
-    </View>
-  );
-}
-
-function ProjectSelectorStatusBadge({
-  bucket,
-  count,
-}: {
-  bucket: "attention" | "needs_input" | "failed";
-  count: number;
-}) {
-  const badgeStyle = useMemo(
-    () => [styles.projectSelectorStatusBadge, getProjectSelectorBadgeStyle(bucket)],
-    [bucket],
-  );
-  return (
-    <View style={badgeStyle}>
-      <Text style={styles.projectSelectorStatusBadgeText}>{count}</Text>
-    </View>
-  );
-}
-
-function getProjectSelectorBadgeStyle(bucket: "attention" | "needs_input" | "failed") {
-  switch (bucket) {
-    case "attention":
-      return styles.projectSelectorStatusBadgeAttention;
-    case "needs_input":
-      return styles.projectSelectorStatusBadgeNeedsInput;
-    case "failed":
-      return styles.projectSelectorStatusBadgeFailed;
-  }
-}
-
-function getProjectSelectorGlowStyle(bucket: "attention" | "needs_input" | "failed") {
-  switch (bucket) {
-    case "attention":
+function getProjectSelectorGlowStyle(kind: "unread" | "input_required" | "failed") {
+  switch (kind) {
+    case "unread":
       return styles.projectSelectorCapsuleGlowAttention;
-    case "needs_input":
+    case "input_required":
       return styles.projectSelectorCapsuleGlowNeedsInput;
     case "failed":
       return styles.projectSelectorCapsuleGlowFailed;
@@ -6710,6 +6732,10 @@ const styles = StyleSheet.create((theme) => ({
     height: 36,
     minWidth: 36,
     paddingHorizontal: theme.spacing[1.5],
+    // Keep the same visual top radius as the 28px unselected capsule; the
+    // taller selected tab would otherwise render rounder corners (height/2).
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
     marginBottom: 0,
@@ -6747,39 +6773,6 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.sm,
     overflow: "hidden",
     flexShrink: 0,
-  },
-  projectSelectorBadges: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    flexShrink: 0,
-  },
-  projectSelectorStatusBadge: {
-    minWidth: 14,
-    height: 14,
-    paddingHorizontal: 3,
-    borderRadius: theme.borderRadius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.colors.surface0,
-  },
-  projectSelectorStatusBadgeAttention: {
-    borderWidth: 1,
-    borderColor: theme.colors.palette.green[500],
-  },
-  projectSelectorStatusBadgeNeedsInput: {
-    borderWidth: 1,
-    borderColor: theme.colors.palette.amber[500],
-  },
-  projectSelectorStatusBadgeFailed: {
-    borderWidth: 1,
-    borderColor: theme.colors.palette.red[500],
-  },
-  projectSelectorStatusBadgeText: {
-    color: theme.colors.foreground,
-    fontSize: 9,
-    fontWeight: theme.fontWeight.medium,
-    lineHeight: 12,
   },
   projectSelectorFadeLeft: {
     position: "absolute",

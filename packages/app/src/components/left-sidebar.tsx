@@ -275,8 +275,23 @@ export const LeftSidebar = memo(function LeftSidebar({
     [activeWorkspaceSelection, projects, singleProjectViewEnabled, singleProjectViewProjectKey],
   );
 
+  // Follow route navigation into other projects, but only once per active
+  // workspace change — otherwise this would immediately override a manual
+  // capsule selection while the old workspace route is still active.
+  const activeWorkspaceSelectionKey = activeWorkspaceSelection
+    ? `${activeWorkspaceSelection.serverId}:${activeWorkspaceSelection.workspaceId}`
+    : "";
+  const syncedActiveWorkspaceSelectionKeyRef = useRef("");
+
   useEffect(() => {
-    if (!singleProjectViewEnabled || !activeWorkspaceSelection) {
+    if (!singleProjectViewEnabled) {
+      syncedActiveWorkspaceSelectionKeyRef.current = "";
+      return;
+    }
+    if (!activeWorkspaceSelection) {
+      return;
+    }
+    if (syncedActiveWorkspaceSelectionKeyRef.current === activeWorkspaceSelectionKey) {
       return;
     }
     let activeProjectKey: string | null = null;
@@ -292,11 +307,16 @@ export const LeftSidebar = memo(function LeftSidebar({
       }
       if (activeProjectKey) break;
     }
-    if (activeProjectKey && activeProjectKey !== singleProjectViewProjectKey) {
+    if (!activeProjectKey) {
+      return;
+    }
+    syncedActiveWorkspaceSelectionKeyRef.current = activeWorkspaceSelectionKey;
+    if (activeProjectKey !== singleProjectViewProjectKey) {
       setSingleProjectViewProjectKey(activeProjectKey);
     }
   }, [
     activeWorkspaceSelection,
+    activeWorkspaceSelectionKey,
     projects,
     setSingleProjectViewProjectKey,
     singleProjectViewEnabled,
