@@ -83,8 +83,10 @@ import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-
 import type { Theme } from "@/styles/theme";
 import { RenderProfile } from "@/utils/render-profiler";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
-import { useAppSettings } from "@/hooks/use-settings";
-import { SidebarDisplayPreferencesMenuSections } from "@/components/sidebar/sidebar-grouping-selector";
+import {
+  SidebarBadgePreferenceMenuItems,
+  SidebarTabDisplayPreferencesMenuItems,
+} from "@/components/sidebar/sidebar-grouping-selector";
 import { useSidebarViewStore } from "@/stores/sidebar-view-store";
 import {
   getTerminalProfileIcon,
@@ -394,25 +396,13 @@ function useWorkspaceNewTabDropdownLauncher({
 
 interface WorkspaceTabDisplayMenuProps {
   normalizedServerId: string;
-  verticalTabsSelected: boolean;
   orientation: "horizontal" | "vertical";
-  onVerticalTabsChange: (selected: boolean) => void;
 }
 
 function WorkspaceTabDisplayMenu({
   normalizedServerId,
-  verticalTabsSelected,
   orientation,
-  onVerticalTabsChange,
 }: WorkspaceTabDisplayMenuProps) {
-  const { t } = useTranslation();
-  const { settings } = useAppSettings();
-  const showVerticalDisplaySections = settings.tabLayoutMode === "vertical";
-  const showVerticalTabsToggle = orientation === "vertical";
-  const handleToggleVerticalTabs = useCallback(() => {
-    onVerticalTabsChange(!verticalTabsSelected);
-  }, [onVerticalTabsChange, verticalTabsSelected]);
-
   return (
     <DropdownMenu>
       <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
@@ -431,28 +421,16 @@ function WorkspaceTabDisplayMenu({
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent side="bottom" align="end" offset={4} minWidth={200}>
-        {showVerticalTabsToggle ? (
+        <SidebarTabDisplayPreferencesMenuItems
+          serverId={normalizedServerId}
+          showRecentTabCount={orientation === "vertical"}
+          closeOnSelect={false}
+        />
+        {orientation === "vertical" ? (
           <>
-            <DropdownMenuItem
-              testID="workspace-display-menu-vertical-tabs"
-              selected={verticalTabsSelected}
-              showSelectedCheck
-              onSelect={handleToggleVerticalTabs}
-            >
-              {t("workspace.tabs.actions.verticalTabs")}
-            </DropdownMenuItem>
-            {showVerticalDisplaySections ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuSeparator />
+            <SidebarBadgePreferenceMenuItems serverId={normalizedServerId} closeOnSelect={false} />
           </>
-        ) : null}
-        {orientation === "horizontal" || showVerticalDisplaySections ? (
-          <SidebarDisplayPreferencesMenuSections
-            serverId={normalizedServerId}
-            showTabControls
-            showRecentTabCount={orientation === "vertical"}
-            showSidebarBadge={orientation === "vertical"}
-            badgePreference={orientation === "vertical" ? "tabBar" : "sidebar"}
-            closeOnSelect={false}
-          />
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -604,7 +582,7 @@ function getFallbackTabLabel(
 }
 
 function useShowVerticalStatusBadge(serverId: string): boolean {
-  return useSidebarViewStore((state) => state.getTabBarBadgeMode(serverId) === "status");
+  return useSidebarViewStore((state) => state.getBadgeMode(serverId) === "status");
 }
 
 function useVerticalScrollState(isVertical: boolean) {
@@ -1060,8 +1038,6 @@ export function WorkspaceDesktopTabsRow({
   onSplitRight,
   onSplitDown,
   tabBarOrientation = "horizontal",
-  verticalTabsSelected = false,
-  onVerticalTabsChange,
   externalDndContext = false,
   activeDragTabId = null,
   tabDropPreviewIndex = null,
@@ -1204,13 +1180,6 @@ export function WorkspaceDesktopTabsRow({
   }, [onCreateBrowserTab, paneId]);
 
   const terminalDisabled = disableCreateTerminal || isWaitingOnTerminalReadiness;
-  const handleVerticalTabsChange = useCallback(
-    (selected: boolean) => {
-      onVerticalTabsChange?.(selected);
-    },
-    [onVerticalTabsChange],
-  );
-
   const renderTab = useCallback(
     ({
       item,
@@ -1322,9 +1291,7 @@ export function WorkspaceDesktopTabsRow({
   const tabDisplayMenu = (
     <WorkspaceTabDisplayMenu
       normalizedServerId={normalizedServerId}
-      verticalTabsSelected={verticalTabsSelected}
       orientation={tabBarOrientation}
-      onVerticalTabsChange={handleVerticalTabsChange}
     />
   );
   const tabRowExtras = (

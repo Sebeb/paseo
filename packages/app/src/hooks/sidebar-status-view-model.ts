@@ -1,4 +1,8 @@
-import type { SidebarWorkspaceEntry } from "@/hooks/sidebar-workspaces-view-model";
+import {
+  sortSidebarWorkspaces,
+  type SidebarWorkspaceEntry,
+} from "@/hooks/sidebar-workspaces-view-model";
+import type { SidebarWorkspaceSortMode } from "@/stores/sidebar-view-store";
 
 export type StatusBucket = SidebarWorkspaceEntry["statusBucket"];
 
@@ -26,7 +30,7 @@ export interface StatusGroup {
 
 export function buildStatusGroups(
   workspaces: SidebarWorkspaceEntry[],
-  projectNamesByKey: Map<string, string>,
+  sortMode: SidebarWorkspaceSortMode,
 ): StatusGroup[] {
   const bucketRows = new Map<StatusBucket, SidebarWorkspaceEntry[]>();
 
@@ -46,38 +50,14 @@ export function buildStatusGroups(
     const rows = bucketRows.get(bucket);
     if (!rows || rows.length === 0) continue;
 
-    rows.sort((a, b) => compareStatusRows(a, b, projectNamesByKey));
-    groups.push({ bucket, label: STATUS_BUCKET_LABELS[bucket], rows });
+    groups.push({
+      bucket,
+      label: STATUS_BUCKET_LABELS[bucket],
+      rows: sortSidebarWorkspaces({ workspaces: rows, sortMode }),
+    });
   }
 
   return groups;
-}
-
-function compareStatusRows(
-  a: SidebarWorkspaceEntry,
-  b: SidebarWorkspaceEntry,
-  projectNamesByKey: Map<string, string>,
-): number {
-  const aTime = a.statusEnteredAt?.getTime() ?? null;
-  const bTime = b.statusEnteredAt?.getTime() ?? null;
-
-  if (aTime !== null && bTime !== null) {
-    if (aTime !== bTime) return bTime - aTime;
-  } else if (aTime !== null) {
-    return -1;
-  } else if (bTime !== null) {
-    return 1;
-  }
-
-  const aProject = projectNamesByKey.get(a.projectKey) ?? "";
-  const bProject = projectNamesByKey.get(b.projectKey) ?? "";
-  const projectCmp = aProject.localeCompare(bProject);
-  if (projectCmp !== 0) return projectCmp;
-
-  const nameCmp = a.name.localeCompare(b.name);
-  if (nameCmp !== 0) return nameCmp;
-
-  return a.workspaceKey.localeCompare(b.workspaceKey);
 }
 
 export function buildStatusShortcutIndex(groups: StatusGroup[]): Map<string, number> {

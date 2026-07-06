@@ -85,6 +85,7 @@ import {
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
+import { applySidebarShowLastCount } from "@/hooks/sidebar-workspaces-view-model";
 import { useAppSettings } from "@/hooks/use-settings";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useSessionStore, type Agent } from "@/stores/session-store";
@@ -100,6 +101,8 @@ import {
   useSidebarViewStore,
   type SidebarBadgeMode,
   type SidebarEmbeddedRecentTabCount,
+  type SidebarWorkspaceShowLastCount,
+  type SidebarWorkspaceSortMode,
 } from "@/stores/sidebar-view-store";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import { createWorkspaceBrowser, useBrowserStore } from "@/stores/browser-store";
@@ -121,7 +124,10 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { SidebarDisplayPreferencesMenuSections } from "@/components/sidebar/sidebar-grouping-selector";
+import {
+  SidebarBadgePreferenceMenuItems,
+  SidebarTabDisplayPreferencesMenuItems,
+} from "@/components/sidebar/sidebar-grouping-selector";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SyncedLoader } from "@/components/synced-loader";
 import { useToast } from "@/contexts/toast-context";
@@ -144,6 +150,7 @@ import {
   SidebarEntryRowContent,
   SidebarEntryStatusBadges,
 } from "@/components/sidebar/sidebar-entry-row";
+import { SidebarShowAllToggle } from "@/components/sidebar/sidebar-show-all-toggle";
 import { mergeEmbeddedVisibleTabOrder } from "@/components/sidebar/embedded-tabs-order";
 import {
   getWorkspaceRowRightVisibility,
@@ -526,6 +533,37 @@ function activeWorkspaceSelectionKey(selection: ActiveWorkspaceSelection | null)
   return selection ? `${selection.serverId}:${selection.workspaceId}` : "";
 }
 
+function getSelectedProjectKey(input: {
+  projects: readonly SidebarProjectEntry[];
+  selection: ActiveWorkspaceSelection | null;
+  serverId: string | null;
+  selectionEnabled: boolean;
+}): string | null {
+  if (!input.selectionEnabled || !input.serverId || input.selection?.serverId !== input.serverId) {
+    return null;
+  }
+  const selectedWorkspaceId = input.selection.workspaceId;
+  const selectedProject = input.projects.find((project) =>
+    project.workspaces.some((workspace) => workspace.workspaceId === selectedWorkspaceId),
+  );
+  return selectedProject?.projectKey ?? null;
+}
+
+function getSelectedWorkspaceKey(input: {
+  project: SidebarProjectEntry;
+  selection: ActiveWorkspaceSelection | null;
+  serverId: string | null;
+  selectionEnabled: boolean;
+}): string | null {
+  if (!input.selectionEnabled || !input.serverId || input.selection?.serverId !== input.serverId) {
+    return null;
+  }
+  const selectedWorkspace = input.project.workspaces.find(
+    (workspace) => workspace.workspaceId === input.selection?.workspaceId,
+  );
+  return selectedWorkspace?.workspaceKey ?? null;
+}
+
 function selectionForSelectedWorkspace(
   selected: boolean,
   workspace: SidebarWorkspaceEntry,
@@ -704,16 +742,6 @@ function newWorkspaceTabButtonStyle({
   pressed,
 }: PressableStateCallbackType & { hovered?: boolean }) {
   return [styles.workspaceIconButton, (hovered || pressed) && styles.workspaceIconButtonHovered];
-}
-
-function embeddedTabsVisibilityToggleStyle({
-  hovered = false,
-  pressed,
-}: PressableStateCallbackType & { hovered?: boolean }) {
-  return [
-    styles.embeddedTabsVisibilityToggle,
-    (hovered || pressed) && styles.embeddedTabsVisibilityToggleHovered,
-  ];
 }
 
 function embeddedTabCloseButtonStyle({
@@ -3233,19 +3261,19 @@ function EmbeddedWorkspaceTabs({
   const hiddenTabCount = Math.max(0, sortedItems.length - recentVisibleItems.length);
   const shouldShowVisibilityToggle = recentTabCount !== "all" && hiddenTabCount > 0;
   const visibleItems = showAllTabs ? sortedItems : recentVisibleItems;
-  const handleToggleShowAllTabs = useCallback(
-    (event: GestureResponderEvent) => {
-      event.stopPropagation();
-      onShowAllTabsChange(!showAllTabs);
-    },
-    [onShowAllTabsChange, showAllTabs],
-  );
+  const handleToggleShowAllTabs = useCallback(() => {
+    onShowAllTabsChange(!showAllTabs);
+  }, [onShowAllTabsChange, showAllTabs]);
   const visibilityToggleFooter = useMemo(
     () =>
       shouldShowVisibilityToggle ? (
-        <EmbeddedTabsVisibilityToggle expanded={showAllTabs} onPress={handleToggleShowAllTabs} />
+        <EmbeddedTabsVisibilityToggle
+          expanded={showAllTabs}
+          totalTabCount={sortedItems.length}
+          onPress={handleToggleShowAllTabs}
+        />
       ) : null,
-    [handleToggleShowAllTabs, shouldShowVisibilityToggle, showAllTabs],
+    [handleToggleShowAllTabs, shouldShowVisibilityToggle, showAllTabs, sortedItems.length],
   );
 
   const handlePressTab = useCallback(
@@ -3637,6 +3665,7 @@ function EmbeddedWorkspaceTabs({
           {shouldShowVisibilityToggle ? (
             <EmbeddedTabsVisibilityToggle
               expanded={showAllTabs}
+              totalTabCount={sortedItems.length}
               onPress={handleToggleShowAllTabs}
             />
           ) : null}
@@ -3964,13 +3993,12 @@ export function SidebarVerticalWorkspaceTabsHeaderActions({
           </TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end" width={200}>
-          <SidebarDisplayPreferencesMenuSections
+          <SidebarTabDisplayPreferencesMenuItems
             serverId={workspace.serverId}
-            showTabControls
-            showSidebarBadge
-            badgePreference="tabBar"
             closeOnSelect={false}
           />
+          <DropdownMenuSeparator />
+          <SidebarBadgePreferenceMenuItems serverId={workspace.serverId} closeOnSelect={false} />
         </DropdownMenuContent>
       </DropdownMenu>
     </View>
@@ -3979,30 +4007,20 @@ export function SidebarVerticalWorkspaceTabsHeaderActions({
 
 function EmbeddedTabsVisibilityToggle({
   expanded,
+  totalTabCount,
   onPress,
 }: {
   expanded: boolean;
-  onPress: (event: GestureResponderEvent) => void;
+  totalTabCount: number;
+  onPress: () => void;
 }) {
-  const { t } = useTranslation();
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={
-        expanded
-          ? t("sidebar.workspace.embeddedTabs.showLessLabel")
-          : t("sidebar.workspace.embeddedTabs.showAllLabel")
-      }
-      onPress={onPress}
-      style={embeddedTabsVisibilityToggleStyle}
+    <SidebarShowAllToggle
+      expanded={expanded}
+      totalCount={totalTabCount}
       testID="sidebar-embedded-tabs-visibility-toggle"
-    >
-      <Text style={styles.embeddedTabsVisibilityToggleText}>
-        {expanded
-          ? t("sidebar.workspace.embeddedTabs.showLess")
-          : t("sidebar.workspace.embeddedTabs.showAll")}
-      </Text>
-    </Pressable>
+      onPress={onPress}
+    />
   );
 }
 
@@ -4190,6 +4208,8 @@ function ProjectBlock({
   creatingWorkspaceIds,
   activeWorkspaceSelection,
   workspaceKeysForAutoCollapse,
+  workspaceSortMode,
+  workspaceShowLastCount,
 }: {
   project: SidebarProjectEntry;
   collapsed: boolean;
@@ -4202,7 +4222,7 @@ function ProjectBlock({
   showShortcutBadges: boolean;
   shortcutIndexByWorkspaceKey: Map<string, number>;
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
-  onToggleCollapsed: (projectKey: string) => void;
+  onToggleCollapsed: (project: SidebarProjectEntry) => void;
   onWorkspacePress?: () => void;
   onWorkspaceReorder: (projectKey: string, workspaces: SidebarWorkspaceEntry[]) => void;
   onWorktreeCreated?: (workspaceId: string) => void;
@@ -4213,6 +4233,8 @@ function ProjectBlock({
   creatingWorkspaceIds: ReadonlySet<string>;
   activeWorkspaceSelection: ActiveWorkspaceSelection | null;
   workspaceKeysForAutoCollapse: readonly string[];
+  workspaceSortMode: SidebarWorkspaceSortMode;
+  workspaceShowLastCount: SidebarWorkspaceShowLastCount;
 }) {
   const rowModel = useMemo(
     () =>
@@ -4229,6 +4251,10 @@ function ProjectBlock({
     project,
     enabled: selectionEnabled,
   });
+  const [showAllWorkspaces, setShowAllWorkspaces] = useState(false);
+  useEffect(() => {
+    setShowAllWorkspaces(false);
+  }, [project.projectKey, workspaceShowLastCount]);
   const tabStatusSummaries = useSidebarTabStatusSummaries({
     workspaces: project.workspaces,
     enabled: collapsed || badgeMode === "status",
@@ -4317,6 +4343,30 @@ function ProjectBlock({
   const setWorkspacesCollapsed = useSidebarCollapsedSectionsStore(
     (state) => state.setWorkspacesCollapsed,
   );
+  const selectedWorkspaceKey = useMemo(
+    () =>
+      getSelectedWorkspaceKey({
+        project,
+        selection: activeWorkspaceSelection,
+        serverId,
+        selectionEnabled,
+      }),
+    [activeWorkspaceSelection, project, selectionEnabled, serverId],
+  );
+  const visibleWorkspaceResult = useMemo(
+    () =>
+      applySidebarShowLastCount({
+        items: project.workspaces,
+        showLastCount: workspaceShowLastCount,
+        showAll: showAllWorkspaces,
+        forceIncludeKey: selectedWorkspaceKey,
+        getKey: workspaceKeyExtractor,
+      }),
+    [project.workspaces, selectedWorkspaceKey, showAllWorkspaces, workspaceShowLastCount],
+  );
+  const handleToggleShowAllWorkspaces = useCallback(() => {
+    setShowAllWorkspaces((current) => !current);
+  }, []);
 
   const toast = useToast();
   const { t } = useTranslation();
@@ -4371,10 +4421,51 @@ function ProjectBlock({
           !collapsed,
         );
       }
-      onToggleCollapsed(project.projectKey);
+      onToggleCollapsed(project);
     },
-    [collapsed, onToggleCollapsed, project.projectKey, project.workspaces, setWorkspacesCollapsed],
+    [collapsed, onToggleCollapsed, project, setWorkspacesCollapsed],
   );
+
+  let workspaceRows: ReactNode = null;
+  if (!collapsed && project.workspaces.length > 0) {
+    const workspaceVisibilityToggle = visibleWorkspaceResult.shouldShowVisibilityToggle ? (
+      <SidebarShowAllToggle
+        expanded={showAllWorkspaces}
+        totalCount={project.workspaces.length}
+        testID={`sidebar-workspaces-visibility-toggle-${project.projectKey}`}
+        onPress={handleToggleShowAllWorkspaces}
+      />
+    ) : null;
+    workspaceRows =
+      workspaceSortMode === "manual" ? (
+        <>
+          <DraggableList
+            testID={`sidebar-workspace-list-${project.projectKey}`}
+            data={visibleWorkspaceResult.visibleItems}
+            keyExtractor={workspaceKeyExtractor}
+            renderItem={renderWorkspace}
+            onDragEnd={handleWorkspaceDragEnd}
+            extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+            scrollEnabled={false}
+            useDragHandle
+            nestable={useNestable}
+            simultaneousGestureRef={parentGestureRef}
+            containerStyle={styles.workspaceListContainer}
+          />
+          {workspaceVisibilityToggle}
+        </>
+      ) : (
+        <View
+          style={styles.workspaceListContainer}
+          testID={`sidebar-workspace-list-${project.projectKey}`}
+        >
+          {visibleWorkspaceResult.visibleItems.map((workspace) => (
+            <View key={workspace.workspaceKey}>{renderWorkspaceRow(workspace)}</View>
+          ))}
+          {workspaceVisibilityToggle}
+        </View>
+      );
+  }
 
   return (
     <View style={styles.projectBlock}>
@@ -4402,21 +4493,7 @@ function ProjectBlock({
         dragHandleProps={dragHandleProps}
       />
 
-      {!collapsed && project.workspaces.length > 0 ? (
-        <DraggableList
-          testID={`sidebar-workspace-list-${project.projectKey}`}
-          data={project.workspaces}
-          keyExtractor={workspaceKeyExtractor}
-          renderItem={renderWorkspace}
-          onDragEnd={handleWorkspaceDragEnd}
-          extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
-          scrollEnabled={false}
-          useDragHandle
-          nestable={useNestable}
-          simultaneousGestureRef={parentGestureRef}
-          containerStyle={styles.workspaceListContainer}
-        />
-      ) : null}
+      {workspaceRows}
     </View>
   );
 }
@@ -4454,6 +4531,8 @@ function areProjectBlockDataPropsEqual(
     previous.canRemoveProject === next.canRemoveProject &&
     previous.selectionEnabled === next.selectionEnabled &&
     previous.badgeMode === next.badgeMode &&
+    previous.workspaceSortMode === next.workspaceSortMode &&
+    previous.workspaceShowLastCount === next.workspaceShowLastCount &&
     previous.showShortcutBadges === next.showShortcutBadges &&
     previous.shortcutIndexByWorkspaceKey === next.shortcutIndexByWorkspaceKey &&
     previous.creatingWorkspaceIds === next.creatingWorkspaceIds &&
@@ -4576,6 +4655,19 @@ function SidebarStatusModeWrapper({
   });
   const projectNamesByKey = useProjectNamesMap(serverId);
   const showShortcutBadges = useShowShortcutBadges();
+  const badgeMode = useSidebarViewStore((state) =>
+    serverId ? state.getBadgeMode(serverId) : "status",
+  );
+  const workspaceSortMode = useSidebarViewStore((state) =>
+    serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
+  const workspaceShowLastCount = useSidebarViewStore((state) =>
+    serverId ? state.getWorkspaceShowLastCount(serverId) : "all",
+  );
+  const tabStatusSummaries = useSidebarTabStatusSummaries({
+    workspaces: hydratedWorkspaces,
+    enabled: badgeMode === "status",
+  });
 
   return (
     <SidebarStatusWorkspaceList
@@ -4584,6 +4676,10 @@ function SidebarStatusModeWrapper({
       serverId={serverId}
       shortcutIndexByWorkspaceKey={_projectShortcutIndex}
       showShortcutBadges={showShortcutBadges}
+      badgeMode={badgeMode}
+      workspaceSortMode={workspaceSortMode}
+      workspaceShowLastCount={workspaceShowLastCount}
+      tabStatusSummaries={tabStatusSummaries}
       onWorkspacePress={onWorkspacePress}
     />
   );
@@ -4617,12 +4713,28 @@ function ProjectModeList({
   const badgeMode = useSidebarViewStore((state) =>
     serverId ? state.getBadgeMode(serverId) : "status",
   );
+  const workspaceSortMode = useSidebarViewStore((state) =>
+    serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
+  const projectSortMode = useSidebarViewStore((state) =>
+    serverId ? state.getProjectSortMode(serverId) : "manual",
+  );
+  const projectShowLastCount = useSidebarViewStore((state) =>
+    serverId ? state.getProjectShowLastCount(serverId) : "all",
+  );
+  const workspaceShowLastCount = useSidebarViewStore((state) =>
+    serverId ? state.getWorkspaceShowLastCount(serverId) : "all",
+  );
+  const autoCollapseProjects = useSidebarViewStore((state) => state.autoCollapseProjects);
   const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
   const collapsedWorkspaceKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedWorkspaceKeys,
   );
   const setOnlyWorkspaceExpanded = useSidebarCollapsedSectionsStore(
     (state) => state.setOnlyWorkspaceExpanded,
+  );
+  const setOnlyProjectExpanded = useSidebarCollapsedSectionsStore(
+    (state) => state.setOnlyProjectExpanded,
   );
   const canRemoveProject = useSessionStore((state) =>
     serverId ? state.sessions[serverId]?.serverInfo?.features?.projectRemove === true : false,
@@ -4634,9 +4746,14 @@ function ProjectModeList({
   );
   const selectionEnabled = isWorkspaceRoute;
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const [showAllProjects, setShowAllProjects] = useState(false);
   const workspaceKeysForAutoCollapse = useMemo(
     () =>
       projects.flatMap((project) => project.workspaces.map((workspace) => workspace.workspaceKey)),
+    [projects],
+  );
+  const projectKeysForAutoCollapse = useMemo(
+    () => projects.map((project) => project.projectKey),
     [projects],
   );
   const nativeScrollGestureProps = useMemo(
@@ -4657,6 +4774,10 @@ function ProjectModeList({
     serverId,
     projects,
   });
+
+  useEffect(() => {
+    setShowAllProjects(false);
+  }, [projectShowLastCount, serverId]);
 
   useEffect(() => {
     const timeouts = creatingWorkspaceTimeoutsRef.current;
@@ -4729,6 +4850,24 @@ function ProjectModeList({
     setOnlyWorkspaceExpanded,
     workspaceKeysForAutoCollapse,
   ]);
+
+  const handleToggleProjectCollapsed = useCallback(
+    (project: SidebarProjectEntry) => {
+      const projectKey = project.projectKey;
+      if (autoCollapseProjects && collapsedProjectKeys.has(projectKey)) {
+        setOnlyProjectExpanded(projectKey, projectKeysForAutoCollapse);
+        return;
+      }
+      onToggleProjectCollapsed(projectKey);
+    },
+    [
+      autoCollapseProjects,
+      collapsedProjectKeys,
+      onToggleProjectCollapsed,
+      projectKeysForAutoCollapse,
+      setOnlyProjectExpanded,
+    ],
+  );
 
   const handleProjectDragEnd = useCallback(
     (reorderedProjects: SidebarProjectEntry[]) => {
@@ -4813,6 +4952,31 @@ function ProjectModeList({
     );
   }, []);
 
+  const selectedProjectKey = useMemo(
+    () =>
+      getSelectedProjectKey({
+        projects,
+        selection: activeWorkspaceSelection,
+        serverId,
+        selectionEnabled,
+      }),
+    [activeWorkspaceSelection, projects, selectionEnabled, serverId],
+  );
+  const visibleProjectResult = useMemo(
+    () =>
+      applySidebarShowLastCount({
+        items: projects,
+        showLastCount: projectShowLastCount,
+        showAll: showAllProjects,
+        forceIncludeKey: selectedProjectKey,
+        getKey: projectKeyExtractor,
+      }),
+    [projectShowLastCount, projects, selectedProjectKey, showAllProjects],
+  );
+  const handleToggleShowAllProjects = useCallback(() => {
+    setShowAllProjects((current) => !current);
+  }, []);
+
   const renderProject = useCallback(
     ({ item, drag, isActive, dragHandleProps }: DraggableRenderItemInfo<SidebarProjectEntry>) => {
       return (
@@ -4828,7 +4992,7 @@ function ProjectModeList({
           showShortcutBadges={showShortcutBadges}
           shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
           parentGestureRef={parentGestureRef}
-          onToggleCollapsed={onToggleProjectCollapsed}
+          onToggleCollapsed={handleToggleProjectCollapsed}
           onWorkspacePress={onWorkspacePress}
           onWorkspaceReorder={handleWorkspaceReorder}
           onWorktreeCreated={handleWorktreeCreated}
@@ -4839,16 +5003,20 @@ function ProjectModeList({
           creatingWorkspaceIds={creatingWorkspaceIds}
           activeWorkspaceSelection={activeWorkspaceSelection}
           workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
+          workspaceSortMode={workspaceSortMode}
+          workspaceShowLastCount={workspaceShowLastCount}
         />
       );
     },
     [
       collapsedProjectKeys,
       activeWorkspaceSelection,
+      workspaceShowLastCount,
+      workspaceSortMode,
       handleWorktreeCreated,
       handleWorkspaceReorder,
+      handleToggleProjectCollapsed,
       onWorkspacePress,
-      onToggleProjectCollapsed,
       parentGestureRef,
       projectIconByProjectKey,
       badgeMode,
@@ -4862,20 +5030,33 @@ function ProjectModeList({
     ],
   );
 
-  const content = (
-    <>
-      {projects.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyTitle}>{t("sidebar.project.empty.title")}</Text>
-          <Text style={styles.emptyText}>{t("sidebar.project.empty.description")}</Text>
-          <Button variant="ghost" size="sm" leftIcon={Plus} onPress={onAddProject}>
-            {t("sidebar.actions.addProject")}
-          </Button>
-        </View>
-      ) : (
+  const projectVisibilityToggle = visibleProjectResult.shouldShowVisibilityToggle ? (
+    <SidebarShowAllToggle
+      expanded={showAllProjects}
+      totalCount={projects.length}
+      indent="none"
+      testID="sidebar-projects-visibility-toggle"
+      onPress={handleToggleShowAllProjects}
+    />
+  ) : null;
+
+  let projectListContent: ReactNode;
+  if (projects.length === 0) {
+    projectListContent = (
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyTitle}>{t("sidebar.project.empty.title")}</Text>
+        <Text style={styles.emptyText}>{t("sidebar.project.empty.description")}</Text>
+        <Button variant="ghost" size="sm" leftIcon={Plus} onPress={onAddProject}>
+          {t("sidebar.actions.addProject")}
+        </Button>
+      </View>
+    );
+  } else if (projectSortMode === "manual") {
+    projectListContent = (
+      <>
         <DraggableList
           testID="sidebar-project-list"
-          data={projects}
+          data={visibleProjectResult.visibleItems}
           keyExtractor={projectKeyExtractor}
           renderItem={renderProject}
           onDragEnd={handleProjectDragEnd}
@@ -4886,7 +5067,30 @@ function ProjectModeList({
           simultaneousGestureRef={parentGestureRef}
           containerStyle={styles.projectListContainer}
         />
-      )}
+        {projectVisibilityToggle}
+      </>
+    );
+  } else {
+    projectListContent = (
+      <View style={styles.projectListContainer} testID="sidebar-project-list">
+        {visibleProjectResult.visibleItems.map((project) => (
+          <View key={project.projectKey}>
+            {renderProject({
+              item: project,
+              index: 0,
+              drag: noop,
+              isActive: false,
+            })}
+          </View>
+        ))}
+        {projectVisibilityToggle}
+      </View>
+    );
+  }
+
+  const content = (
+    <>
+      {projectListContent}
       {listFooterComponent}
     </>
   );
@@ -5260,24 +5464,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   embeddedTabWrapper: {
     width: "100%",
-  },
-  embeddedTabsVisibilityToggle: {
-    minHeight: 30,
-    paddingVertical: theme.spacing[1],
-    paddingHorizontal: theme.spacing[3],
-    borderRadius: theme.borderRadius.lg,
-    alignItems: "flex-start",
-    justifyContent: "center",
-    width: "100%",
-    userSelect: "none",
-  },
-  embeddedTabsVisibilityToggleHovered: {
-    backgroundColor: theme.colors.surfaceSidebarHover,
-  },
-  embeddedTabsVisibilityToggleText: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.normal,
   },
   embeddedTabMenuItemHint: {
     color: theme.colors.foregroundMuted,

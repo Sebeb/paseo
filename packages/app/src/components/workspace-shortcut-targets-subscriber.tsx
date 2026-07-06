@@ -29,6 +29,9 @@ export function WorkspaceShortcutTargetsSubscriber({
   // (agents Map identity is replaced on every status transition) with no effect on
   // the shortcut targets, causing ~15-46 wasted re-renders per agent switch.
   const isStatusMode = enabled && groupMode === "status";
+  const workspaceSortMode = useSidebarViewStore((state) =>
+    isStatusMode && serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
   const statusWorkspaces = useStatusModeWorkspaceEntries({
     serverId: isStatusMode ? serverId : null,
     projects,
@@ -49,6 +52,7 @@ export function WorkspaceShortcutTargetsSubscriber({
       return buildStatusSidebarShortcutModel({
         workspaces: statusWorkspaces,
         projectNamesByKey,
+        workspaceSortMode,
         collapsedStatusGroupKeys,
       });
     }
@@ -64,6 +68,7 @@ export function WorkspaceShortcutTargetsSubscriber({
     projectNamesByKey,
     projects,
     statusWorkspaces,
+    workspaceSortMode,
   ]);
 
   useEffect(() => {

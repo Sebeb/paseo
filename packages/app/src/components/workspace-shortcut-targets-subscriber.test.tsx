@@ -17,6 +17,14 @@ vi.hoisted(() => {
   (globalThis as unknown as { __DEV__: boolean }).__DEV__ = false;
 });
 
+vi.mock("@react-native-async-storage/async-storage", () => ({
+  default: {
+    getItem: vi.fn().mockResolvedValue(null),
+    setItem: vi.fn().mockResolvedValue(undefined),
+    removeItem: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 function workspaceDescriptor(input: {
   id: string;
   name?: string;

@@ -4,11 +4,14 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import {
   type CollapsedProjectsState,
   mergePersistedCollapsedProjects,
+  rememberProjectWorkspaceSelection,
+  setOnlyProjectExpanded,
   serializeCollapsedProjects,
   setOnlyWorkspaceExpanded,
   setProjectCollapsed,
   setWorkspaceCollapsed,
   setWorkspacesCollapsed,
+  toggleParentTabExpanded,
   toggleProjectCollapsed,
   toggleStatusGroupCollapsed,
   toggleWorkspaceCollapsed,
@@ -17,11 +20,14 @@ import {
 interface SidebarCollapsedSectionsState extends CollapsedProjectsState {
   toggleProjectCollapsed: (projectKey: string) => void;
   setProjectCollapsed: (projectKey: string, collapsed: boolean) => void;
+  setOnlyProjectExpanded: (projectKey: string, projectKeys: readonly string[]) => void;
   toggleStatusGroupCollapsed: (statusGroupKey: string) => void;
   toggleWorkspaceCollapsed: (workspaceKey: string) => void;
   setOnlyWorkspaceExpanded: (workspaceKey: string, workspaceKeys: readonly string[]) => void;
   setWorkspaceCollapsed: (workspaceKey: string, collapsed: boolean) => void;
   setWorkspacesCollapsed: (workspaceKeys: readonly string[], collapsed: boolean) => void;
+  toggleParentTabExpanded: (parentTabKey: string) => void;
+  rememberProjectWorkspaceSelection: (projectKey: string, workspaceId: string) => void;
 }
 
 export const useSidebarCollapsedSectionsStore = create<SidebarCollapsedSectionsState>()(
@@ -30,10 +36,14 @@ export const useSidebarCollapsedSectionsStore = create<SidebarCollapsedSectionsS
       collapsedProjectKeys: new Set(),
       collapsedStatusGroupKeys: new Set(),
       collapsedWorkspaceKeys: new Set(),
+      expandedParentTabKeys: new Set(),
+      lastSelectedWorkspaceIdByProjectKey: {},
       toggleProjectCollapsed: (projectKey) =>
         set((state) => toggleProjectCollapsed(state, projectKey)),
       setProjectCollapsed: (projectKey, collapsed) =>
         set((state) => setProjectCollapsed(state, projectKey, collapsed)),
+      setOnlyProjectExpanded: (projectKey, projectKeys) =>
+        set((state) => setOnlyProjectExpanded(state, projectKey, projectKeys)),
       toggleStatusGroupCollapsed: (statusGroupKey) =>
         set((state) => toggleStatusGroupCollapsed(state, statusGroupKey)),
       toggleWorkspaceCollapsed: (workspaceKey) =>
@@ -44,6 +54,10 @@ export const useSidebarCollapsedSectionsStore = create<SidebarCollapsedSectionsS
         set((state) => setWorkspaceCollapsed(state, workspaceKey, collapsed)),
       setWorkspacesCollapsed: (workspaceKeys, collapsed) =>
         set((state) => setWorkspacesCollapsed(state, workspaceKeys, collapsed)),
+      toggleParentTabExpanded: (parentTabKey) =>
+        set((state) => toggleParentTabExpanded(state, parentTabKey)),
+      rememberProjectWorkspaceSelection: (projectKey, workspaceId) =>
+        set((state) => rememberProjectWorkspaceSelection(state, projectKey, workspaceId)),
     }),
     {
       name: "sidebar-collapsed-sections",
@@ -56,6 +70,8 @@ export const useSidebarCollapsedSectionsStore = create<SidebarCollapsedSectionsS
                 collapsedProjectKeys?: unknown;
                 collapsedStatusGroupKeys?: unknown;
                 collapsedWorkspaceKeys?: unknown;
+                expandedParentTabKeys?: unknown;
+                lastSelectedWorkspaceIdByProjectKey?: unknown;
               }
             | undefined,
           currentState,
