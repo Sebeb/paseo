@@ -30,6 +30,8 @@ import {
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
+  FadeIn,
+  FadeOut,
   interpolate,
   runOnJS,
   useAnimatedStyle,
@@ -99,6 +101,9 @@ import {
 } from "@/composer/scheduled-messages";
 
 const MIN_CHAT_WIDTH = 400;
+// Duration of the workspaces-header title crossfade. When the selected project
+// changes, the old project name fades out while the new one fades in.
+const PROJECT_HEADER_CROSSFADE_MS = 420;
 
 function useSidebarScrollProvider() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -1459,16 +1464,35 @@ function WorkspacesSectionHeader({
     () => [styles.workspacesSectionHeader, isScrolled && styles.workspacesSectionHeaderScrolled],
     [isScrolled],
   );
-  const titleStyle = useMemo(
-    () => [styles.workspacesSectionTitle, projectTitle && styles.workspacesProjectTitle],
-    [projectTitle],
+  // Theme values are applied inline (not via StyleSheet.create) because this text
+  // is a Reanimated Animated.Text that mounts/unmounts on each crossfade; applying
+  // Unistyles-tracked styles to it risks the "Unable to find node on an unmounted
+  // component" crash (see docs/unistyles.md → Reanimated + dynamic styles).
+  const animatedTitleStyle = useMemo(
+    () => [
+      staticStyles.workspacesSectionTitleCrossfadeText,
+      {
+        color: projectTitle ? theme.colors.foreground : theme.colors.foregroundMuted,
+        fontSize: projectTitle ? theme.fontSize.sm : theme.fontSize.xs,
+        fontWeight: theme.fontWeight.normal,
+      },
+    ],
+    [projectTitle, theme],
   );
 
   return (
     <View style={headerStyle}>
-      <Text style={titleStyle} numberOfLines={1}>
-        {title}
-      </Text>
+      <View style={styles.workspacesSectionTitleFrame}>
+        <Animated.Text
+          key={title}
+          entering={FadeIn.duration(PROJECT_HEADER_CROSSFADE_MS)}
+          exiting={FadeOut.duration(PROJECT_HEADER_CROSSFADE_MS)}
+          style={animatedTitleStyle}
+          numberOfLines={1}
+        >
+          {title}
+        </Animated.Text>
+      </View>
       <View style={styles.workspacesSectionActions}>
         {selectedProject ? (
           <SidebarSelectedProjectHeaderActions
@@ -1533,6 +1557,15 @@ const staticStyles = RNStyleSheet.create({
   desktopSidebar: {
     position: "relative" as const,
   },
+  // Absolute-fills the title frame so the outgoing and incoming project names
+  // overlap while crossfading. Static (non-Unistyles) because it is applied to
+  // an Animated.Text that mounts/unmounts on each transition.
+  workspacesSectionTitleCrossfadeText: {
+    position: "absolute" as const,
+    left: 0,
+    right: 0,
+    top: 0,
+  },
 });
 
 const styles = StyleSheet.create((theme) => ({
@@ -1568,17 +1601,15 @@ const styles = StyleSheet.create((theme) => ({
   workspacesSectionHeaderScrolled: {
     borderBottomColor: theme.colors.border,
   },
-  workspacesSectionTitle: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.normal,
-  },
-  // Project selector row replaces the muted section label with the selected
-  // project's name using the same typography as project rows.
-  workspacesProjectTitle: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-    flexShrink: 1,
+  // Fixed-height, clipped frame that holds the two overlapping crossfade titles.
+  // minHeight covers both the muted "Workspaces" label (xs) and the selected
+  // project name (sm) so the header does not jump as the title transitions.
+  workspacesSectionTitleFrame: {
+    position: "relative",
+    flex: 1,
+    minWidth: 0,
+    minHeight: 18,
+    overflow: "hidden",
   },
   workspacesSectionActions: {
     flexDirection: "row",
