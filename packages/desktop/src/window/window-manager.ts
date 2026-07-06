@@ -89,6 +89,7 @@ export function getMainWindowChromeOptions(input: {
   | "frame"
   | "titleBarOverlay"
   | "autoHideMenuBar"
+  | "transparent"
   | "vibrancy"
   | "visualEffectState"
 > {
@@ -97,6 +98,7 @@ export function getMainWindowChromeOptions(input: {
       titleBarStyle: "hidden",
       titleBarOverlay: true,
       trafficLightPosition: { x: 16, y: 14 },
+      transparent: true,
       vibrancy: "sidebar",
       visualEffectState: "active",
     };

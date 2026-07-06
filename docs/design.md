@@ -131,7 +131,7 @@ The branching is one `useIsCompactFormFactor()` check at the top of the screen c
 
 The workspace screen (`packages/app/src/screens/workspace/workspace-screen.tsx`) follows a different but parallel rule: tabs collapse on compact, panes split on desktop. The sidebar (`packages/app/src/components/left-sidebar.tsx`) is overlaid on compact and pinned on desktop.
 
-On macOS Electron, the pinned left sidebar uses native window vibrancy rather than a CSS blur. The window background and outer app shell are transparent, the sidebar paints only a subtle scrim so the native material remains visible, and the main content pane keeps an opaque `surface0` fill. Do not make mobile sidebars, browser web, Windows, or Linux transparent for this effect.
+On macOS Electron, the pinned left sidebar uses native window vibrancy rather than a CSS blur. The Electron window, web root, and outer app shell are transparent, the sidebar paints only a subtle scrim so the native material remains visible, and the main content pane keeps an opaque `surface0` fill. Do not make mobile sidebars, browser web, Windows, or Linux transparent for this effect.
 
 A new list+detail feature copies the settings shell. A new workspace-shaped feature copies the workspace shell. Inventing a third shape happens in design review, not in a PR.
 

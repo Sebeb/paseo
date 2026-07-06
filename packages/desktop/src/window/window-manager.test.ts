@@ -201,6 +201,7 @@ describe("window-manager", () => {
         titleBarStyle: "hidden",
         titleBarOverlay: true,
         trafficLightPosition: { x: 16, y: 14 },
+        transparent: true,
         vibrancy: "sidebar",
         visualEffectState: "active",
       });

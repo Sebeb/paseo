@@ -101,6 +101,7 @@ import { THEME_TO_UNISTYLES, type ThemeName } from "@/styles/theme";
 import type { HostProfile } from "@/types/host-connection";
 import { toggleDesktopSidebarsWithCheckoutIntent } from "@/utils/desktop-sidebar-toggle";
 import { getIsSidebarGlassEnabled } from "@/utils/sidebar-glass";
+import { syncSidebarGlassRootBackground } from "@/utils/sidebar-glass-root";
 import { canOpenLeftSidebarGesture } from "@/utils/sidebar-animation-state";
 import {
   buildOpenProjectRoute,
@@ -1037,6 +1038,7 @@ function RootProviders({ children }: { children: ReactNode }) {
 
 export default function RootLayout() {
   const isSidebarGlassEnabled = getIsSidebarGlassEnabled();
+  useEffect(() => syncSidebarGlassRootBackground(), []);
   const rootShellStyle = useMemo(
     () =>
       isSidebarGlassEnabled
