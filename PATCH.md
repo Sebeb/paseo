@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: 7e760c85bedac2f773c101be52c50b633469f4b0 — feat(sidebar): add tab view mode preference and enrich tab menus
+Anchor commit: aa18022ebc0650b0886e0d3e4638596812aca3c8 — fix(app): disable mobile tab switcher for sidebar tabs
 
 ## Purpose
 
@@ -56,6 +56,7 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Workspace and project rows suppress draft-only status dots/badges so a typed draft in an embedded tab does not make the whole workspace or project look active; embedded tab rows still show draft status directly.
 - Parent embedded tab rows keep their normal tab icon visible at rest, swap the leading slot to the expand/collapse chevron only on hover/touch/compact layouts, and show a small collapsed-subtree count before the label when descendants are hidden.
 - Project, workspace, and embedded-tab hover cards include status explainer rows so status dots can be interpreted without opening the tab or workspace.
+- On compact layouts, sidebar tab layout keeps showing the active tab label in the workspace header but disables the mobile tab switcher trigger and combobox, so tab switching stays owned by the sidebar tab UI.
 
 ## Restored Main Polish
 
@@ -1331,9 +1332,22 @@ The desktop tab row now gives agent tabs a richer tooltip instead of the previou
 - `AgentTabTooltipContent` renders a 260 px detail card with the tab label, seven-character agent id, initial prompt capped at three lines, icon-labeled created/updated rows when present, and a `MessageCircle` prompt-count row.
 - `TabChip` passes `normalizedServerId` into the tooltip path so the hook can read the right session. Agent tab tooltips use `AgentTabTooltipContent`; terminal/browser/draft tabs still use the simple label tooltip.
 
-#### `useDesktopEmbeddedTabsEnabled(isMobile)`
+#### `useWorkspaceTabLayoutModeState(isMobile)`
 
-Returns `true` when `appSettings.tabLayoutMode !== "horizontal"` and not mobile. Used to gate split-menu and embedded-tab presentation.
+Reads `appSettings.tabLayoutMode` and returns:
+
+- `embeddedTabsEnabled`: true when the mode is not `"horizontal"` and the layout is not mobile. Used to gate split-menu and embedded-tab presentation.
+- `mobileTabSwitcherEnabled`: false only when the mode is `"sidebar"`. Used to keep compact sidebar-tab layout from exposing the old mobile combobox switcher.
+
+#### `MobileWorkspaceTabSwitcher`
+
+Accepts `switcherEnabled: boolean`.
+
+Behavior:
+
+- Always renders the active tab presentation row so compact users can still see the current tab title/icon.
+- When enabled, renders a pressable trigger with chevron and anchors the non-searchable tab `Combobox` to it.
+- When disabled, renders the same visual trigger body as a plain `View` with no chevron, no press handler, no accessibility button role, and no `Combobox`. This preserves header layout while preventing duplicate tab-switching UI in sidebar tab mode.
 
 #### `WorkspaceHeaderSplitMenu`
 
