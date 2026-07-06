@@ -186,6 +186,10 @@ import {
   SidebarEntryRowContent,
   SidebarEntryStatusBadges,
 } from "@/components/sidebar/sidebar-entry-row";
+import {
+  SidebarStatusFlash,
+  type SidebarStatusFlashSignal,
+} from "@/components/sidebar/sidebar-status-flash";
 import { SidebarEntryStatusExplainerRows } from "@/components/sidebar/sidebar-entry-status-explainer-rows";
 import { SidebarShowAllToggle } from "@/components/sidebar/sidebar-show-all-toggle";
 import { mergeEmbeddedVisibleTabOrder } from "@/components/sidebar/embedded-tabs-order";
@@ -251,6 +255,7 @@ import {
   getPrimarySidebarEntryStatusKind,
   getSidebarEntryStatusCount,
   getVisibleSidebarEntryStatusKinds,
+  SIDEBAR_ENTRY_STATUS_DEFINITIONS,
   summarizeSidebarTabs,
   type SidebarEntryStatusKind,
   type SidebarTabStatusSummary,
@@ -260,6 +265,11 @@ import {
   buildSidebarEmbeddedTabTreeRows,
   type SidebarEmbeddedTabTreeRow,
 } from "@/utils/sidebar-embedded-tab-tree";
+import { applyRecentTreeRowCount } from "@/utils/sidebar-embedded-tab-visibility";
+import {
+  resolveSidebarStatusFlashes,
+  type SidebarStatusFlashCandidate,
+} from "@/utils/sidebar-status-flash";
 import { sortSidebarTabItems } from "@/utils/sidebar-tab-sort";
 import type { SidebarTabSortItem } from "@/utils/sidebar-tab-sort";
 import {
@@ -810,6 +820,142 @@ function useVisibleEmbeddedTabRows(input: {
   return { visibleRows, shouldShowVisibilityToggle };
 }
 
+function useSidebarStatusFlashSignals(
+  candidates: readonly SidebarStatusFlashCandidate[],
+): Map<string, SidebarStatusFlashSignal> {
+  const seenSourceKeysRef = useRef<Set<string>>(new Set());
+  const sequenceRef = useRef(0);
+  const [signals, setSignals] = useState<Map<string, SidebarStatusFlashSignal>>(() => new Map());
+
+  useEffect(() => {
+    const resolution = resolveSidebarStatusFlashes({
+      candidates,
+      seenSourceKeys: seenSourceKeysRef.current,
+    });
+    seenSourceKeysRef.current = resolution.nextSeenSourceKeys;
+    if (resolution.triggeredKindByRecipientId.size === 0) {
+      return;
+    }
+    setSignals((current) => {
+      const next = new Map(current);
+      for (const [recipientId, kind] of resolution.triggeredKindByRecipientId) {
+        sequenceRef.current += 1;
+        next.set(recipientId, {
+          kind,
+          flashKey: `${recipientId}:${kind}:${sequenceRef.current}`,
+        });
+      }
+      return next;
+    });
+  }, [candidates]);
+
+  return signals;
+}
+
+function buildStatusFlashRecipientId(kind: "project" | "workspace" | "tab", id: string): string {
+  return `${kind}:${id}`;
+}
+
+function getFlashableStatusKinds(summary: SidebarTabStatusSummary): SidebarEntryStatusKind[] {
+  return getVisibleSidebarEntryStatusKinds(summary).filter(
+    (kind) => SIDEBAR_ENTRY_STATUS_DEFINITIONS[kind].flashOnIncrease,
+  );
+}
+
+function buildAggregateStatusFlashCandidates(input: {
+  summary: SidebarTabStatusSummary;
+  sourcePrefix: string;
+  recipientIds: readonly string[];
+}): SidebarStatusFlashCandidate[] {
+  return getFlashableStatusKinds(input.summary).map((kind) => ({
+    kind,
+    sourceKey: `${input.sourcePrefix}:${kind}:${input.summary.entryCounts[kind]}`,
+    recipientIds: input.recipientIds,
+  }));
+}
+
+function findClosestVisibleAncestorTabId(input: {
+  tabId: string;
+  visibleTabIds: ReadonlySet<string>;
+  parentTabIdByTabId?: Readonly<Record<string, string>> | null;
+}): string | null {
+  const visited = new Set<string>([input.tabId]);
+  let currentTabId = input.parentTabIdByTabId?.[input.tabId] ?? null;
+  while (currentTabId) {
+    if (input.visibleTabIds.has(currentTabId)) {
+      return currentTabId;
+    }
+    if (visited.has(currentTabId)) {
+      return null;
+    }
+    visited.add(currentTabId);
+    currentTabId = input.parentTabIdByTabId?.[currentTabId] ?? null;
+  }
+  return null;
+}
+
+function buildEmbeddedTabStatusFlashCandidates(input: {
+  workspaceKey: string;
+  items: readonly EmbeddedSidebarTabItem[];
+  visibleRows: readonly SidebarEmbeddedTabTreeRow<EmbeddedSidebarTabItem>[];
+  statusSummariesByTabId: ReadonlyMap<string, SidebarTabStatusSummary>;
+  parentTabIdByTabId?: Readonly<Record<string, string>> | null;
+}): SidebarStatusFlashCandidate[] {
+  const visibleTabIds = new Set(input.visibleRows.map((row) => row.item.tab.tabId));
+  const candidates: SidebarStatusFlashCandidate[] = [];
+
+  for (const item of input.items) {
+    const summary = input.statusSummariesByTabId.get(item.tab.tabId);
+    if (!summary) {
+      continue;
+    }
+    const ownRecipientId = visibleTabIds.has(item.tab.tabId)
+      ? buildStatusFlashRecipientId("tab", `${input.workspaceKey}:${item.tab.tabId}`)
+      : null;
+    const ancestorTabId = ownRecipientId
+      ? null
+      : findClosestVisibleAncestorTabId({
+          tabId: item.tab.tabId,
+          visibleTabIds,
+          parentTabIdByTabId: input.parentTabIdByTabId,
+        });
+    const ancestorRecipientId = ancestorTabId
+      ? buildStatusFlashRecipientId("tab", `${input.workspaceKey}:${ancestorTabId}`)
+      : null;
+    let recipientIds: string[] = [];
+    if (ownRecipientId) {
+      recipientIds = [ownRecipientId];
+    } else if (ancestorRecipientId) {
+      recipientIds = [ancestorRecipientId];
+    }
+
+    for (const kind of getFlashableStatusKinds(summary)) {
+      candidates.push({
+        kind,
+        sourceKey: `tab:${input.workspaceKey}:${item.tab.tabId}:${kind}`,
+        recipientIds,
+      });
+    }
+  }
+
+  return candidates;
+}
+
+function isEmbeddedWorkspaceTabRowActive(input: {
+  isActiveWorkspace: boolean;
+  row: SidebarEmbeddedTabTreeRow<EmbeddedSidebarTabItem>;
+  activeTabId: string | null;
+  focusedPaneId: string | null | undefined;
+}): boolean {
+  if (!input.isActiveWorkspace) {
+    return false;
+  }
+  if (input.row.item.mainPane) {
+    return input.row.item.tab.tabId === input.activeTabId;
+  }
+  return input.focusedPaneId === input.row.item.paneId;
+}
+
 function shouldEnableEmbeddedTabManualSort(input: {
   statusBucketFilter: StatusBucket | null;
   tabSortMode: SidebarEmbeddedTabSortMode;
@@ -870,24 +1016,6 @@ function useSidebarEmbeddedTabHoverInfo({
   );
 }
 
-function applyRecentTreeRowCount(input: {
-  rows: SidebarEmbeddedTabTreeRow<EmbeddedSidebarTabItem>[];
-  recentCount: SidebarEmbeddedRecentTabCount;
-}): SidebarEmbeddedTabTreeRow<EmbeddedSidebarTabItem>[] {
-  if (input.recentCount === "all") {
-    return input.rows;
-  }
-  const visible = input.rows.slice(0, input.recentCount);
-  const visibleIds = new Set(visible.map((row) => row.item.tab.tabId));
-  for (const row of input.rows) {
-    if (!row.item.forceShown || visibleIds.has(row.item.tab.tabId)) {
-      continue;
-    }
-    visible.push(row);
-    visibleIds.add(row.item.tab.tabId);
-  }
-  return visible;
-}
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
@@ -1044,6 +1172,7 @@ interface ProjectHeaderRowProps {
   statusSummary?: SidebarTabStatusSummary | null;
   showStatusSummary?: boolean;
   leadingStatusKind?: SidebarEntryStatusKind | null;
+  flashSignal?: SidebarStatusFlashSignal | null;
   highlightState?: SidebarRowHighlightState;
   chevron: "expand" | "collapse" | null;
   onPress: (event: GestureResponderEvent) => void;
@@ -1094,6 +1223,7 @@ interface WorkspaceRowInnerProps {
   archiveShortcutKeys?: ShortcutKey[][] | null;
   statusSummaryToggleActive?: boolean;
   onStatusSummaryPress?: (event: GestureResponderEvent) => void;
+  flashSignal?: SidebarStatusFlashSignal | null;
 }
 
 function getWorkspaceArchiveStatus(
@@ -2600,6 +2730,7 @@ function ProjectHeaderRow({
   statusSummary = null,
   showStatusSummary = false,
   leadingStatusKind = null,
+  flashSignal = null,
   highlightState = "idle",
   chevron,
   onPress,
@@ -2697,49 +2828,6 @@ function ProjectHeaderRow({
     statusSummary,
   });
 
-  const row = menuController ? (
-    <View
-      {...dragAttributes}
-      {...dragHandleProps?.listeners}
-      ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
-      onPointerEnter={handlePointerEnter}
-      onPointerLeave={handlePointerLeave}
-    >
-      <ContextMenuTrigger
-        enabledOnMobile={false}
-        accessibilityRole="button"
-        style={projectRowStyle}
-        onPressIn={interaction.handlePressIn}
-        onTouchMove={interaction.handleTouchMove}
-        onPressOut={interaction.handlePressOut}
-        onPress={handlePress}
-        testID={`sidebar-project-row-${project.projectKey}`}
-      >
-        {rowChildren}
-      </ContextMenuTrigger>
-    </View>
-  ) : (
-    <View
-      {...dragAttributes}
-      {...dragHandleProps?.listeners}
-      ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
-      onPointerEnter={handlePointerEnter}
-      onPointerLeave={handlePointerLeave}
-    >
-      <Pressable
-        accessibilityRole="button"
-        style={projectRowStyle}
-        onPressIn={interaction.handlePressIn}
-        onTouchMove={interaction.handleTouchMove}
-        onPressOut={interaction.handlePressOut}
-        onPress={handlePress}
-        testID={`sidebar-project-row-${project.projectKey}`}
-      >
-        {rowChildren}
-      </Pressable>
-    </View>
-  );
-
   return (
     <InfoHoverCard
       content={hoverCardContent}
@@ -2747,8 +2835,79 @@ function ProjectHeaderRow({
       testID={`sidebar-project-hover-card-${project.projectKey}`}
       isDragging={isDragging}
     >
-      {row}
+      <View
+        {...dragAttributes}
+        {...dragHandleProps?.listeners}
+        ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
+        style={styles.sidebarStatusFlashHost}
+        onPointerEnter={handlePointerEnter}
+        onPointerLeave={handlePointerLeave}
+      >
+        <SidebarStatusFlash signal={flashSignal} />
+        <ProjectHeaderPressTarget
+          menuController={menuController}
+          projectKey={project.projectKey}
+          style={projectRowStyle}
+          onPressIn={interaction.handlePressIn}
+          onTouchMove={interaction.handleTouchMove}
+          onPressOut={interaction.handlePressOut}
+          onPress={handlePress}
+        >
+          {rowChildren}
+        </ProjectHeaderPressTarget>
+      </View>
     </InfoHoverCard>
+  );
+}
+
+function ProjectHeaderPressTarget({
+  menuController,
+  projectKey,
+  style,
+  onPressIn,
+  onTouchMove,
+  onPressOut,
+  onPress,
+  children,
+}: {
+  menuController: ProjectHeaderRowProps["menuController"];
+  projectKey: string;
+  style: ComponentProps<typeof Pressable>["style"];
+  onPressIn: ComponentProps<typeof Pressable>["onPressIn"];
+  onTouchMove: ComponentProps<typeof Pressable>["onTouchMove"];
+  onPressOut: ComponentProps<typeof Pressable>["onPressOut"];
+  onPress: ComponentProps<typeof Pressable>["onPress"];
+  children: ReactNode;
+}) {
+  if (menuController) {
+    return (
+      <ContextMenuTrigger
+        enabledOnMobile={false}
+        accessibilityRole="button"
+        style={style}
+        onPressIn={onPressIn}
+        onTouchMove={onTouchMove}
+        onPressOut={onPressOut}
+        onPress={onPress}
+        testID={`sidebar-project-row-${projectKey}`}
+      >
+        {children}
+      </ContextMenuTrigger>
+    );
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      style={style}
+      onPressIn={onPressIn}
+      onTouchMove={onTouchMove}
+      onPressOut={onPressOut}
+      onPress={onPress}
+      testID={`sidebar-project-row-${projectKey}`}
+    >
+      {children}
+    </Pressable>
   );
 }
 
@@ -2891,6 +3050,7 @@ function WorkspaceRowInner({
   archiveShortcutKeys,
   statusSummaryToggleActive = false,
   onStatusSummaryPress,
+  flashSignal = null,
 }: WorkspaceRowInnerProps) {
   const embeddedTabsEnabled = expandable;
   const isCompact = useIsCompactFormFactor();
@@ -2928,6 +3088,10 @@ function WorkspaceRowInner({
   const accessibilityState = useMemo(
     () => ({ selected: accessibilitySelected }),
     [accessibilitySelected],
+  );
+  const workspaceFlashHostStyle = useMemo(
+    () => [styles.workspaceRowContainer, styles.sidebarStatusFlashHost],
+    [],
   );
 
   return (
@@ -2988,9 +3152,10 @@ function WorkspaceRowInner({
             {...dragAttributes}
             {...dragHandleProps?.listeners}
             ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
-            style={styles.workspaceRowContainer}
+            style={workspaceFlashHostStyle}
             {...hoverHandlers}
           >
+            <SidebarStatusFlash signal={flashSignal} />
             <ContextMenuTrigger
               disabled={isArchiving}
               aria-selected={accessibilitySelected}
@@ -3076,6 +3241,7 @@ function WorkspaceRowWithMenu({
   isCreating = false,
   statusSummaryToggleActive = false,
   onStatusSummaryPress,
+  flashSignal = null,
 }: {
   workspace: SidebarWorkspaceEntry;
   badgeMode: SidebarBadgeMode;
@@ -3094,6 +3260,7 @@ function WorkspaceRowWithMenu({
   isCreating?: boolean;
   statusSummaryToggleActive?: boolean;
   onStatusSummaryPress?: (event: GestureResponderEvent) => void;
+  flashSignal?: SidebarStatusFlashSignal | null;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -3408,6 +3575,7 @@ function WorkspaceRowWithMenu({
         archiveShortcutKeys={contextArchiveShortcutKeys}
         statusSummaryToggleActive={statusSummaryToggleActive}
         onStatusSummaryPress={selected ? onStatusSummaryPress : undefined}
+        flashSignal={flashSignal}
       />
       {embeddedTabsEnabled ? (
         <EmbeddedWorkspaceTabs
@@ -3693,6 +3861,7 @@ function EmbeddedWorkspaceTabRow({
   menuEntries,
   onToggleParentExpanded,
   projectLine,
+  flashSignal = null,
 }: {
   row: SidebarEmbeddedTabTreeRow<EmbeddedSidebarTabItem>;
   serverId: string;
@@ -3707,6 +3876,7 @@ function EmbeddedWorkspaceTabRow({
   menuEntries: WorkspaceTabMenuEntry[];
   onToggleParentExpanded: (parentTabKey: string) => void;
   projectLine?: EmbeddedTabProjectLine | null;
+  flashSignal?: SidebarStatusFlashSignal | null;
 }) {
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
@@ -3792,6 +3962,10 @@ function EmbeddedWorkspaceTabRow({
     () => [styles.embeddedTabWrapper, projectLine && styles.embeddedTabWrapperWithProjectLine],
     [projectLine],
   );
+  const flashWrapperStyle = useMemo(
+    () => [wrapperStyle, styles.sidebarStatusFlashHost],
+    [wrapperStyle],
+  );
   const accessibilityState = useMemo(() => ({ selected: active }), [active]);
 
   return (
@@ -3838,12 +4012,13 @@ function EmbeddedWorkspaceTabRow({
               <View
                 {...(manualSort ? (dragHandleProps?.attributes as object | undefined) : undefined)}
                 {...(manualSort ? (dragListeners as object | undefined) : undefined)}
-                style={wrapperStyle}
+                style={flashWrapperStyle}
                 onPointerDown={manualSort ? handleDragPointerDown : undefined}
                 onPointerEnter={handlePointerEnter}
                 onPointerLeave={handlePointerLeave}
                 ref={handleWrapperRef}
               >
+                <SidebarStatusFlash signal={flashSignal} />
                 <ContextMenuTrigger
                   accessibilityRole="button"
                   accessibilityLabel={label}
@@ -4318,6 +4493,31 @@ function EmbeddedWorkspaceTabs({
     showAllTabs,
     limitRecentTabs,
   });
+  const tabStatusFlashCandidates = useMemo(
+    () =>
+      buildEmbeddedTabStatusFlashCandidates({
+        workspaceKey: workspace.workspaceKey,
+        items: allItems,
+        visibleRows,
+        statusSummariesByTabId,
+        parentTabIdByTabId: workspaceLayout?.parentTabIdByTabId ?? null,
+      }),
+    [
+      allItems,
+      statusSummariesByTabId,
+      visibleRows,
+      workspace.workspaceKey,
+      workspaceLayout?.parentTabIdByTabId,
+    ],
+  );
+  const tabStatusFlashSignals = useSidebarStatusFlashSignals(tabStatusFlashCandidates);
+  const getTabStatusFlashSignal = useCallback(
+    (tabId: string) =>
+      tabStatusFlashSignals.get(
+        buildStatusFlashRecipientId("tab", `${workspace.workspaceKey}:${tabId}`),
+      ) ?? null,
+    [tabStatusFlashSignals, workspace.workspaceKey],
+  );
   const embeddedTabsContainerStyle = useMemo(
     () => [
       styles.embeddedTabsContainer,
@@ -4663,12 +4863,12 @@ function EmbeddedWorkspaceTabs({
         serverId={workspace.serverId}
         workspaceId={workspace.workspaceId}
         badgeMode={badgeMode}
-        active={
-          isActiveWorkspace &&
-          (row.item.mainPane
-            ? row.item.tab.tabId === paneState.activeTabId
-            : workspaceLayout?.focusedPaneId === row.item.paneId)
-        }
+        active={isEmbeddedWorkspaceTabRowActive({
+          isActiveWorkspace,
+          row,
+          activeTabId: paneState.activeTabId,
+          focusedPaneId: workspaceLayout?.focusedPaneId,
+        })}
         manualSort={manualSortEnabled && row.item.mainPane && row.depth === 0}
         isDragging={isActive}
         drag={drag}
@@ -4677,6 +4877,7 @@ function EmbeddedWorkspaceTabs({
         menuEntries={buildMenuEntries(row.item)}
         onToggleParentExpanded={toggleParentTabExpanded}
         projectLine={projectLine}
+        flashSignal={getTabStatusFlashSignal(row.item.tab.tabId)}
       />
     ),
     [
@@ -4687,6 +4888,7 @@ function EmbeddedWorkspaceTabs({
       manualSortEnabled,
       paneState.activeTabId,
       projectLine,
+      getTabStatusFlashSignal,
       toggleParentTabExpanded,
       workspace.serverId,
       workspace.workspaceId,
@@ -4724,12 +4926,12 @@ function EmbeddedWorkspaceTabs({
               serverId={workspace.serverId}
               workspaceId={workspace.workspaceId}
               badgeMode={badgeMode}
-              active={
-                isActiveWorkspace &&
-                (row.item.mainPane
-                  ? row.item.tab.tabId === paneState.activeTabId
-                  : workspaceLayout?.focusedPaneId === row.item.paneId)
-              }
+              active={isEmbeddedWorkspaceTabRowActive({
+                isActiveWorkspace,
+                row,
+                activeTabId: paneState.activeTabId,
+                focusedPaneId: workspaceLayout?.focusedPaneId,
+              })}
               manualSort={false}
               isDragging={false}
               drag={noop}
@@ -4737,6 +4939,7 @@ function EmbeddedWorkspaceTabs({
               menuEntries={buildMenuEntries(row.item)}
               onToggleParentExpanded={toggleParentTabExpanded}
               projectLine={projectLine}
+              flashSignal={getTabStatusFlashSignal(row.item.tab.tabId)}
             />
           ))}
           {shouldShowVisibilityToggle ? (
@@ -4748,25 +4951,48 @@ function EmbeddedWorkspaceTabs({
           ) : null}
         </View>
       )}
-      <AdaptiveRenameModal
-        visible={renamingTab !== null}
-        title={
-          renamingTab?.kind === "terminal"
-            ? t("workspace.tabs.menu.renameTerminal")
-            : t("workspace.tabs.menu.renameAgent")
-        }
-        initialValue={renamingTab?.currentTitle ?? ""}
-        submitLabel={t("workspace.tabs.menu.rename")}
-        maxLength={200}
+      <EmbeddedTabRenameModal
+        renamingTab={renamingTab}
         onClose={handleRenameModalClose}
         onSubmit={handleRenameModalSubmit}
-        testID={
-          renamingTab
-            ? `sidebar-embedded-tab-rename-modal-${renamingTab.kind}-${renamingTab.id}`
-            : undefined
-        }
       />
     </>
+  );
+}
+
+function EmbeddedTabRenameModal({
+  renamingTab,
+  onClose,
+  onSubmit,
+}: {
+  renamingTab: {
+    kind: "terminal" | "agent";
+    id: string;
+    currentTitle: string;
+  } | null;
+  onClose: () => void;
+  onSubmit: (nextTitle: string) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const title =
+    renamingTab?.kind === "terminal"
+      ? t("workspace.tabs.menu.renameTerminal")
+      : t("workspace.tabs.menu.renameAgent");
+  const testID = renamingTab
+    ? `sidebar-embedded-tab-rename-modal-${renamingTab.kind}-${renamingTab.id}`
+    : undefined;
+
+  return (
+    <AdaptiveRenameModal
+      visible={renamingTab !== null}
+      title={title}
+      initialValue={renamingTab?.currentTitle ?? ""}
+      submitLabel={t("workspace.tabs.menu.rename")}
+      maxLength={200}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      testID={testID}
+    />
   );
 }
 
@@ -5136,6 +5362,7 @@ interface WorkspaceRowItemProps {
   workspaceKeysForAutoCollapse: readonly string[];
   statusSummaryToggleActive?: boolean;
   onStatusSummaryPress?: (event: GestureResponderEvent) => void;
+  flashSignal?: SidebarStatusFlashSignal | null;
 }
 
 function WorkspaceRowItem({
@@ -5157,6 +5384,7 @@ function WorkspaceRowItem({
   workspaceKeysForAutoCollapse,
   statusSummaryToggleActive,
   onStatusSummaryPress,
+  flashSignal,
 }: WorkspaceRowItemProps) {
   const handlePress = useCallback(() => {
     if (!serverId) {
@@ -5190,6 +5418,7 @@ function WorkspaceRowItem({
       workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
       statusSummaryToggleActive={statusSummaryToggleActive}
       onStatusSummaryPress={onStatusSummaryPress}
+      flashSignal={flashSignal}
     />
   );
 }
@@ -5227,6 +5456,7 @@ function areWorkspaceRowItemPropsEqual(
     previous.workspaceKeysForAutoCollapse === next.workspaceKeysForAutoCollapse &&
     previous.statusSummaryToggleActive === next.statusSummaryToggleActive &&
     previous.onStatusSummaryPress === next.onStatusSummaryPress &&
+    previous.flashSignal === next.flashSignal &&
     previousSelected === nextSelected
   );
 }
@@ -5251,6 +5481,7 @@ function WorkspaceRow({
   workspaceKeysForAutoCollapse,
   statusSummaryToggleActive = false,
   onStatusSummaryPress,
+  flashSignal = null,
 }: {
   workspace: SidebarWorkspaceEntry;
   badgeMode: SidebarBadgeMode;
@@ -5269,6 +5500,7 @@ function WorkspaceRow({
   workspaceKeysForAutoCollapse: readonly string[];
   statusSummaryToggleActive?: boolean;
   onStatusSummaryPress?: (event: GestureResponderEvent) => void;
+  flashSignal?: SidebarStatusFlashSignal | null;
 }) {
   const hydratedWorkspace = useSidebarWorkspaceEntry(workspace.serverId, workspace.workspaceId);
 
@@ -5295,6 +5527,7 @@ function WorkspaceRow({
       isCreating={isCreating}
       statusSummaryToggleActive={statusSummaryToggleActive}
       onStatusSummaryPress={onStatusSummaryPress}
+      flashSignal={flashSignal}
     />
   );
 }
@@ -5409,10 +5642,42 @@ function ProjectBlock({
   });
   const tabStatusSummaries = useSidebarTabStatusSummaries({
     workspaces: project.workspaces,
-    enabled: collapsed || badgeMode === "status",
+    enabled: true,
   });
   const shouldShowProjectStatusSummary =
     badgeMode === "status" && (collapsed || showExpandedProjectStatusSummary);
+  const collapsedWorkspaceKeys = useSidebarCollapsedSectionsStore(
+    (state) => state.collapsedWorkspaceKeys,
+  );
+  const projectStatusFlashCandidates = useMemo(() => {
+    const candidates: SidebarStatusFlashCandidate[] = [];
+    for (const workspace of project.workspaces) {
+      const summary = tabStatusSummaries.get(workspace.workspaceKey) ?? EMPTY_TAB_STATUS_SUMMARY;
+      const recipientIds: string[] = [];
+      if (collapsed) {
+        recipientIds.push(buildStatusFlashRecipientId("project", project.projectKey));
+      } else if (collapsedWorkspaceKeys.has(workspace.workspaceKey)) {
+        recipientIds.push(buildStatusFlashRecipientId("workspace", workspace.workspaceKey));
+      }
+      candidates.push(
+        ...buildAggregateStatusFlashCandidates({
+          summary,
+          sourcePrefix: `workspace-aggregate:${workspace.workspaceKey}`,
+          recipientIds,
+        }),
+      );
+    }
+    return candidates;
+  }, [
+    collapsed,
+    collapsedWorkspaceKeys,
+    project.projectKey,
+    project.workspaces,
+    tabStatusSummaries,
+  ]);
+  const statusFlashSignals = useSidebarStatusFlashSignals(projectStatusFlashCandidates);
+  const projectFlashSignal =
+    statusFlashSignals.get(buildStatusFlashRecipientId("project", project.projectKey)) ?? null;
   const projectStatusSummary = useMemo(() => {
     if (!shouldShowProjectStatusSummary) {
       return null;
@@ -5474,6 +5739,10 @@ function ProjectBlock({
           onStatusSummaryPress={
             selectedWorkspaceKey === item.workspaceKey ? onEnterStatusMode : undefined
           }
+          flashSignal={
+            statusFlashSignals.get(buildStatusFlashRecipientId("workspace", item.workspaceKey)) ??
+            null
+          }
         />
       );
     },
@@ -5493,6 +5762,7 @@ function ProjectBlock({
       tabStatusSummaries,
       workspaceKeysForAutoCollapse,
       groupMode,
+      statusFlashSignals,
     ],
   );
 
@@ -5677,6 +5947,7 @@ function ProjectBlock({
           statusSummary={projectStatusSummary}
           showStatusSummary={hasVisibleProjectStatusSummary}
           leadingStatusKind={projectLeadingStatusKind}
+          flashSignal={projectFlashSignal}
           highlightState={getProjectAncestorHighlighted(active)}
           chevron={rowModel.chevron}
           onPress={handleToggleCollapsed}
@@ -7451,6 +7722,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   projectBlock: {
     marginBottom: theme.spacing[1],
+  },
+  sidebarStatusFlashHost: {
+    position: "relative",
+    overflow: "visible",
   },
   statusGroupBlock: {
     marginBottom: theme.spacing[1],
