@@ -8,6 +8,7 @@ export interface WorkspaceAgentVisibility {
   autoOpenAgentIds: Set<string>;
   knownAgentIds: Set<string>;
   parentAgentIdByAgentId: Map<string, string>;
+  branchGroupIdsByAgentId: Map<string, readonly string[]>;
 }
 
 function trimComparable(value: string | null | undefined): string | null {
@@ -105,6 +106,7 @@ function createEmptyWorkspaceAgentVisibility(): WorkspaceAgentVisibility {
     autoOpenAgentIds: new Set<string>(),
     knownAgentIds: new Set<string>(),
     parentAgentIdByAgentId: new Map<string, string>(),
+    branchGroupIdsByAgentId: new Map<string, readonly string[]>(),
   };
 }
 
@@ -148,6 +150,12 @@ function recordVisibleSessionAgent(input: {
   }
 
   visibility.activeAgentIds.add(agent.id);
+  const branchGroupIds = [
+    ...new Set((agent.branching?.memberships ?? []).map((membership) => membership.groupId)),
+  ].sort();
+  if (branchGroupIds.length > 0) {
+    visibility.branchGroupIdsByAgentId.set(agent.id, branchGroupIds);
+  }
   const parentAgent = agent.parentAgentId ? input.sessionAgents?.get(agent.parentAgentId) : null;
   const hasSameWorkspaceParent = parentAgent
     ? agentBelongsToWorkspace({
@@ -238,6 +246,7 @@ export function buildWorkspaceTabSnapshot(input: {
     autoOpenAgentIds: input.agentVisibility.autoOpenAgentIds,
     knownAgentIds: input.agentVisibility.knownAgentIds,
     parentAgentIdByAgentId: input.agentVisibility.parentAgentIdByAgentId,
+    branchGroupIdsByAgentId: input.agentVisibility.branchGroupIdsByAgentId,
     knownTerminalIds: input.knownTerminalIds,
     standaloneTerminalIds: input.standaloneTerminalIds,
     hasActivePendingDraftCreate: input.hasActivePendingDraftCreate,
@@ -252,8 +261,30 @@ export function workspaceAgentVisibilityEqual(
     setsEqual(a.activeAgentIds, b.activeAgentIds) &&
     setsEqual(a.autoOpenAgentIds, b.autoOpenAgentIds) &&
     setsEqual(a.knownAgentIds, b.knownAgentIds) &&
-    mapsEqual(a.parentAgentIdByAgentId, b.parentAgentIdByAgentId)
+    mapsEqual(a.parentAgentIdByAgentId, b.parentAgentIdByAgentId) &&
+    stringArrayMapsEqual(a.branchGroupIdsByAgentId, b.branchGroupIdsByAgentId)
   );
+}
+
+function stringArrayMapsEqual(
+  a: Map<string, readonly string[]>,
+  b: Map<string, readonly string[]>,
+): boolean {
+  if (a.size !== b.size) {
+    return false;
+  }
+  for (const [key, valuesA] of a) {
+    const valuesB = b.get(key);
+    if (!valuesB || valuesA.length !== valuesB.length) {
+      return false;
+    }
+    for (let index = 0; index < valuesA.length; index += 1) {
+      if (valuesA[index] !== valuesB[index]) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 function setsEqual(a: Set<string>, b: Set<string>): boolean {

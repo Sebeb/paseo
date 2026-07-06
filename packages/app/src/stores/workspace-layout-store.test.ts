@@ -1807,6 +1807,54 @@ describe("workspace-layout-store actions", () => {
     expect(workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey]).toBe(reconciledLayout);
   });
 
+  it("reconcileTabs keeps agent tab parent links for agents sharing a branch group", () => {
+    const workspaceKey = createWorkspaceKey();
+
+    const openSource = workspaceLayoutStore
+      .getState()
+      .openTabFocused(workspaceKey, { kind: "agent", agentId: "source-agent" });
+    const openBranch = workspaceLayoutStore
+      .getState()
+      .openTabFocused(workspaceKey, { kind: "agent", agentId: "branch-agent" });
+    if (!openSource || !openBranch) {
+      throw new Error("Expected tabs to open");
+    }
+    workspaceLayoutStore.getState().attachChildTab(workspaceKey, openSource, openBranch);
+
+    const baseSnapshot = {
+      agentsHydrated: true,
+      terminalsHydrated: true,
+      activeAgentIds: ["source-agent", "branch-agent"],
+      autoOpenAgentIds: [],
+      knownAgentIds: ["source-agent", "branch-agent"],
+      parentAgentIdByAgentId: new Map<string, string>(),
+      standaloneTerminalIds: [],
+      hasActivePendingDraftCreate: false,
+    };
+
+    workspaceLayoutStore.getState().reconcileTabs(workspaceKey, {
+      ...baseSnapshot,
+      branchGroupIdsByAgentId: new Map<string, readonly string[]>([
+        ["source-agent", ["branch-group-1"]],
+        ["branch-agent", ["branch-group-1"]],
+      ]),
+    });
+
+    expect(
+      workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey]?.parentTabIdByTabId,
+    ).toEqual({
+      [openSource]: openBranch,
+    });
+
+    // Without a shared branch group (and no daemon parent relationship) the
+    // link is pruned as stale.
+    workspaceLayoutStore.getState().reconcileTabs(workspaceKey, baseSnapshot);
+
+    expect(
+      workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey]?.parentTabIdByTabId,
+    ).toBeUndefined();
+  });
+
   it("reconcileTabs does not re-add locally hidden agent tabs", () => {
     const workspaceKey = createWorkspaceKey();
 

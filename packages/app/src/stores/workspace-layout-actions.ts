@@ -228,6 +228,12 @@ export interface WorkspaceTabSnapshot {
   autoOpenAgentIds: Iterable<string>;
   knownAgentIds: Iterable<string>;
   parentAgentIdByAgentId?: ReadonlyMap<string, string> | Iterable<readonly [string, string]>;
+  /**
+   * Branch-group ids per agent (conversation branching). An agent->agent tab
+   * parent link is kept when the two agents share a branch group, even though
+   * the daemon has no parentAgentId relationship between them.
+   */
+  branchGroupIdsByAgentId?: ReadonlyMap<string, readonly string[]>;
   knownTerminalIds?: Iterable<string>;
   standaloneTerminalIds: Iterable<string>;
   hasActivePendingDraftCreate?: boolean;
@@ -1799,9 +1805,24 @@ function attachParentTabInLayout(input: {
   });
 }
 
+function agentsShareBranchGroup(input: {
+  branchGroupIdsByAgentId: ReadonlyMap<string, readonly string[]>;
+  agentIdA: string;
+  agentIdB: string;
+}): boolean {
+  const groupsA = input.branchGroupIdsByAgentId.get(input.agentIdA);
+  const groupsB = input.branchGroupIdsByAgentId.get(input.agentIdB);
+  if (!groupsA?.length || !groupsB?.length) {
+    return false;
+  }
+  const groupSetB = new Set(groupsB);
+  return groupsA.some((groupId) => groupSetB.has(groupId));
+}
+
 function pruneStaleAgentParentTabMappings(input: {
   layout: WorkspaceLayout;
   parentAgentIdByAgentId: ReadonlyMap<string, string>;
+  branchGroupIdsByAgentId: ReadonlyMap<string, readonly string[]>;
 }): WorkspaceLayout {
   if (!input.layout.parentTabIdByTabId) {
     return input.layout;
@@ -1817,7 +1838,12 @@ function pruneStaleAgentParentTabMappings(input: {
     if (
       childTab?.target.kind === "agent" &&
       parentTab?.target.kind === "agent" &&
-      input.parentAgentIdByAgentId.get(childTab.target.agentId) !== parentTab.target.agentId
+      input.parentAgentIdByAgentId.get(childTab.target.agentId) !== parentTab.target.agentId &&
+      !agentsShareBranchGroup({
+        branchGroupIdsByAgentId: input.branchGroupIdsByAgentId,
+        agentIdA: childTab.target.agentId,
+        agentIdB: parentTab.target.agentId,
+      })
     ) {
       changed = true;
       continue;
@@ -2071,6 +2097,7 @@ export function reconcileWorkspaceTabs(
   nextLayout = pruneStaleAgentParentTabMappings({
     layout: nextLayout,
     parentAgentIdByAgentId,
+    branchGroupIdsByAgentId: snapshot.branchGroupIdsByAgentId ?? new Map<string, string[]>(),
   });
 
   nextLayout = collapseStaleEntityTabs({
