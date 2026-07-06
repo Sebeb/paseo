@@ -352,6 +352,8 @@ export const fr: TranslationResources = {
       scriptsAccessibility: "ScriptsWorkspace",
       copyPath: "Copier le chemin",
       copyBranchName: "Copier le nom de la branche",
+      created: "Créé {{value}}",
+      updated: "Mis à jour {{value}}",
       copied: "Copié",
     },
     fileExplorer: {
@@ -470,6 +472,11 @@ export const fr: TranslationResources = {
         title: "Changer d'onglet",
         searchPlaceholder: "Onglets de recherche",
       },
+      info: {
+        created: "Créé {{value}}",
+        updated: "Mis à jour {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "Ouvrir le menu pour{{label}}",
         copyResumeCommand: "Copier la commande de reprise",
@@ -478,6 +485,8 @@ export const fr: TranslationResources = {
         rename: "Rebaptiser",
         closeAbove: "Fermer les onglets ci-dessus",
         closeBelow: "Fermer les onglets ci-dessous",
+        closeVerticalAbove: "Fermer ci-dessus",
+        closeVerticalBelow: "Fermer ci-dessous",
         closeLeft: "Près de la gauche",
         closeRight: "Près de la droite",
         closeOthers: "Fermer les autres onglets",
@@ -845,6 +854,16 @@ export const fr: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "Réduire l’espace de travail",
+        expand: "Développer l’espace de travail",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "Tout afficher {{count}}",
+        showAllLabel: "Afficher tous les onglets",
+        showLess: "Afficher moins",
+        showLessLabel: "Afficher moins d’onglets",
+      },
       status: {
         scriptsAvailable: "Scripts disponibles",
         creating: "Création...",
@@ -1580,6 +1599,16 @@ export const fr: TranslationResources = {
           claude: "Claude",
           ghostty: "Fantôme",
           auto: "Système",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

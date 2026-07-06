@@ -1,18 +1,13 @@
 import { useMemo } from "react";
-import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import { useSessionStore, type SessionState } from "@/stores/session-store";
 import {
-  buildSidebarStatusWorkspacePlacements,
-  type SidebarStatusWorkspacePlacement,
-  type SidebarWorkspacePlacement,
+  createSidebarWorkspaceEntry,
+  type SidebarProjectEntry,
+  type SidebarWorkspaceEntry,
 } from "./use-sidebar-workspaces-list";
 
-const EMPTY_WORKSPACES: SidebarStatusWorkspacePlacement[] = [];
-const EMPTY_STATUS_SESSIONS: StatusModeSession[] = [];
-const EMPTY_PENDING_CREATE_ATTEMPTS: ReturnType<
-  typeof useCreateFlowStore.getState
->["pendingByDraftId"] = {};
+const EMPTY_WORKSPACES: SidebarWorkspaceEntry[] = [];
 
 interface StatusModeSessionSource {
   workspaces: SessionState["workspaces"];
@@ -67,34 +62,55 @@ export function areStatusModeSessionsEqual(
   return true;
 }
 
-export function useStatusModeWorkspacePlacements(input: {
-  placements: SidebarWorkspacePlacement[];
-  enabled?: boolean;
-}): SidebarStatusWorkspacePlacement[] {
-  const isEnabled = input.enabled !== false && input.placements.length > 0;
-  const serverIds = useMemo(
-    () => Array.from(new Set(input.placements.map((placement) => placement.serverId))),
-    [input.placements],
+export function useStatusModeWorkspaceEntries(input: {
+  serverId: string | null;
+  projects: SidebarProjectEntry[];
+}): SidebarWorkspaceEntry[] {
+  const workspaces = useSessionStore((state) =>
+    input.serverId ? state.sessions[input.serverId]?.workspaces : undefined,
   );
-  const statusSessions = useStoreWithEqualityFn(
-    useSessionStore,
-    (state) =>
-      isEnabled ? selectStatusModeSessions(state.sessions, serverIds) : EMPTY_STATUS_SESSIONS,
-    areStatusModeSessionsEqual,
+  const agents = useSessionStore((state) =>
+    input.serverId ? state.sessions[input.serverId]?.agents : undefined,
   );
-  const pendingCreateAttempts = useCreateFlowStore((state) =>
-    isEnabled ? state.pendingByDraftId : EMPTY_PENDING_CREATE_ATTEMPTS,
-  );
+  const pendingCreateAttempts = useCreateFlowStore((state) => state.pendingByDraftId);
 
   return useMemo(() => {
-    if (!isEnabled) {
+    if (!input.serverId || input.projects.length === 0 || !workspaces) {
       return EMPTY_WORKSPACES;
     }
 
-    return buildSidebarStatusWorkspacePlacements({
-      placements: input.placements,
-      sessions: statusSessions,
-      pendingCreateAttempts,
-    });
-  }, [input.placements, isEnabled, pendingCreateAttempts, statusSessions]);
+    const entries: SidebarWorkspaceEntry[] = [];
+    for (const placedWorkspace of input.projects.flatMap((project) => project.workspaces)) {
+      const workspace = workspaces.get(placedWorkspace.workspaceId);
+      entries.push(
+        workspace
+          ? createSidebarWorkspaceEntry({
+              serverId: input.serverId,
+              workspace,
+              pendingCreateAttempts,
+              agents,
+            })
+          : placedWorkspace,
+      );
+    }
+    return entries;
+  }, [agents, input.projects, input.serverId, pendingCreateAttempts, workspaces]);
+}
+
+export function useProjectNamesMap(serverId: string | null): Map<string, string> {
+  const workspaces = useSessionStore((state) =>
+    serverId ? state.sessions[serverId]?.workspaces : undefined,
+  );
+
+  return useMemo(() => {
+    const map = new Map<string, string>();
+    if (!serverId || !workspaces) return map;
+    for (const workspace of workspaces.values()) {
+      const key = workspace.project?.projectKey ?? workspace.projectId;
+      if (!map.has(key)) {
+        map.set(key, workspace.projectCustomName ?? workspace.projectDisplayName);
+      }
+    }
+    return map;
+  }, [serverId, workspaces]);
 }

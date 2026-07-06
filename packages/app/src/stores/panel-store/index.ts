@@ -14,15 +14,19 @@ import {
   clampExplorerFilesSplitRatio,
   clampExplorerWidth,
   clampSidebarWidth,
+  clampVerticalTabsSidebarWidth,
   DEFAULT_EXPLORER_FILES_SPLIT_RATIO,
   DEFAULT_EXPLORER_SIDEBAR_WIDTH,
   DEFAULT_SIDEBAR_WIDTH,
+  DEFAULT_VERTICAL_TABS_SIDEBAR_WIDTH,
   MAX_EXPLORER_FILES_SPLIT_RATIO,
   MAX_EXPLORER_SIDEBAR_WIDTH,
   MAX_SIDEBAR_WIDTH,
+  MAX_VERTICAL_TABS_SIDEBAR_WIDTH,
   MIN_EXPLORER_FILES_SPLIT_RATIO,
   MIN_EXPLORER_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
+  MIN_VERTICAL_TABS_SIDEBAR_WIDTH,
   migratePanelState,
   selectIsAgentListOpen,
   selectIsFileExplorerOpen,
@@ -49,12 +53,15 @@ export {
   DEFAULT_EXPLORER_FILES_SPLIT_RATIO,
   DEFAULT_EXPLORER_SIDEBAR_WIDTH,
   DEFAULT_SIDEBAR_WIDTH,
+  DEFAULT_VERTICAL_TABS_SIDEBAR_WIDTH,
   MAX_EXPLORER_FILES_SPLIT_RATIO,
   MAX_EXPLORER_SIDEBAR_WIDTH,
   MAX_SIDEBAR_WIDTH,
+  MAX_VERTICAL_TABS_SIDEBAR_WIDTH,
   MIN_EXPLORER_FILES_SPLIT_RATIO,
   MIN_EXPLORER_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
+  MIN_VERTICAL_TABS_SIDEBAR_WIDTH,
   selectIsAgentListOpen,
   selectIsFileExplorerOpen,
   selectPanelVisibility,
@@ -73,6 +80,7 @@ export interface PanelState {
   expandedPathsByWorkspace: Record<string, string[]>;
   diffExpandedPathsByWorkspace: Record<string, string[]>;
   sidebarWidth: number;
+  verticalTabsSidebarWidth: number;
   explorerWidth: number;
   explorerSortOption: SortOption;
   explorerShowHiddenFiles: boolean;
@@ -100,6 +108,7 @@ export interface PanelState {
   setDiffExpandedPathsForWorkspace: (workspaceKey: string, paths: string[]) => void;
   activateExplorerTabForCheckout: (checkout: ExplorerCheckoutContext) => void;
   setSidebarWidth: (width: number) => void;
+  setVerticalTabsSidebarWidth: (width: number) => void;
   setExplorerWidth: (width: number) => void;
   setExplorerSortOption: (option: SortOption) => void;
   toggleExplorerShowHiddenFiles: () => void;
@@ -127,6 +136,7 @@ export const usePanelStore = create<PanelState>()(
       expandedPathsByWorkspace: {},
       diffExpandedPathsByWorkspace: {},
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+      verticalTabsSidebarWidth: DEFAULT_VERTICAL_TABS_SIDEBAR_WIDTH,
       explorerWidth: DEFAULT_EXPLORER_SIDEBAR_WIDTH,
       explorerSortOption: "name",
       explorerShowHiddenFiles: true,
@@ -263,6 +273,8 @@ export const usePanelStore = create<PanelState>()(
           }),
         })),
       setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
+      setVerticalTabsSidebarWidth: (width) =>
+        set({ verticalTabsSidebarWidth: clampVerticalTabsSidebarWidth(width) }),
       setExplorerWidth: (width) => set({ explorerWidth: clampExplorerWidth(width) }),
       setExplorerSortOption: (option) => set({ explorerSortOption: option }),
       toggleExplorerShowHiddenFiles: () =>
@@ -276,7 +288,7 @@ export const usePanelStore = create<PanelState>()(
     }),
     {
       name: "panel-state",
-      version: 11,
+      version: 12,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) =>
         migratePanelState(persistedState, version, { isWeb }) as unknown as PanelState,
@@ -288,6 +300,7 @@ export const usePanelStore = create<PanelState>()(
         expandedPathsByWorkspace: state.expandedPathsByWorkspace,
         diffExpandedPathsByWorkspace: state.diffExpandedPathsByWorkspace,
         sidebarWidth: state.sidebarWidth,
+        verticalTabsSidebarWidth: state.verticalTabsSidebarWidth,
         explorerWidth: state.explorerWidth,
         explorerSortOption: state.explorerSortOption,
         explorerShowHiddenFiles: state.explorerShowHiddenFiles,

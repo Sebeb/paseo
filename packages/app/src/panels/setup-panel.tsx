@@ -1,16 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ChevronRight, CircleAlert, SquareTerminal } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
-import {
-  ActivityIndicator,
-  Pressable,
-  type PressableStateCallbackType,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, type PressableStateCallbackType, ScrollView, Text, View } from "react-native";
 import invariant from "tiny-invariant";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { usePaneContext } from "@/panels/pane-context";
 import type { PanelDescriptor, PanelRegistration } from "@/panels/panel-registry";
 import { buildWorkspaceTabPersistenceKey } from "@/stores/workspace-tabs-store";
@@ -66,7 +60,7 @@ type CommandStatus = "running" | "completed" | "failed";
 
 function CommandStatusIcon({ status }: { status: CommandStatus }) {
   if (status === "running") {
-    return <ThemedActivityIndicator size={14} uniProps={foregroundColorMapping} />;
+    return <LoadingSpinner size={14} />;
   }
   if (status === "completed") {
     return <ThemedCheckCircle2 size={14} uniProps={greenColorMapping} />;
@@ -244,7 +238,7 @@ function SetupPanel() {
 
       {isWaiting ? (
         <View style={styles.waitingContainer}>
-          <ThemedActivityIndicator size="large" uniProps={foregroundMutedColorMapping} />
+          <LoadingSpinner size="large" />
           <Text style={styles.waitingText}>{t("workspace.setup.waiting")}</Text>
         </View>
       ) : null}
@@ -446,14 +440,10 @@ function TopLevelSetupError({
   );
 }
 
-const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
 const ThemedCheckCircle2 = withUnistyles(CheckCircle2);
 const ThemedCircleAlert = withUnistyles(CircleAlert);
 const ThemedChevronRight = withUnistyles(ChevronRight);
 
-const foregroundColorMapping = (theme: Theme) => ({
-  color: theme.colors.foreground,
-});
 const foregroundMutedColorMapping = (theme: Theme) => ({
   color: theme.colors.foregroundMuted,
 });

@@ -3,13 +3,7 @@ import { AlertTriangle, Copy, FileText, Plus, RotateCw, Trash2 } from "lucide-re
 import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  ActivityIndicator,
-  Pressable,
-  type PressableStateCallbackType,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, type PressableStateCallbackType, ScrollView, Text, View } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import {
   AdaptiveModalSheet,
@@ -18,7 +12,6 @@ import {
 } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { ScrollableCodeSurface, SurfaceCard } from "@/components/ui/scrollable-code-surface";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
 import { useToast } from "@/contexts/toast-context";
@@ -32,10 +25,6 @@ import { formatTimeAgo } from "@/utils/time";
 import { compareMatchScores, scoreTextFields } from "@/utils/score-match";
 import type { AgentModelDefinition, AgentProvider } from "@getpaseo/protocol/agent-types";
 import type { ProviderProfileModel } from "@getpaseo/protocol/provider-config";
-import {
-  resolveProviderDiscoveredModels,
-  type ProviderDiscoveredModelsCache,
-} from "./provider-diagnostic-models";
 
 interface ProviderDiagnosticSheetProps {
   provider: string;
@@ -339,7 +328,7 @@ function DiagnosticSubSheet({
             }
           >
             {loading ? (
-              <LoadingSpinner size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />
+              <LoadingSpinner size={theme.iconSize.sm} />
             ) : (
               <RotateCw size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />
             )}
@@ -363,26 +352,26 @@ function DiagnosticSubSheet({
   let body: React.ReactNode;
   if (loading && !diagnostic) {
     body = (
-      <SurfaceCard key={visible ? "visible" : "hidden"}>
-        <View style={sheetStyles.codeBlockLoading}>
-          <ActivityIndicator size="small" color={theme.colors.foregroundMuted} />
-          <Text style={sheetStyles.mutedText}>{t("settings.providers.diagnostic.running")}</Text>
-        </View>
-      </SurfaceCard>
+      <View style={sheetStyles.codeBlockLoading}>
+        <LoadingSpinner size="small" />
+        <Text style={sheetStyles.mutedText}>{t("settings.providers.diagnostic.running")}</Text>
+      </View>
     );
   } else if (diagnostic) {
     body = (
-      <ScrollableCodeSurface key={visible ? "visible" : "hidden"} maxHeight={480}>
-        {diagnostic}
-      </ScrollableCodeSurface>
+      <ScrollView style={sheetStyles.codeScroll} contentContainerStyle={sheetStyles.codeContent}>
+        <ScrollView horizontal showsHorizontalScrollIndicator>
+          <Text style={sheetStyles.codeText} selectable dataSet={CODE_SURFACE_DATASET}>
+            {diagnostic}
+          </Text>
+        </ScrollView>
+      </ScrollView>
     );
   } else {
     body = (
-      <SurfaceCard key={visible ? "visible" : "hidden"}>
-        <View style={sheetStyles.codeBlockLoading}>
-          <Text style={sheetStyles.mutedText}>{t("settings.providers.diagnostic.none")}</Text>
-        </View>
-      </SurfaceCard>
+      <View style={sheetStyles.codeBlockLoading}>
+        <Text style={sheetStyles.mutedText}>{t("settings.providers.diagnostic.none")}</Text>
+      </View>
     );
   }
 
@@ -395,7 +384,7 @@ function DiagnosticSubSheet({
       scrollable={false}
       testID="provider-diagnostic-sheet"
     >
-      {body}
+      <View style={DIAGNOSTIC_CARD_STYLE}>{body}</View>
     </AdaptiveModalSheet>
   );
 }
@@ -502,7 +491,7 @@ function ProviderModalBody(props: ProviderModalBodyProps) {
   if (discoveredCount === 0 && additionalCount === 0 && providerSnapshotRefreshing) {
     return (
       <View style={sheetStyles.emptyState}>
-        <ActivityIndicator size="small" color={theme.colors.foregroundMuted} />
+        <LoadingSpinner size="small" />
         <Text style={sheetStyles.mutedText}>{t("settings.providers.models.loading")}</Text>
       </View>
     );
@@ -603,16 +592,14 @@ export function ProviderDiagnosticSheet({
       : null;
   const modelsRefreshing = isRefreshing || providerSnapshotRefreshing;
 
-  const stableDiscoveredRef = useRef<ProviderDiscoveredModelsCache | null>(null);
-  const currentModels = providerEntry?.models;
-  const { models: discoveredModels, cache: nextDiscoveredCache } = resolveProviderDiscoveredModels({
-    serverId,
-    provider,
-    currentModels,
-    providerSnapshotRefreshing,
-    previousCache: stableDiscoveredRef.current,
-  });
-  stableDiscoveredRef.current = nextDiscoveredCache;
+  const stableDiscoveredRef = useRef<AgentModelDefinition[]>([]);
+  if (providerEntry?.models && providerEntry.models.length > 0) {
+    stableDiscoveredRef.current = providerEntry.models;
+  }
+  const discoveredModels =
+    providerEntry?.models && providerEntry.models.length > 0
+      ? providerEntry.models
+      : stableDiscoveredRef.current;
 
   const [clockTick, setClockTick] = useState(0);
   useEffect(() => {
@@ -862,6 +849,22 @@ const sheetStyles = StyleSheet.create((theme) => ({
     justifyContent: "flex-end",
     gap: theme.spacing[2],
   },
+  diagnosticCard: {
+    overflow: "hidden",
+  },
+  codeScroll: {
+    maxHeight: 480,
+  },
+  codeContent: {
+    paddingVertical: theme.spacing[3],
+    paddingHorizontal: theme.spacing[4],
+  },
+  codeText: {
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.code,
+    color: theme.colors.foreground,
+    lineHeight: 18,
+  },
   codeBlockLoading: {
     paddingVertical: theme.spacing[4],
     paddingHorizontal: theme.spacing[4],
@@ -877,3 +880,4 @@ const COMPACT_FOOTER_META_STYLE = [sheetStyles.footerMeta, sheetStyles.compactFo
 const MAIN_SNAP_POINTS = ["65%", "92%"];
 const ADD_SNAP_POINTS = ["40%"];
 const DIAGNOSTIC_SNAP_POINTS = ["50%", "85%"];
+const DIAGNOSTIC_CARD_STYLE = [settingsStyles.card, sheetStyles.diagnosticCard];

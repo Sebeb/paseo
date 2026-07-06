@@ -1,5 +1,15 @@
-import type { SidebarProjectEntry } from "@/hooks/sidebar-workspaces-view-model";
 import type { ActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
+
+interface SingleProjectViewProject {
+  projectKey: string;
+  projectName: string;
+  workspaces: readonly SingleProjectViewWorkspace[];
+}
+
+interface SingleProjectViewWorkspace {
+  serverId: string;
+  workspaceId: string;
+}
 
 export interface SidebarProjectStatusCounts {
   attention: number;
@@ -7,11 +17,11 @@ export interface SidebarProjectStatusCounts {
   failed: number;
 }
 
-export function resolveSingleProjectViewProject(input: {
-  projects: readonly SidebarProjectEntry[];
+export function resolveSingleProjectViewProject<TProject extends SingleProjectViewProject>(input: {
+  projects: readonly TProject[];
   activeWorkspaceSelection: ActiveWorkspaceSelection | null;
   storedProjectKey: string | null;
-}): SidebarProjectEntry | null {
+}): TProject | null {
   const storedProject = input.storedProjectKey
     ? input.projects.find((project) => project.projectKey === input.storedProjectKey)
     : null;
@@ -31,10 +41,10 @@ export function resolveSingleProjectViewProject(input: {
   return input.projects[0] ?? null;
 }
 
-export function orderSingleProjectViewProjects(input: {
-  projects: readonly SidebarProjectEntry[];
+export function orderSingleProjectViewProjects<TProject extends SingleProjectViewProject>(input: {
+  projects: readonly TProject[];
   selectedProjectKey: string | null;
-}): SidebarProjectEntry[] {
+}): TProject[] {
   if (!input.selectedProjectKey) return [...input.projects];
   const selected = input.projects.find(
     (project) => project.projectKey === input.selectedProjectKey,

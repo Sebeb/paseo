@@ -4,7 +4,16 @@
 import React from "react";
 import { act } from "@testing-library/react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@react-native-async-storage/async-storage", () => ({
+  default: {
+    getItem: vi.fn().mockResolvedValue(null),
+    setItem: vi.fn().mockResolvedValue(undefined),
+    removeItem: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 import type {
   SidebarProjectEntry,
   SidebarWorkspaceEntry,
@@ -26,6 +35,8 @@ function workspace(projectKey: string, workspaceId: string): SidebarWorkspaceEnt
     name: workspaceId,
     title: null,
     currentBranch: null,
+    createdAt: null,
+    activityAt: null,
     statusBucket: "done",
     statusEnteredAt: null,
     archivingAt: null,

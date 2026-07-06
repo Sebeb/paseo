@@ -352,6 +352,8 @@ export const ptBR: TranslationResources = {
       scriptsAccessibility: "Scripts do workspace",
       copyPath: "Copiar caminho",
       copyBranchName: "Copiar nome da branch",
+      created: "Created {{value}}",
+      updated: "Updated {{value}}",
       copied: "Copiado",
     },
     fileExplorer: {
@@ -470,6 +472,11 @@ export const ptBR: TranslationResources = {
         title: "Alternar aba",
         searchPlaceholder: "Buscar abas",
       },
+      info: {
+        created: "Created {{value}}",
+        updated: "Updated {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "Abrir menu de {{label}}",
         copyResumeCommand: "Copiar comando de retomada",
@@ -478,6 +485,8 @@ export const ptBR: TranslationResources = {
         rename: "Renomear",
         closeAbove: "Fechar abas acima",
         closeBelow: "Fechar abas abaixo",
+        closeVerticalAbove: "Close above",
+        closeVerticalBelow: "Close below",
         closeLeft: "Fechar à esquerda",
         closeRight: "Fechar à direita",
         closeOthers: "Fechar outras abas",
@@ -837,6 +846,16 @@ export const ptBR: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "Collapse workspace",
+        expand: "Expand workspace",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "Show all {{count}}",
+        showAllLabel: "Show all tabs",
+        showLess: "Show less",
+        showLessLabel: "Show fewer tabs",
+      },
       status: {
         scriptsAvailable: "Scripts disponíveis",
         creating: "Criando...",
@@ -1561,6 +1580,16 @@ export const ptBR: TranslationResources = {
           claude: "Claude",
           ghostty: "Ghostty",
           auto: "Sistema",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

@@ -20,6 +20,10 @@ export const DEFAULT_SIDEBAR_WIDTH = 320;
 export const MIN_SIDEBAR_WIDTH = 200;
 export const MAX_SIDEBAR_WIDTH = 600;
 
+export const DEFAULT_VERTICAL_TABS_SIDEBAR_WIDTH = 240;
+export const MIN_VERTICAL_TABS_SIDEBAR_WIDTH = 180;
+export const MAX_VERTICAL_TABS_SIDEBAR_WIDTH = 420;
+
 export const DEFAULT_EXPLORER_SIDEBAR_WIDTH = 400;
 export const MIN_EXPLORER_SIDEBAR_WIDTH = 280;
 // Upper bound is intentionally generous; desktop resizing enforces a min-chat-width constraint.
@@ -58,6 +62,10 @@ function clampNumber(value: number, min: number, max: number): number {
 
 export function clampSidebarWidth(width: number): number {
   return clampNumber(width, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
+}
+
+export function clampVerticalTabsSidebarWidth(width: number): number {
+  return clampNumber(width, MIN_VERTICAL_TABS_SIDEBAR_WIDTH, MAX_VERTICAL_TABS_SIDEBAR_WIDTH);
 }
 
 export function clampExplorerWidth(width: number): number {
@@ -230,6 +238,11 @@ export function migratePanelState(
   }
   if (version < 6 || typeof state.sidebarWidth !== "number") {
     state.sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
+  }
+  if (version < 12 || typeof state.verticalTabsSidebarWidth !== "number") {
+    state.verticalTabsSidebarWidth = DEFAULT_VERTICAL_TABS_SIDEBAR_WIDTH;
+  } else {
+    state.verticalTabsSidebarWidth = clampVerticalTabsSidebarWidth(state.verticalTabsSidebarWidth);
   }
   if (
     version < 9 ||

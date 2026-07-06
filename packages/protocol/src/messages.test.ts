@@ -133,6 +133,47 @@ describe("workspace descriptor message compatibility", () => {
   });
 });
 
+describe("project icon message compatibility", () => {
+  test("project_icon_response parses without backgroundColor", () => {
+    const parsed = SessionOutboundMessageSchema.parse({
+      type: "project_icon_response",
+      payload: {
+        cwd: "/repo/app",
+        icon: {
+          data: "abc",
+          mimeType: "image/png",
+        },
+        error: null,
+        requestId: "req-icon",
+      },
+    });
+
+    expect(parsed.type).toBe("project_icon_response");
+  });
+
+  test("project_icon_response parses with extracted backgroundColor", () => {
+    const parsed = SessionOutboundMessageSchema.parse({
+      type: "project_icon_response",
+      payload: {
+        cwd: "/repo/app",
+        icon: {
+          data: "abc",
+          mimeType: "image/png",
+          backgroundColor: "#0c2238",
+        },
+        error: null,
+        requestId: "req-icon",
+      },
+    });
+
+    expect(parsed.type).toBe("project_icon_response");
+    if (parsed.type !== "project_icon_response") {
+      throw new Error("Expected project_icon_response");
+    }
+    expect(parsed.payload.icon?.backgroundColor).toBe("#0c2238");
+  });
+});
+
 describe("provider usage list message contract", () => {
   test("accepts the usage list request as a namespaced correlated RPC", () => {
     const parsed = SessionInboundMessageSchema.parse({

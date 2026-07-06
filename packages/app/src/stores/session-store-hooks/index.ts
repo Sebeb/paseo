@@ -89,12 +89,12 @@ export function useWorkspaceStructure(serverIds: string[]): WorkspaceStructure {
   );
   const projectOrder = useStoreWithEqualityFn(
     useSidebarOrderStore,
-    (state) => selectProjectOrder(state),
+    (state) => selectProjectOrder(state, serverIds),
     workspaceEqualityFns.deep,
   );
   const workspaceOrderByScope = useStoreWithEqualityFn(
     useSidebarOrderStore,
-    (state) => selectWorkspaceOrderByScope(state),
+    (state) => selectWorkspaceOrderByScope(state, serverIds),
     workspaceEqualityFns.deep,
   );
 

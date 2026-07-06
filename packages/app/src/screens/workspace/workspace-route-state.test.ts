@@ -12,6 +12,8 @@ function createWorkspaceDescriptor(): WorkspaceDescriptor {
     projectKind: "git",
     workspaceKind: "local_checkout",
     name: "main",
+    createdAt: null,
+    activityAt: null,
     status: "running",
     diffStat: null,
     scripts: [],

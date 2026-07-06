@@ -159,7 +159,7 @@ Terminology:
 
 ## 10. States
 
-Loading is inline by default. `<LoadingSpinner size={14} color={foregroundMuted} />` sits next to the thing it relates to (`packages/app/src/screens/settings/providers-section.tsx:227-231`). Page-level loading is a centered `<LoadingSpinner size="large">` (`packages/app/src/screens/sessions-screen.tsx:69-72`). Card-level loading is a single short line, not a spinner. In-row dropdown items use `<DropdownMenuItem status="pending" pendingLabel="Removing...">`; the menu item handles its own pending state.
+Loading is inline by default. `<LoadingSpinner size={14} />` sits next to the thing it relates to (`packages/app/src/screens/settings/providers-section.tsx:227-231`). The spinner is always the blue circular throbber; callers choose size and placement, not tint. Page-level loading is a centered `<LoadingSpinner size="large">` (`packages/app/src/screens/sessions-screen.tsx:69-72`). Card-level loading is a single short line, not a spinner. In-row dropdown items use `<DropdownMenuItem status="pending" pendingLabel="Removing...">`; the menu item handles its own pending state.
 
 Empty states are short noun phrases. Centered, muted, one or two lines. Sessions screen pairs the empty noun with a single ghost button to navigate back (`packages/app/src/screens/sessions-screen.tsx:74-81`); that pairing is the maximum elaboration. Illustrations and CTAs disguised as empty states are wrong.
 
@@ -190,6 +190,8 @@ Kebab menus (`<DropdownMenu>` with `<MoreVertical size={14} />` trigger) are for
 A row may carry both a chevron and a kebab when both navigation and row-level actions apply. Chevron sits at the end; kebab sits before it.
 
 Switches and segmented controls also sit in the trailing slot. A row that both navigates and toggles is a `<Pressable>` with a `<Switch>` in the trailing slot — the switch calls `event.stopPropagation()` so the row press does not fire (`packages/app/src/screens/settings/providers-section.tsx:92-132`). Sidebar items that hold a status dot, a count, and a kebab follow the same rule (`packages/app/src/components/sidebar-workspace-list.tsx`).
+
+Sidebar project rows, workspace rows, and vertical tab rows share the sidebar entry layout primitive (`packages/app/src/components/sidebar/sidebar-entry-row.tsx`). The primitive owns the 36px fixed row height, leading icon slot, truncating text slot, and dynamic right-context slot. Right-context content may swap from metadata to hover actions, but it must not change row height; add new sidebar entry affordances through that primitive instead of hand-matching row flex styles.
 
 Selected state on rows in a desktop list+detail uses `surfaceSidebarHover` as the background (`packages/app/src/screens/projects-screen.tsx`). Selected state on rows in the sidebar list uses `surface2` (`packages/app/src/components/agent-list.tsx:563-571`).
 

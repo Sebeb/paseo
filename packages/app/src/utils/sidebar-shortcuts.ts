@@ -1,9 +1,9 @@
 import type {
   SidebarProjectEntry,
-  SidebarStatusWorkspacePlacement,
-  SidebarWorkspacePlacement,
+  SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
 import { buildStatusGroups } from "@/hooks/sidebar-status-view-model";
+import type { SidebarWorkspaceSortMode } from "@/stores/sidebar-view-store";
 
 export interface SidebarShortcutWorkspaceTarget {
   serverId: string;
@@ -15,9 +15,7 @@ export interface SidebarShortcutModel {
   shortcutIndexByWorkspaceKey: Map<string, number>;
 }
 
-function createShortcutTarget(
-  workspace: SidebarWorkspacePlacement,
-): SidebarShortcutWorkspaceTarget {
+function createShortcutTarget(workspace: SidebarWorkspaceEntry): SidebarShortcutWorkspaceTarget {
   return {
     serverId: workspace.serverId,
     workspaceId: workspace.workspaceId,
@@ -53,13 +51,13 @@ export function buildSidebarShortcutModel(input: {
 }
 
 export function buildStatusSidebarShortcutModel(input: {
-  workspaces: SidebarStatusWorkspacePlacement[];
-  projectNamesByKey: Map<string, string>;
+  workspaces: SidebarWorkspaceEntry[];
+  workspaceSortMode: SidebarWorkspaceSortMode;
   collapsedStatusGroupKeys?: ReadonlySet<string>;
   shortcutLimit?: number;
 }): SidebarShortcutModel {
   const maxShortcuts = Math.max(0, Math.floor(input.shortcutLimit ?? 9));
-  const groups = buildStatusGroups(input.workspaces, input.projectNamesByKey);
+  const groups = buildStatusGroups(input.workspaces, input.workspaceSortMode);
   const shortcutTargets: SidebarShortcutWorkspaceTarget[] = [];
   const shortcutIndexByWorkspaceKey = new Map<string, number>();
 

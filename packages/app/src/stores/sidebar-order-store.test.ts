@@ -15,9 +15,33 @@ describe("migrateSidebarOrderState", () => {
     });
 
     expect(migrated).toEqual({
-      projectOrder: ["project-a"],
+      projectOrderByServerId: {
+        "host-a": ["project-a"],
+        "host-b": ["project-a"],
+      },
+      workspaceOrderByServerAndProject: {
+        "host-a::project-a": ["host-a:main", "host-a:feature"],
+        "host-b::project-a": ["host-b:main"],
+      },
+    });
+  });
+
+  it("maps legacy global project and workspace orders to discovered servers", () => {
+    const migrated = migrateSidebarOrderState({
+      projectOrder: ["project-a", "project-b"],
       workspaceOrderByProject: {
         "project-a": ["host-a:main", "host-a:feature", "host-b:main"],
+      },
+    });
+
+    expect(migrated).toEqual({
+      projectOrderByServerId: {
+        "host-a": ["project-a", "project-b"],
+        "host-b": ["project-a", "project-b"],
+      },
+      workspaceOrderByServerAndProject: {
+        "host-a::project-a": ["host-a:main", "host-a:feature"],
+        "host-b::project-a": ["host-b:main"],
       },
     });
   });

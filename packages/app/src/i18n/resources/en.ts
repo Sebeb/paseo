@@ -348,6 +348,8 @@ export const en = {
       scriptsAccessibility: "Workspace scripts",
       copyPath: "Copy path",
       copyBranchName: "Copy branch name",
+      created: "Created {{value}}",
+      updated: "Updated {{value}}",
       copied: "Copied",
     },
     fileExplorer: {
@@ -466,6 +468,11 @@ export const en = {
         title: "Switch tab",
         searchPlaceholder: "Search tabs",
       },
+      info: {
+        created: "Created {{value}}",
+        updated: "Updated {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "Open menu for {{label}}",
         copyResumeCommand: "Copy resume command",
@@ -474,6 +481,8 @@ export const en = {
         rename: "Rename",
         closeAbove: "Close tabs above",
         closeBelow: "Close tabs below",
+        closeVerticalAbove: "Close above",
+        closeVerticalBelow: "Close below",
         closeLeft: "Close to the left",
         closeRight: "Close to the right",
         closeOthers: "Close other tabs",
@@ -826,6 +835,16 @@ export const en = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "Collapse workspace",
+        expand: "Expand workspace",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "Show all {{count}}",
+        showAllLabel: "Show all tabs",
+        showLess: "Show less",
+        showLessLabel: "Show fewer tabs",
+      },
       status: {
         scriptsAvailable: "Scripts available",
         creating: "Creating...",
@@ -1543,6 +1562,16 @@ export const en = {
           claude: "Claude",
           ghostty: "Ghostty",
           auto: "System",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

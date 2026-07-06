@@ -41,47 +41,96 @@ describe("sidebar view store", () => {
       groupMode: "project",
       singleProjectViewEnabled: false,
       singleProjectViewProjectKey: null,
-      hostFilters: [],
+      hostFilter: null,
+      groupModeByServerId: {},
+      workspaceSortModeByServerId: {},
+      embeddedTabSortModeByServerId: {},
+      embeddedRecentTabCountByServerId: {},
+      badgeModeByServerId: {},
+      tabBarBadgeModeByServerId: {},
+      autoCollapseProjects: false,
+      autoCollapseWorkspaces: false,
     });
   });
 
-  it("toggles multiple hosts into and out of the filter", () => {
-    const store = useSidebarViewStore.getState();
-    store.toggleHostFilter("host-a");
-    store.toggleHostFilter("host-b");
+  it("keeps a host filter that still points at an available host", () => {
+    useSidebarViewStore.getState().setHostFilter("host-a");
 
-    expect(useSidebarViewStore.getState().hostFilters).toEqual(["host-a", "host-b"]);
+    useSidebarViewStore.getState().reconcileHostFilter(["host-a", "host-b"]);
 
-    store.toggleHostFilter("host-a");
-
-    expect(useSidebarViewStore.getState().hostFilters).toEqual(["host-b"]);
-
-    store.clearHostFilters();
-
-    expect(useSidebarViewStore.getState().hostFilters).toEqual([]);
+    expect(useSidebarViewStore.getState().hostFilter).toBe("host-a");
   });
 
-  it("keeps host filters that still point at available hosts", () => {
-    const store = useSidebarViewStore.getState();
-    store.toggleHostFilter("host-a");
-    store.toggleHostFilter("host-b");
+  it("clears a host filter after that host is removed", () => {
+    useSidebarViewStore.getState().setHostFilter("removed-host");
 
-    store.reconcileHostFilters(["host-a", "host-b", "host-c"]);
+    useSidebarViewStore.getState().reconcileHostFilter(["host-a"]);
 
-    expect(useSidebarViewStore.getState().hostFilters).toEqual(["host-a", "host-b"]);
+    expect(useSidebarViewStore.getState().hostFilter).toBeNull();
   });
 
-  it("drops a host filter after that host is removed", () => {
-    const store = useSidebarViewStore.getState();
-    store.toggleHostFilter("host-a");
-    store.toggleHostFilter("removed-host");
+  it("normalizes embedded tab preferences loaded from persisted state", () => {
+    useSidebarViewStore.setState({
+      workspaceSortModeByServerId: { srv: "bad-value" as never },
+      embeddedTabSortModeByServerId: { srv: "bad-value" as never },
+      embeddedRecentTabCountByServerId: { srv: 99 as never },
+      badgeModeByServerId: { srv: "bad-value" as never },
+      tabBarBadgeModeByServerId: { srv: "diff" as never },
+    });
 
-    store.reconcileHostFilters(["host-a"]);
-
-    expect(useSidebarViewStore.getState().hostFilters).toEqual(["host-a"]);
+    expect(useSidebarViewStore.getState().getWorkspaceSortMode("srv")).toBe("manual");
+    expect(useSidebarViewStore.getState().getEmbeddedTabSortMode("srv")).toBe("manual");
+    expect(useSidebarViewStore.getState().getEmbeddedRecentTabCount("srv")).toBe(5);
+    expect(useSidebarViewStore.getState().getBadgeMode("srv")).toBe("status");
+    expect(useSidebarViewStore.getState().getTabBarBadgeMode("srv")).toBe("status");
   });
 
-  it("migrates legacy per-host group modes to the new global mode", () => {
+  it("trims server ids before storing embedded tab preferences", () => {
+    useSidebarViewStore.getState().setGroupMode("  srv  ", "status");
+    useSidebarViewStore.getState().setWorkspaceSortMode("  srv  ", "status");
+    useSidebarViewStore.getState().setEmbeddedTabSortMode("  srv  ", "lastUpdated");
+    useSidebarViewStore.getState().setEmbeddedRecentTabCount("  srv  ", "all");
+    useSidebarViewStore.getState().setBadgeMode("  srv  ", "diff");
+    useSidebarViewStore.getState().setTabBarBadgeMode("  srv  ", "none");
+
+    expect(useSidebarViewStore.getState().groupModeByServerId).toEqual({
+      srv: "status",
+    });
+    expect(useSidebarViewStore.getState().workspaceSortModeByServerId).toEqual({
+      srv: "status",
+    });
+    expect(useSidebarViewStore.getState().embeddedTabSortModeByServerId).toEqual({
+      srv: "lastUpdated",
+    });
+    expect(useSidebarViewStore.getState().embeddedRecentTabCountByServerId).toEqual({
+      srv: "all",
+    });
+    expect(useSidebarViewStore.getState().badgeModeByServerId).toEqual({
+      srv: "diff",
+    });
+    expect(useSidebarViewStore.getState().tabBarBadgeModeByServerId).toEqual({
+      srv: "none",
+    });
+  });
+
+  it("defaults sidebar and tab bar badge modes to status", () => {
+    expect(useSidebarViewStore.getState().getBadgeMode("srv")).toBe("status");
+    expect(useSidebarViewStore.getState().getTabBarBadgeMode("srv")).toBe("status");
+  });
+
+  it("stores the auto-collapse workspace display preference", () => {
+    useSidebarViewStore.getState().setAutoCollapseWorkspaces(true);
+
+    expect(useSidebarViewStore.getState().autoCollapseWorkspaces).toBe(true);
+  });
+
+  it("stores the auto-collapse project display preference", () => {
+    useSidebarViewStore.getState().setAutoCollapseProjects(true);
+
+    expect(useSidebarViewStore.getState().autoCollapseProjects).toBe(true);
+  });
+
+  it("migrates legacy per-host group modes to the global and per-host modes", () => {
     expect(
       migrateSidebarViewState({
         groupModeByServerId: {
@@ -89,25 +138,13 @@ describe("sidebar view store", () => {
           "host-b": "status",
         },
       }),
-    ).toEqual({
+    ).toMatchObject({
       groupMode: "status",
-      singleProjectViewEnabled: false,
-      singleProjectViewProjectKey: null,
-      hostFilters: [],
-    });
-  });
-
-  it("migrates a pre-v2 single host filter to the multi-host list", () => {
-    expect(
-      migrateSidebarViewState({
-        groupMode: "status",
-        hostFilter: "host-a",
-      }),
-    ).toEqual({
-      groupMode: "status",
-      singleProjectViewEnabled: false,
-      singleProjectViewProjectKey: null,
-      hostFilters: ["host-a"],
+      hostFilter: null,
+      groupModeByServerId: {
+        "host-a": "project",
+        "host-b": "status",
+      },
     });
   });
 
@@ -115,24 +152,24 @@ describe("sidebar view store", () => {
     expect(
       migrateSidebarViewState({
         groupMode: "status",
+        hostFilter: "host-a",
         singleProjectViewEnabled: true,
         singleProjectViewProjectKey: "project-a",
-        hostFilters: ["host-a", "host-b"],
+        embeddedTabSortModeByServerId: { "host-a": "created" },
       }),
-    ).toEqual({
+    ).toMatchObject({
       groupMode: "status",
+      hostFilter: "host-a",
       singleProjectViewEnabled: true,
       singleProjectViewProjectKey: "project-a",
-      hostFilters: ["host-a", "host-b"],
+      embeddedTabSortModeByServerId: { "host-a": "created" },
     });
   });
 
   it("stores single project view preferences independently from group mode", () => {
-    const store = useSidebarViewStore.getState();
-
-    store.setSingleProjectViewEnabled(true);
-    store.setSingleProjectViewProjectKey("project-a");
-    store.setGroupMode("status");
+    useSidebarViewStore.getState().setGroupMode("status");
+    useSidebarViewStore.getState().setSingleProjectViewEnabled(true);
+    useSidebarViewStore.getState().setSingleProjectViewProjectKey("project-a");
 
     expect(useSidebarViewStore.getState()).toMatchObject({
       groupMode: "status",
@@ -164,8 +201,8 @@ describe("sidebar view store", () => {
   it("uses the new storage key without reading the legacy key when current state exists", async () => {
     const storage = createMemoryStorage({
       "sidebar-view": JSON.stringify({
-        state: { groupMode: "project", hostFilters: ["host-a"] },
-        version: 2,
+        state: { groupMode: "project", hostFilter: "host-a" },
+        version: 1,
       }),
       "sidebar-group-mode": JSON.stringify({
         state: { groupModeByServerId: { "host-b": "status" } },
@@ -177,8 +214,8 @@ describe("sidebar view store", () => {
 
     expect(value).toBe(
       JSON.stringify({
-        state: { groupMode: "project", hostFilters: ["host-a"] },
-        version: 2,
+        state: { groupMode: "project", hostFilter: "host-a" },
+        version: 1,
       }),
     );
     expect(storage.reads).toEqual(["sidebar-view"]);

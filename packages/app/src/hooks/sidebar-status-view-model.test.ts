@@ -23,6 +23,8 @@ function ws(
     name: input.name ?? "main",
     title: input.title ?? null,
     currentBranch: input.currentBranch ?? null,
+    createdAt: input.createdAt ?? null,
+    activityAt: input.activityAt ?? null,
     statusBucket: input.statusBucket ?? "done",
     statusEnteredAt: input.statusEnteredAt ?? null,
     archivingAt: null,
@@ -40,8 +42,6 @@ function d(iso: string): Date {
   return new Date(iso);
 }
 
-const emptyProjectNames = new Map<string, string>();
-
 describe("buildStatusGroups", () => {
   it("groups workspaces by status bucket in fixed order", () => {
     const workspaces = [
@@ -54,7 +54,7 @@ describe("buildStatusGroups", () => {
       ws({ workspaceKey: "srv:running-ws", statusBucket: "running", name: "running-ws" }),
     ];
 
-    const groups = buildStatusGroups(workspaces, emptyProjectNames);
+    const groups = buildStatusGroups(workspaces, "manual");
 
     expect(groups.map((g) => g.bucket)).toEqual(["needs_input", "running", "done"]);
     expect(groups[0]?.label).toBe("Needs input");
@@ -68,7 +68,7 @@ describe("buildStatusGroups", () => {
       ws({ workspaceKey: "srv:b", statusBucket: "running" }),
     ];
 
-    const groups = buildStatusGroups(workspaces, emptyProjectNames);
+    const groups = buildStatusGroups(workspaces, "manual");
 
     expect(groups.map((g) => g.bucket)).toEqual(["running", "done"]);
   });
@@ -92,7 +92,7 @@ describe("buildStatusGroups", () => {
       }),
     ];
 
-    const groups = buildStatusGroups(workspaces, emptyProjectNames);
+    const groups = buildStatusGroups(workspaces, "status");
 
     expect(groups[0]?.rows.map((r) => r.workspaceKey)).toEqual(["srv:new", "srv:mid", "srv:old"]);
   });
@@ -108,7 +108,7 @@ describe("buildStatusGroups", () => {
       ws({ workspaceKey: "srv:null-b", statusBucket: "done", statusEnteredAt: null }),
     ];
 
-    const groups = buildStatusGroups(workspaces, emptyProjectNames);
+    const groups = buildStatusGroups(workspaces, "status");
 
     expect(groups[0]?.rows.map((r) => r.workspaceKey)).toEqual([
       "srv:ts",
@@ -117,25 +117,39 @@ describe("buildStatusGroups", () => {
     ]);
   });
 
-  it("tie-breaks by project name, then workspace name, then workspaceKey", () => {
-    const projectNames = new Map<string, string>([
-      ["proj-b", "Beta"],
-      ["proj-a", "Alpha"],
-    ]);
+  it("uses the requested workspace sort mode within a bucket", () => {
+    const workspaces = [
+      ws({
+        workspaceKey: "srv:old",
+        statusBucket: "running",
+        createdAt: d("2026-01-01T00:00:00Z"),
+      }),
+      ws({
+        workspaceKey: "srv:new",
+        statusBucket: "running",
+        createdAt: d("2026-06-01T00:00:00Z"),
+      }),
+    ];
 
+    const groups = buildStatusGroups(workspaces, "created");
+
+    expect(groups[0]?.rows.map((r) => r.workspaceKey)).toEqual(["srv:new", "srv:old"]);
+  });
+
+  it("tie-breaks by workspace name, then workspaceKey", () => {
     const workspaces = [
       ws({ workspaceKey: "srv:1", statusBucket: "done", projectKey: "proj-b", name: "zebra" }),
       ws({ workspaceKey: "srv:2", statusBucket: "done", projectKey: "proj-a", name: "alpha" }),
       ws({ workspaceKey: "srv:3", statusBucket: "done", projectKey: "proj-a", name: "alpha" }),
     ];
 
-    const groups = buildStatusGroups(workspaces, projectNames);
+    const groups = buildStatusGroups(workspaces, "status");
 
     expect(groups[0]?.rows.map((r) => r.workspaceKey)).toEqual(["srv:2", "srv:3", "srv:1"]);
   });
 
   it("returns empty array for no workspaces", () => {
-    const groups = buildStatusGroups([], emptyProjectNames);
+    const groups = buildStatusGroups([], "manual");
     expect(groups).toEqual([]);
   });
 
@@ -164,7 +178,7 @@ describe("buildStatusGroups", () => {
       ws({ workspaceKey: "srv:dn", statusBucket: "done", statusEnteredAt: null }),
     ];
 
-    const groups = buildStatusGroups(workspaces, emptyProjectNames);
+    const groups = buildStatusGroups(workspaces, "manual");
 
     expect(groups.map((g) => g.bucket)).toEqual(STATUS_BUCKET_ORDER);
     expect(groups.map((g) => g.label)).toEqual(

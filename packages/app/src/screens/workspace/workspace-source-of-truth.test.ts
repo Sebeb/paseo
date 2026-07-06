@@ -22,6 +22,8 @@ function createWorkspaceDescriptor(input: Partial<WorkspaceDescriptor> = {}): Wo
     projectKind: "git",
     workspaceKind: "local_checkout",
     name: "feat/workspace-sot",
+    createdAt: input.createdAt ?? null,
+    activityAt: input.activityAt ?? null,
     status: "running",
     diffStat: null,
     scripts: [],

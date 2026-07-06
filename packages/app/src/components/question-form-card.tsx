@@ -1,14 +1,8 @@
 import { useState, useCallback, useMemo } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  ActivityIndicator,
-  type PressableStateCallbackType,
-} from "react-native";
+import { View, Text, TextInput, Pressable, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Check, X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import type { PendingPermission } from "@/types/shared";
@@ -581,7 +575,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
           testID="question-form-dismiss"
         >
           {respondingAction === "dismiss" ? (
-            <ActivityIndicator size="small" color={theme.colors.foregroundMuted} />
+            <LoadingSpinner size="small" />
           ) : (
             <View style={styles.actionContent}>
               <X size={14} color={theme.colors.foregroundMuted} />
@@ -599,7 +593,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
           testID="question-form-primary-action"
         >
           {respondingAction === "submit" ? (
-            <ActivityIndicator size="small" color={theme.colors.accentForeground} />
+            <LoadingSpinner size="small" />
           ) : (
             <View style={styles.actionContent}>
               <Check size={14} color={submitActionTextColor} />

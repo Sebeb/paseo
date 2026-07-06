@@ -440,6 +440,10 @@ function AppContainer({
   useCompactWebViewportZoomLock(isCompactLayout);
   const pathname = usePathname();
   const chromeEnabled = chromeEnabledOverride ?? daemons.length > 0;
+  const shortcutServerId = useMemo(
+    () => parseServerIdFromPathname(pathname) ?? daemons[0]?.serverId ?? null,
+    [daemons, pathname],
+  );
   const toggleAgentList = isCompactLayout ? toggleMobileAgentList : toggleDesktopAgentList;
   const toggleDesktopSidebars = useCallback(() => {
     const { desktop } = usePanelStore.getState();
@@ -504,7 +508,10 @@ function AppContainer({
       <HostChooserModal />
       <ProjectPickerModal />
       <ProviderSettingsHost />
-      <WorkspaceShortcutTargetsSubscriber enabled={keyboardShortcutsEnabled} />
+      <WorkspaceShortcutTargetsSubscriber
+        enabled={keyboardShortcutsEnabled}
+        serverId={shortcutServerId}
+      />
       <WorkspaceSetupDialog />
       <KeyboardShortcutsDialog />
       <QuittingOverlay />

@@ -12,6 +12,7 @@ export function SortableInlineList<T>({
   onDragEnd?: (data: T[]) => void;
   useDragHandle?: boolean;
   disabled?: boolean;
+  activationDistance?: number;
   externalDndContext?: boolean;
   activeId?: string | null;
   getItemData?: (item: T, index: number) => Record<string, unknown>;

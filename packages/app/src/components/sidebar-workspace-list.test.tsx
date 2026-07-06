@@ -89,6 +89,8 @@ function workspace(input: {
     projectKind: "git",
     workspaceKind: input.name === "main" ? "local_checkout" : "worktree",
     name: input.name,
+    createdAt: null,
+    activityAt: null,
     status: input.status ?? "done",
     statusEnteredAt: null,
     archivingAt: null,
@@ -169,10 +171,20 @@ function initializeSidebarState(workspaces: WorkspaceDescriptor[]): void {
       .setWorkspaces(SERVER_ID, new Map(workspaces.map((entry) => [entry.id, entry])));
     useSessionStore.getState().setHasHydratedWorkspaces(SERVER_ID, true);
     useSidebarOrderStore.setState({
-      projectOrder: ["project-a", "project-b"],
-      workspaceOrderByProject: {
-        ["project-a"]: [`${SERVER_ID}:a-main`, `${SERVER_ID}:a-one`, `${SERVER_ID}:a-two`],
-        ["project-b"]: [`${SERVER_ID}:b-main`, `${SERVER_ID}:b-one`, `${SERVER_ID}:b-two`],
+      projectOrderByServerId: {
+        [SERVER_ID]: ["project-a", "project-b"],
+      },
+      workspaceOrderByServerAndProject: {
+        [`${SERVER_ID}::project-a`]: [
+          `${SERVER_ID}:a-main`,
+          `${SERVER_ID}:a-one`,
+          `${SERVER_ID}:a-two`,
+        ],
+        [`${SERVER_ID}::project-b`]: [
+          `${SERVER_ID}:b-main`,
+          `${SERVER_ID}:b-one`,
+          `${SERVER_ID}:b-two`,
+        ],
       },
     });
   });
@@ -256,7 +268,7 @@ function WorkspaceSelectionProbe({
 
 function SidebarFrameProbe({ counts }: { counts: RenderCounts }): ReactElement {
   counts.frame += 1;
-  const { projects } = useSidebarWorkspacesList({ hostFilters: [SERVER_ID] });
+  const { projects } = useSidebarWorkspacesList({ serverId: SERVER_ID });
 
   return (
     <>
@@ -346,8 +358,8 @@ describe("sidebar workspace render isolation", () => {
       setHostProfiles([]);
       useSessionStore.getState().clearSession(SERVER_ID);
       useSidebarOrderStore.setState({
-        projectOrder: [],
-        workspaceOrderByProject: {},
+        projectOrderByServerId: {},
+        workspaceOrderByServerAndProject: {},
       });
     });
   });

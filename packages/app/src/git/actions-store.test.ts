@@ -41,6 +41,8 @@ function workspace(input: Partial<WorkspaceDescriptor> & Pick<WorkspaceDescripto
     projectKind: input.projectKind ?? "git",
     workspaceKind: input.workspaceKind ?? "worktree",
     name: input.name ?? input.id,
+    createdAt: null,
+    activityAt: null,
     status: input.status ?? "done",
     archivingAt: input.archivingAt ?? null,
     statusEnteredAt: null,

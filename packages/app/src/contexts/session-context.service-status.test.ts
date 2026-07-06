@@ -17,6 +17,8 @@ function workspace(input: {
     projectKind: "git",
     workspaceKind: "checkout",
     name: "main",
+    createdAt: null,
+    activityAt: null,
     status: "running",
     archivingAt: null,
     statusEnteredAt: null,

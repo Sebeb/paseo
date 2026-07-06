@@ -33,7 +33,7 @@ function hostTarget(input: {
 export function resolveSidebarProjectIconTarget(
   project: SidebarProjectEntry,
 ): SidebarProjectHostTarget | null {
-  for (const host of project.hosts) {
+  for (const host of project.hosts ?? []) {
     const target = hostTarget(host);
     if (target) {
       return target;
@@ -52,7 +52,7 @@ function resolveNewWorkspaceTarget(
   project: SidebarProjectEntry,
   supportsMultiplicityByServerId: ReadonlyMap<string, boolean>,
 ): SidebarProjectHostTarget | null {
-  for (const host of project.hosts) {
+  for (const host of project.hosts ?? []) {
     if (!host.canCreateWorktree && !supportsMultiplicityByServerId.get(host.serverId)) {
       continue;
     }

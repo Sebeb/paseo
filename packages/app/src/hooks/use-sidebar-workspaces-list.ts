@@ -1,24 +1,25 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import equal from "fast-deep-equal";
-import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
-import { useCreateFlowStore } from "@/stores/create-flow-store";
-import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
+import { useCreateFlowStore, type PendingCreateAttempt } from "@/stores/create-flow-store";
+import { useSessionStore, type Agent, type WorkspaceDescriptor } from "@/stores/session-store";
 import { selectWorkspace, workspaceEqualityFns } from "@/stores/session-store-hooks/selectors";
+import { deriveSidebarStateBucket } from "@/utils/sidebar-agent-state";
+import { selectPrHintFromStatus } from "@/git/use-pr-status-query";
 import { useHostProjects } from "@/projects/host-projects";
 import { fetchAllWorkspaceDescriptors } from "@/projects/workspace-fetching";
-import { getHostRuntimeStore, useHostRegistryLoaded, useHosts } from "@/runtime/host-runtime";
+import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useSidebarViewStore } from "@/stores/sidebar-view-store";
 import { shouldSuppressWorkspaceForLocalArchive } from "@/contexts/session-workspace-upserts";
 import {
-  buildSidebarWorkspacePlacementModel,
+  buildSidebarProjectsFromHostProjects,
   computeSidebarOrderUpdates,
-  createSidebarWorkspaceEntry,
   deriveSidebarLoadingState,
+  applyStoredOrdering,
+  sortSidebarWorkspaceProjects,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
-  type SidebarWorkspacePlacement,
 } from "./sidebar-workspaces-view-model";
 
 export {
@@ -26,21 +27,133 @@ export {
   applyStoredOrdering,
   buildSidebarProjectsFromHostProjects,
   buildSidebarProjectsFromStructure,
-  buildSidebarStatusWorkspacePlacements,
-  buildSidebarWorkspacePlacementModel,
   computeSidebarOrderUpdates,
-  createSidebarWorkspaceEntry,
   deriveSidebarLoadingState,
-  shouldShowSidebarHostLabels,
   type SidebarLoadingState,
   type SidebarOrderUpdates,
-  type SidebarStatusWorkspacePlacement,
-  type SidebarWorkspacePlacement,
-  type SidebarWorkspacePlacementModel,
   type SidebarProjectEntry,
   type SidebarStateBucket,
   type SidebarWorkspaceEntry,
 } from "./sidebar-workspaces-view-model";
+
+function normalizeCurrentBranch(currentBranch: string | null | undefined): string | null {
+  if (!currentBranch) {
+    return null;
+  }
+  const trimmed = currentBranch.trim();
+  return trimmed.length === 0 || trimmed === "HEAD" ? null : trimmed;
+}
+
+export function createSidebarWorkspaceEntry(input: {
+  serverId: string;
+  workspace: WorkspaceDescriptor;
+  pendingCreateAttempts?: Record<string, PendingCreateAttempt>;
+  agents?: Map<string, Agent>;
+}): SidebarWorkspaceEntry {
+  const effectiveStatus = deriveEffectiveWorkspaceStatus(input);
+  return {
+    workspaceKey: `${input.serverId}:${input.workspace.id}`,
+    serverId: input.serverId,
+    workspaceId: input.workspace.id,
+    projectKey: input.workspace.project?.projectKey ?? input.workspace.projectId,
+    projectName: input.workspace.projectCustomName ?? input.workspace.projectDisplayName,
+    projectRootPath: input.workspace.projectRootPath,
+    workspaceDirectory: input.workspace.workspaceDirectory,
+    projectKind: input.workspace.projectKind,
+    workspaceKind: input.workspace.workspaceKind,
+    name: input.workspace.name,
+    title: input.workspace.title ?? null,
+    currentBranch: normalizeCurrentBranch(input.workspace.gitRuntime?.currentBranch),
+    createdAt: input.workspace.createdAt,
+    activityAt: input.workspace.activityAt,
+    statusBucket: effectiveStatus.status,
+    statusEnteredAt: effectiveStatus.enteredAt,
+    archivingAt: input.workspace.archivingAt,
+    diffStat: input.workspace.diffStat,
+    prHint: selectPrHintFromStatus(input.workspace.githubRuntime?.pullRequest),
+    archiveHasUncommittedChanges: input.workspace.gitRuntime?.isDirty ?? null,
+    archiveUnpushedCommitCount: input.workspace.gitRuntime?.aheadOfOrigin ?? null,
+    scripts: input.workspace.scripts,
+    hasRunningScripts: input.workspace.scripts.some((script) => script.lifecycle === "running"),
+  };
+}
+
+interface EffectiveWorkspaceStatus {
+  status: WorkspaceDescriptor["status"];
+  enteredAt: Date | null;
+}
+
+interface WorkspaceAgentActivity extends EffectiveWorkspaceStatus {}
+
+function deriveEffectiveWorkspaceStatus(input: {
+  serverId: string;
+  workspace: WorkspaceDescriptor;
+  pendingCreateAttempts?: Record<string, PendingCreateAttempt>;
+  agents?: Map<string, Agent>;
+}): EffectiveWorkspaceStatus {
+  if (input.workspace.status !== "done") {
+    return { status: input.workspace.status, enteredAt: input.workspace.statusEnteredAt };
+  }
+
+  const pendingStartedAt = getPendingInitialAgentCreateStartedAt({
+    serverId: input.serverId,
+    workspaceId: input.workspace.id,
+    pendingCreateAttempts: input.pendingCreateAttempts,
+  });
+  if (pendingStartedAt) {
+    return { status: "running", enteredAt: pendingStartedAt };
+  }
+
+  const rootAgentActivity = getRootAgentWorkspaceActivity({
+    workspace: input.workspace,
+    agents: input.agents,
+  });
+  if (rootAgentActivity && rootAgentActivity.status !== "done") {
+    return rootAgentActivity;
+  }
+
+  return { status: input.workspace.status, enteredAt: input.workspace.statusEnteredAt };
+}
+
+function getPendingInitialAgentCreateStartedAt(input: {
+  serverId: string;
+  workspaceId: string;
+  pendingCreateAttempts: Record<string, PendingCreateAttempt> | undefined;
+}): Date | null {
+  let latestStartedAt: Date | null = null;
+  for (const pending of Object.values(input.pendingCreateAttempts ?? {})) {
+    if (pending.serverId !== input.serverId) continue;
+    if (pending.workspaceId !== input.workspaceId) continue;
+    if (pending.lifecycle === "abandoned") continue;
+    const startedAt = new Date(pending.timestamp);
+    if (!latestStartedAt || startedAt > latestStartedAt) {
+      latestStartedAt = startedAt;
+    }
+  }
+  return latestStartedAt;
+}
+
+function getRootAgentWorkspaceActivity(input: {
+  workspace: WorkspaceDescriptor;
+  agents: Map<string, Agent> | undefined;
+}): WorkspaceAgentActivity | null {
+  let latest: WorkspaceAgentActivity | null = null;
+  for (const agent of input.agents?.values() ?? []) {
+    if (agent.archivedAt || agent.parentAgentId) continue;
+    if (agent.workspaceId !== input.workspace.id) continue;
+    const status = deriveSidebarStateBucket({
+      status: agent.status,
+      pendingPermissionCount: agent.pendingPermissions.length,
+      requiresAttention: agent.requiresAttention,
+      attentionReason: agent.attentionReason,
+    });
+    const enteredAt = agent.attentionTimestamp ?? agent.updatedAt;
+    if (!latest || enteredAt > (latest.enteredAt ?? new Date(0))) {
+      latest = { status, enteredAt };
+    }
+  }
+  return latest;
+}
 
 export function useSidebarWorkspaceEntry(
   serverId: string | null,
@@ -75,13 +188,10 @@ export function useSidebarWorkspaceEntry(
 
 const EMPTY_ORDER: string[] = [];
 const EMPTY_PROJECTS: SidebarProjectEntry[] = [];
-const EMPTY_WORKSPACES: SidebarWorkspacePlacement[] = [];
-const EMPTY_PROJECT_NAMES = new Map<string, string>();
+const EMPTY_WORKSPACE_ORDER_BY_SCOPE: Record<string, string[]> = {};
 
 export interface SidebarWorkspacesListResult {
-  workspacePlacements: SidebarWorkspacePlacement[];
   projects: SidebarProjectEntry[];
-  projectNamesByKey: Map<string, string>;
   isLoading: boolean;
   isInitialLoad: boolean;
   isRevalidating: boolean;
@@ -89,129 +199,211 @@ export interface SidebarWorkspacesListResult {
 }
 
 export function useSidebarWorkspacesList(options?: {
-  hostFilters?: readonly string[];
+  serverId?: string | null;
   enabled?: boolean;
 }): SidebarWorkspacesListResult {
   const runtime = getHostRuntimeStore();
-  const allHosts = useHosts();
-  const hostRegistryLoaded = useHostRegistryLoaded();
-  const allServerIds = useMemo(() => allHosts.map((h) => h.serverId), [allHosts]);
 
-  const storeHostFilters = useSidebarViewStore((state) => state.hostFilters);
-  const hostFilters = options?.hostFilters ?? storeHostFilters;
-  const reconcileHostFilters = useSidebarViewStore((state) => state.reconcileHostFilters);
-  const isActive = options?.enabled !== false;
+  const serverId = useMemo(() => {
+    const value = options?.serverId;
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }, [options?.serverId]);
+  const isActive = Boolean(serverId) && options?.enabled !== false;
+  const persistedProjectOrder = useSidebarOrderStore((state) =>
+    isActive && serverId ? (state.projectOrderByServerId[serverId] ?? EMPTY_ORDER) : EMPTY_ORDER,
+  );
+  const persistedWorkspaceOrderByServerAndProject = useSidebarOrderStore((state) =>
+    isActive && serverId ? state.workspaceOrderByServerAndProject : EMPTY_WORKSPACE_ORDER_BY_SCOPE,
+  );
+  const hasHydratedWorkspaces = useSessionStore((state) =>
+    isActive && serverId ? (state.sessions[serverId]?.hasHydratedWorkspaces ?? false) : false,
+  );
+  const hostProjects = useHostProjects(isActive && serverId ? [serverId] : []);
+  const workspaceSortMode = useSidebarViewStore((state) =>
+    isActive && serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
+  const workspaceMap = useSessionStore((state) =>
+    workspaceSortMode !== "manual" && isActive && serverId
+      ? state.sessions[serverId]?.workspaces
+      : undefined,
+  );
+  const agents = useSessionStore((state) =>
+    workspaceSortMode === "status" && isActive && serverId
+      ? state.sessions[serverId]?.agents
+      : undefined,
+  );
+  const pendingCreateAttempts = useCreateFlowStore((state) =>
+    workspaceSortMode === "status" && isActive ? state.pendingByDraftId : undefined,
+  );
 
-  const serverIds = useMemo(() => {
-    if (hostFilters.length === 0) {
-      return allServerIds;
+  const connectionStatus = useSyncExternalStore(
+    (onStoreChange) =>
+      isActive && serverId ? runtime.subscribe(serverId, onStoreChange) : () => {},
+    () => {
+      if (!isActive || !serverId) {
+        return "idle";
+      }
+      const snapshot = runtime.getSnapshot(serverId);
+      return snapshot?.connectionStatus ?? "idle";
+    },
+    () => {
+      if (!isActive || !serverId) {
+        return "idle";
+      }
+      const snapshot = runtime.getSnapshot(serverId);
+      return snapshot?.connectionStatus ?? "idle";
+    },
+  );
+
+  const baseProjects = useMemo(() => {
+    if (!serverId || hostProjects.length === 0) {
+      return EMPTY_PROJECTS;
     }
-    const selected = new Set(hostFilters);
-    const matched = allServerIds.filter((id) => selected.has(id));
-    // Registry has settled but none of the pinned hosts still exist — fall back to every
-    // host rather than leaving the sidebar empty.
-    if (hostRegistryLoaded && matched.length === 0) {
-      return allServerIds;
+    return buildSidebarProjectsFromHostProjects({
+      projects: hostProjects,
+    });
+  }, [hostProjects, serverId]);
+
+  const orderedBaseProjects = useMemo(() => {
+    if (!serverId || baseProjects.length === 0 || workspaceSortMode !== "manual") {
+      return baseProjects;
     }
-    return matched;
-  }, [allServerIds, hostFilters, hostRegistryLoaded]);
+
+    const orderedProjects = applyStoredOrdering({
+      items: baseProjects,
+      storedOrder: persistedProjectOrder,
+      getKey: (project) => project.projectKey,
+    });
+
+    return orderedProjects.map((project) => {
+      const workspaceOrder =
+        persistedWorkspaceOrderByServerAndProject[`${serverId}::${project.projectKey}`] ??
+        EMPTY_ORDER;
+      if (workspaceOrder.length === 0) {
+        return project;
+      }
+      const workspaces = applyStoredOrdering({
+        items: project.workspaces,
+        storedOrder: workspaceOrder,
+        getKey: (workspace) => workspace.workspaceKey,
+      });
+      return workspaces === project.workspaces
+        ? project
+        : Object.assign({}, project, { workspaces });
+    });
+  }, [
+    baseProjects,
+    persistedProjectOrder,
+    persistedWorkspaceOrderByServerAndProject,
+    serverId,
+    workspaceSortMode,
+  ]);
+
+  const projects = useMemo(() => {
+    if (!serverId || workspaceSortMode === "manual" || orderedBaseProjects.length === 0) {
+      return orderedBaseProjects;
+    }
+
+    return sortSidebarWorkspaceProjects({
+      projects: orderedBaseProjects.map((project) => ({
+        ...project,
+        workspaces: project.workspaces.map((placedWorkspace) => {
+          const workspace = workspaceMap?.get(placedWorkspace.workspaceId);
+          return workspace
+            ? createSidebarWorkspaceEntry({
+                serverId,
+                workspace,
+                pendingCreateAttempts,
+                agents,
+              })
+            : placedWorkspace;
+        }),
+      })),
+      sortMode: workspaceSortMode,
+    });
+  }, [
+    agents,
+    orderedBaseProjects,
+    pendingCreateAttempts,
+    serverId,
+    workspaceMap,
+    workspaceSortMode,
+  ]);
 
   useEffect(() => {
-    if (!hostRegistryLoaded) {
+    if (!serverId) {
       return;
     }
-    reconcileHostFilters(allServerIds);
-  }, [allServerIds, hostRegistryLoaded, reconcileHostFilters]);
-
-  const persistedProjectOrder = useSidebarOrderStore((state) => state.projectOrder ?? EMPTY_ORDER);
-
-  const hydratedServerIds = useStoreWithEqualityFn(
-    useSessionStore,
-    (state) => serverIds.filter((id) => state.sessions[id]?.hasHydratedWorkspaces ?? false),
-    shallow,
-  );
-
-  const hostProjects = useHostProjects(serverIds);
-
-  const sidebarModel = useMemo(
-    () =>
-      buildSidebarWorkspacePlacementModel({
-        projects: hostProjects,
-      }),
-    [hostProjects],
-  );
-
-  const projects = sidebarModel.projects.length > 0 ? sidebarModel.projects : EMPTY_PROJECTS;
-  const workspacePlacements =
-    sidebarModel.workspaces.length > 0 ? sidebarModel.workspaces : EMPTY_WORKSPACES;
-  const projectNamesByKey =
-    sidebarModel.projectNamesByKey.size > 0 ? sidebarModel.projectNamesByKey : EMPTY_PROJECT_NAMES;
+  }, [connectionStatus, hasHydratedWorkspaces, projects, serverId]);
 
   useEffect(() => {
+    if (!serverId) {
+      return;
+    }
+
     const orderStore = useSidebarOrderStore.getState();
     const updates = computeSidebarOrderUpdates({
-      projects,
+      projects: baseProjects,
       persistedProjectOrder,
-      getWorkspaceOrder: (projectKey) =>
-        orderStore.workspaceOrderByProject[projectKey] ?? EMPTY_ORDER,
+      getWorkspaceOrder: (projectKey) => orderStore.getWorkspaceOrder(serverId, projectKey),
     });
 
     if (updates.projectOrder) {
-      orderStore.setProjectOrder(updates.projectOrder);
+      orderStore.setProjectOrder(serverId, updates.projectOrder);
     }
     for (const { projectKey, order } of updates.workspaceOrders) {
-      orderStore.setWorkspaceOrder(projectKey, order);
+      orderStore.setWorkspaceOrder(serverId, projectKey, order);
     }
-  }, [persistedProjectOrder, projects]);
+  }, [baseProjects, persistedProjectOrder, serverId]);
 
   const refreshAll = useCallback(() => {
-    if (!isActive) return;
-    for (const serverId of serverIds) {
-      const snapshot = runtime.getSnapshot(serverId);
-      if (snapshot?.connectionStatus !== "online") continue;
-      const client = runtime.getClient(serverId);
-      if (!client) continue;
-      void (async () => {
-        const next = new Map<string, WorkspaceDescriptor>();
-        try {
-          const { workspaces, emptyProjects } = await fetchAllWorkspaceDescriptors({
+    if (!isActive || !serverId || connectionStatus !== "online") {
+      return;
+    }
+    const client = runtime.getClient(serverId);
+    if (!client) {
+      return;
+    }
+    void (async () => {
+      const next = new Map<string, WorkspaceDescriptor>();
+      try {
+        const { workspaces: fetchedWorkspaces, emptyProjects } = await fetchAllWorkspaceDescriptors(
+          {
             client,
             sort: [{ key: "activity_at", direction: "desc" }],
-          });
-          for (const workspace of workspaces) {
-            if (shouldSuppressWorkspaceForLocalArchive({ serverId, workspace })) {
-              continue;
-            }
-            next.set(workspace.id, workspace);
+          },
+        );
+        for (const workspaceDescriptor of fetchedWorkspaces) {
+          if (
+            shouldSuppressWorkspaceForLocalArchive({ serverId, workspace: workspaceDescriptor })
+          ) {
+            continue;
           }
-          const store = useSessionStore.getState();
-          store.setWorkspaces(serverId, next);
-          // Keep parents with no workspaces yet, so a manual refresh doesn't drop
-          // a freshly-added project from the sidebar.
-          store.setEmptyProjects(serverId, emptyProjects);
-          store.setHasHydratedWorkspaces(serverId, true);
-        } catch (error) {
-          console.error("[WorkspaceFetch][sidebar-refresh] failed", {
-            serverId,
-            error,
-          });
-          // ignore explicit refresh failures; hook keeps existing data
+          next.set(workspaceDescriptor.id, workspaceDescriptor);
         }
-      })();
-    }
-  }, [isActive, runtime, serverIds]);
+        const store = useSessionStore.getState();
+        store.setWorkspaces(serverId, next);
+        store.setEmptyProjects(serverId, emptyProjects);
+        store.setHasHydratedWorkspaces(serverId, true);
+      } catch (error) {
+        console.error("[WorkspaceFetch][sidebar-refresh] failed", {
+          serverId,
+          error,
+        });
+        // ignore explicit refresh failures; hook keeps existing data
+      }
+    })();
+  }, [connectionStatus, isActive, runtime, serverId]);
 
   const loadingState = deriveSidebarLoadingState({
     isActive,
-    serverIds,
-    hydratedServerIds,
+    serverId,
+    hasHydratedWorkspaces,
     hasProjects: projects.length > 0,
   });
 
   return {
-    workspacePlacements,
     projects,
-    projectNamesByKey,
     ...loadingState,
     refreshAll,
   };

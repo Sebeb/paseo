@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, type ReactElement, type RefObj
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
-  ActivityIndicator,
   FlatList,
   ListRenderItemInfo,
   Pressable,
@@ -166,7 +165,7 @@ function TreeRowItem({
             if (!isDirectory) {
               return <SvgXml xml={getFileIconSvg(entry.name)} width={16} height={16} />;
             }
-            if (loading) return <ActivityIndicator size="small" />;
+            if (loading) return <LoadingSpinner size="small" />;
             return (
               <View style={chevronStyle}>
                 <ChevronRight size={16} color={theme.colors.foregroundMuted} />
@@ -593,7 +592,7 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
   if (showInitialLoading) {
     return (
       <View style={styles.centerState}>
-        <ActivityIndicator size="small" />
+        <LoadingSpinner size="small" />
         <Text style={styles.loadingText}>{t("workspace.fileExplorer.states.loading")}</Text>
       </View>
     );
@@ -635,7 +634,7 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
           >
             <View style={styles.refreshIcon}>
               {isRefreshFetching ? (
-                <LoadingSpinner size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />
+                <LoadingSpinner size={theme.iconSize.sm} />
               ) : (
                 <RotateCw size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />
               )}

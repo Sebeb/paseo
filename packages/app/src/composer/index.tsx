@@ -1,10 +1,4 @@
-import {
-  View,
-  Pressable,
-  Text,
-  ActivityIndicator,
-  type PressableStateCallbackType,
-} from "react-native";
+import { View, Pressable, Text, type PressableStateCallbackType } from "react-native";
 import type { TFunction } from "i18next";
 import {
   useState,
@@ -19,6 +13,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useShallow } from "zustand/shallow";
 import {
   ArrowUp,
@@ -778,6 +773,8 @@ interface ComposerProps {
   onComposerHeightChange?: (height: number) => void;
   onAttentionInputFocus?: () => void;
   onAttentionPromptSend?: () => void;
+  onAddImages?: (addImages: (images: ImageAttachment[]) => void) => void;
+  onAddFiles?: (addFiles: (files: UserComposerAttachment[]) => void) => void;
   /** Controlled agent controls rendered in input area (draft flows). */
   agentControls?: DraftAgentControlsProps;
   /** Extra styles merged onto the message input wrapper (e.g. elevated background). */
@@ -828,7 +825,7 @@ function ComposerCancelButton({
     ? t("composer.cancel.cancelingAgent")
     : t("composer.cancel.stopAgent");
   const icon = isCancellingAgent ? (
-    <ActivityIndicator size="small" color="white" />
+    <LoadingSpinner size="small" />
   ) : (
     <Square size={buttonIconSize} color="white" fill="white" />
   );
@@ -928,7 +925,7 @@ function ComposerVoiceModeButton({
   const renderTriggerContent = useCallback(
     ({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => {
       if (isVoiceSwitching) {
-        return <ActivityIndicator size="small" color="white" />;
+        return <LoadingSpinner size="small" />;
       }
       const colorMapping = hovered ? iconForegroundMapping : iconForegroundMutedMapping;
       return <ThemedAudioLines size={buttonIconSize} uniProps={colorMapping} />;
@@ -986,6 +983,8 @@ export function Composer({
   onComposerHeightChange,
   onAttentionInputFocus,
   onAttentionPromptSend,
+  onAddImages,
+  onAddFiles,
   agentControls,
   inputWrapperStyle,
   footer,
@@ -1157,6 +1156,14 @@ export function Composer({
     },
     [setSelectedAttachments],
   );
+
+  useEffect(() => {
+    onAddImages?.(addImages);
+  }, [addImages, onAddImages]);
+
+  useEffect(() => {
+    onAddFiles?.(addFiles);
+  }, [addFiles, onAddFiles]);
 
   const focusInput = useCallback(() => {
     if (isNative) return;

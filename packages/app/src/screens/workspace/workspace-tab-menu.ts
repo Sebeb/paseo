@@ -3,7 +3,7 @@ import { i18n } from "@/i18n/i18next";
 import { encodeFilePathForPathSegment, encodeWorkspaceIdForPathSegment } from "@/utils/host-routes";
 import { buildDeterministicWorkspaceTabId } from "@/workspace-tabs/identity";
 
-export type WorkspaceTabMenuSurface = "desktop" | "mobile";
+export type WorkspaceTabMenuSurface = "desktop" | "mobile" | "vertical";
 
 export interface WorkspaceTabMenuLabels {
   copyResumeCommand: string;
@@ -12,6 +12,8 @@ export interface WorkspaceTabMenuLabels {
   rename: string;
   closeAbove: string;
   closeBelow: string;
+  closeVerticalAbove?: string;
+  closeVerticalBelow?: string;
   closeLeft: string;
   closeRight: string;
   closeOthers: string;
@@ -27,6 +29,8 @@ export const DEFAULT_WORKSPACE_TAB_MENU_LABELS: WorkspaceTabMenuLabels = {
   rename: i18n.t("workspace.tabs.menu.rename"),
   closeAbove: i18n.t("workspace.tabs.menu.closeAbove"),
   closeBelow: i18n.t("workspace.tabs.menu.closeBelow"),
+  closeVerticalAbove: i18n.t("workspace.tabs.menu.closeVerticalAbove"),
+  closeVerticalBelow: i18n.t("workspace.tabs.menu.closeVerticalBelow"),
   closeLeft: i18n.t("workspace.tabs.menu.closeLeft"),
   closeRight: i18n.t("workspace.tabs.menu.closeRight"),
   closeOthers: i18n.t("workspace.tabs.menu.closeOthers"),
@@ -48,6 +52,7 @@ export type WorkspaceTabMenuEntry =
         | "copy-x"
         | "pencil"
         | "x";
+      iconRotation?: "clockwise-90";
       hint?: string;
       tooltip?: string;
       disabled?: boolean;
@@ -104,22 +109,38 @@ function buildCloseBeforeLabel(
   surface: WorkspaceTabMenuSurface,
   labels: WorkspaceTabMenuLabels,
 ): string {
-  return surface === "mobile" ? labels.closeAbove : labels.closeLeft;
+  if (surface === "desktop") {
+    return labels.closeLeft;
+  }
+  return surface === "vertical"
+    ? (labels.closeVerticalAbove ?? labels.closeAbove)
+    : labels.closeAbove;
 }
 
 function buildCloseAfterLabel(
   surface: WorkspaceTabMenuSurface,
   labels: WorkspaceTabMenuLabels,
 ): string {
-  return surface === "mobile" ? labels.closeBelow : labels.closeRight;
+  if (surface === "desktop") {
+    return labels.closeRight;
+  }
+  return surface === "vertical"
+    ? (labels.closeVerticalBelow ?? labels.closeBelow)
+    : labels.closeBelow;
 }
 
 function buildCloseBeforeTestIDSuffix(surface: WorkspaceTabMenuSurface): string {
-  return surface === "mobile" ? "close-above" : "close-left";
+  return surface === "desktop" ? "close-left" : "close-above";
 }
 
 function buildCloseAfterTestIDSuffix(surface: WorkspaceTabMenuSurface): string {
-  return surface === "mobile" ? "close-below" : "close-right";
+  return surface === "desktop" ? "close-right" : "close-below";
+}
+
+function buildCloseOrderIconRotation(
+  surface: WorkspaceTabMenuSurface,
+): Extract<WorkspaceTabMenuEntry, { kind: "item" }>["iconRotation"] {
+  return surface === "vertical" ? "clockwise-90" : undefined;
 }
 
 function getCloseButtonTestId(tab: WorkspaceTabDescriptor): string {
@@ -227,6 +248,7 @@ export function buildWorkspaceTabMenuEntries(
     key: "close-before",
     label: buildCloseBeforeLabel(surface, labels),
     icon: "arrow-left-to-line",
+    iconRotation: buildCloseOrderIconRotation(surface),
     disabled: isFirstTab,
     testID: `${menuTestIDBase}-${buildCloseBeforeTestIDSuffix(surface)}`,
     onSelect: () => {
@@ -238,6 +260,7 @@ export function buildWorkspaceTabMenuEntries(
     key: "close-after",
     label: buildCloseAfterLabel(surface, labels),
     icon: "arrow-right-to-line",
+    iconRotation: buildCloseOrderIconRotation(surface),
     disabled: isLastTab,
     testID: `${menuTestIDBase}-${buildCloseAfterTestIDSuffix(surface)}`,
     onSelect: () => {

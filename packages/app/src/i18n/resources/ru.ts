@@ -351,6 +351,8 @@ export const ru: TranslationResources = {
       scriptsAccessibility: "Скрипты Workspace",
       copyPath: "Копировать путь",
       copyBranchName: "Копировать имя ветки",
+      created: "Создано {{value}}",
+      updated: "Обновлено {{value}}",
       copied: "Скопировано",
     },
     fileExplorer: {
@@ -470,6 +472,11 @@ export const ru: TranslationResources = {
         title: "Переключить вкладку",
         searchPlaceholder: "Вкладки поиска",
       },
+      info: {
+        created: "Создано {{value}}",
+        updated: "Обновлено {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "Открыть меню для{{label}}",
         copyResumeCommand: "Копировать команду возобновления",
@@ -478,6 +485,8 @@ export const ru: TranslationResources = {
         rename: "Переименовать",
         closeAbove: "Закрыть вкладки выше",
         closeBelow: "Закройте вкладки ниже",
+        closeVerticalAbove: "Закрыть выше",
+        closeVerticalBelow: "Закрыть ниже",
         closeLeft: "Ближе к левому краю",
         closeRight: "Ближе к правому",
         closeOthers: "Закрыть другие вкладки",
@@ -838,6 +847,16 @@ export const ru: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "Свернуть рабочее пространство",
+        expand: "Развернуть рабочее пространство",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "Показать все {{count}}",
+        showAllLabel: "Показать все вкладки",
+        showLess: "Показать меньше",
+        showLessLabel: "Показать меньше вкладок",
+      },
       status: {
         scriptsAvailable: "Доступны скрипты",
         creating: "Создание...",
@@ -1567,6 +1586,16 @@ export const ru: TranslationResources = {
           claude: "Клод",
           ghostty: "Призрачный",
           auto: "Система",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

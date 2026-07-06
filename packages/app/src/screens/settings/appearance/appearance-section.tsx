@@ -26,6 +26,7 @@ import {
   sanitizeFontFamily,
   useAppSettings,
   type AppSettings,
+  type AppTabLayoutMode,
 } from "@/hooks/use-settings";
 import {
   DEFAULT_MONO_FONT_STACK,
@@ -64,6 +65,15 @@ function getThemeLabel(t: TFunction, value: AppSettings["theme"]): string {
   return t(labelKeys[value]);
 }
 
+function getTabLayoutLabel(t: TFunction, value: AppTabLayoutMode): string {
+  const labelKeys: Record<AppTabLayoutMode, string> = {
+    horizontal: "settings.appearance.tabs.options.horizontal",
+    vertical: "settings.appearance.tabs.options.vertical",
+    sidebar: "settings.appearance.tabs.options.sidebar",
+  };
+  return t(labelKeys[value]);
+}
+
 const PRIMARY_THEMES: readonly AppSettings["theme"][] = ["light", "dark", "auto"];
 const DARK_VARIANT_THEMES: readonly AppSettings["theme"][] = [
   "zinc",
@@ -71,6 +81,7 @@ const DARK_VARIANT_THEMES: readonly AppSettings["theme"][] = [
   "claude",
   "ghostty",
 ];
+const TAB_LAYOUT_MODES: readonly AppTabLayoutMode[] = ["horizontal", "vertical", "sidebar"];
 
 // Platform default stacks can be the bare native tokens ("normal"/"monospace");
 // those read as a bug, so show a human label in the placeholder instead.
@@ -180,6 +191,63 @@ function ThemeRow({ value, onChange }: ThemeRowProps) {
               key={themeValue}
               themeValue={themeValue}
               selected={value === themeValue}
+              onChange={onChange}
+            />
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </View>
+  );
+}
+
+interface TabLayoutMenuItemProps {
+  value: AppTabLayoutMode;
+  selected: boolean;
+  onChange: (value: AppTabLayoutMode) => void;
+}
+
+function TabLayoutMenuItem({ value, selected, onChange }: TabLayoutMenuItemProps) {
+  const { t } = useTranslation();
+  const handleSelect = useCallback(() => {
+    onChange(value);
+  }, [onChange, value]);
+  return (
+    <DropdownMenuItem selected={selected} onSelect={handleSelect}>
+      {getTabLayoutLabel(t, value)}
+    </DropdownMenuItem>
+  );
+}
+
+interface TabLayoutRowProps {
+  value: AppTabLayoutMode;
+  onChange: (value: AppTabLayoutMode) => void;
+}
+
+function TabLayoutRow({ value, onChange }: TabLayoutRowProps) {
+  const { t } = useTranslation();
+  const selectedLabel = getTabLayoutLabel(t, value);
+  return (
+    <View style={styles.rowWithBorder}>
+      <View style={settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle}>{t("settings.appearance.tabs.tabLayout")}</Text>
+        <Text style={settingsStyles.rowHint}>{t("settings.appearance.tabs.tabLayoutHint")}</Text>
+      </View>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          style={dropdownTriggerStyle}
+          accessibilityLabel={t("settings.appearance.tabs.tabLayoutAccessibility", {
+            value: selectedLabel,
+          })}
+        >
+          <Text style={styles.triggerText}>{selectedLabel}</Text>
+          <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedColorMapping} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="bottom" align="end" width={180}>
+          {TAB_LAYOUT_MODES.map((mode) => (
+            <TabLayoutMenuItem
+              key={mode}
+              value={mode}
+              selected={value === mode}
               onChange={onChange}
             />
           ))}
@@ -390,6 +458,13 @@ export function AppearanceSection() {
     [updateSettings],
   );
 
+  const handleTabLayoutModeChange = useCallback(
+    (tabLayoutMode: AppTabLayoutMode) => {
+      void updateSettings({ tabLayoutMode });
+    },
+    [updateSettings],
+  );
+
   const handleSyntaxThemeChange = useCallback(
     (syntaxTheme: SyntaxThemeId) => {
       void updateSettings({ syntaxTheme });
@@ -475,6 +550,7 @@ export function AppearanceSection() {
       <SettingsSection title={t("settings.appearance.theme.title")}>
         <View style={settingsStyles.card}>
           <ThemeRow value={settings.theme} onChange={handleThemeChange} />
+          <TabLayoutRow value={settings.tabLayoutMode} onChange={handleTabLayoutModeChange} />
         </View>
       </SettingsSection>
       <SettingsSection title={t("settings.appearance.fonts.title")}>

@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { SidebarProjectEntry } from "@/hooks/sidebar-workspaces-view-model";
 import {
   getProjectStatusCountsFromStatuses,
   orderSingleProjectViewProjects,
   resolveSingleProjectViewProject,
 } from "@/utils/sidebar-single-project-view";
 
-function project(projectKey: string, workspaceIds: string[]): SidebarProjectEntry {
+function project(projectKey: string, workspaceIds: string[]) {
   return {
     projectKey,
     projectName: projectKey,

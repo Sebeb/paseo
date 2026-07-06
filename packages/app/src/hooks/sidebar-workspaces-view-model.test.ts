@@ -1,16 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { WorkspaceDescriptor } from "@/stores/session-store";
 import type { WorkspaceStructureProject } from "@/projects/workspace-structure";
 import {
   appendMissingOrderKeys,
   applyStoredOrdering,
-  buildSidebarStatusWorkspacePlacements,
-  buildSidebarWorkspacePlacementModel,
   buildSidebarProjectsFromStructure,
   computeSidebarOrderUpdates,
   deriveSidebarLoadingState,
-  shouldShowSidebarHostLabels,
+  sortSidebarWorkspaceProjects,
   type SidebarProjectEntry,
+  type SidebarWorkspaceEntry,
 } from "./sidebar-workspaces-view-model";
 
 interface OrderedItem {
@@ -27,18 +25,17 @@ function project(input: {
   projectKind?: WorkspaceStructureProject["projectKind"];
   iconWorkingDir?: string;
   workspaceKeys: string[];
-  hosts?: WorkspaceStructureProject["hosts"];
 }): WorkspaceStructureProject {
   return {
     projectKey: input.projectKey,
     projectName: input.projectName ?? input.projectKey,
     projectKind: input.projectKind ?? "git",
     iconWorkingDir: input.iconWorkingDir ?? input.projectKey,
-    hosts: input.hosts ?? [
+    hosts: [
       {
         serverId: "srv",
         iconWorkingDir: input.iconWorkingDir ?? input.projectKey,
-        canCreateWorktree: true,
+        canCreateWorktree: (input.projectKind ?? "git") === "git",
       },
     ],
     workspaceKeys: input.workspaceKeys,
@@ -48,8 +45,10 @@ function project(input: {
 function sidebarProject(input: {
   projectKey: string;
   workspaceKeys: string[];
+  serverId?: string;
 }): SidebarProjectEntry {
   const projects = buildSidebarProjectsFromStructure({
+    serverId: input.serverId ?? "srv",
     projects: [project({ projectKey: input.projectKey, workspaceKeys: input.workspaceKeys })],
   });
   const result = projects[0];
@@ -60,27 +59,36 @@ function sidebarProject(input: {
 }
 
 function workspace(input: {
-  id: string;
+  key: string;
   name: string;
-  projectId: string;
-  projectDisplayName: string;
-  status?: WorkspaceDescriptor["status"];
-  statusEnteredAt?: Date | null;
-}): WorkspaceDescriptor {
+  createdAt?: string | null;
+  activityAt?: string | null;
+  statusBucket?: SidebarWorkspaceEntry["statusBucket"];
+}): SidebarWorkspaceEntry {
   return {
-    id: input.id,
-    projectId: input.projectId,
-    projectDisplayName: input.projectDisplayName,
-    projectRootPath: `/repo/${input.projectId}`,
-    workspaceDirectory: `/repo/${input.projectId}/${input.id}`,
+    workspaceKey: `srv:${input.key}`,
+    serverId: "srv",
+    workspaceId: input.key,
+    projectKey: "project-1",
+    projectName: "Project 1",
+    projectRootPath: "/repo",
+    workspaceDirectory: `/repo/${input.key}`,
     projectKind: "git",
-    workspaceKind: input.name === "main" ? "local_checkout" : "worktree",
+    workspaceKind: "checkout",
     name: input.name,
-    status: input.status ?? "done",
-    statusEnteredAt: input.statusEnteredAt ?? null,
+    title: null,
+    currentBranch: null,
+    createdAt: input.createdAt ? new Date(input.createdAt) : null,
+    activityAt: input.activityAt ? new Date(input.activityAt) : null,
+    statusBucket: input.statusBucket ?? "done",
+    statusEnteredAt: null,
     archivingAt: null,
     diffStat: null,
+    prHint: null,
+    archiveHasUncommittedChanges: null,
+    archiveUnpushedCommitCount: null,
     scripts: [],
+    hasRunningScripts: false,
   };
 }
 
@@ -142,6 +150,7 @@ describe("appendMissingOrderKeys", () => {
 describe("buildSidebarProjectsFromStructure", () => {
   it("creates structural workspace rows from ordered workspace keys", () => {
     const projects = buildSidebarProjectsFromStructure({
+      serverId: "srv",
       projects: [
         project({
           projectKey: "project-1",
@@ -165,6 +174,7 @@ describe("buildSidebarProjectsFromStructure", () => {
 
   it("preserves the structure hook project order", () => {
     const projects = buildSidebarProjectsFromStructure({
+      serverId: "srv",
       projects: [
         project({ projectKey: "project-b", workspaceKeys: ["ws-b"] }),
         project({ projectKey: "project-a", workspaceKeys: ["ws-a"] }),
@@ -176,182 +186,11 @@ describe("buildSidebarProjectsFromStructure", () => {
 
   it("preserves the structure hook workspace order", () => {
     const projects = buildSidebarProjectsFromStructure({
+      serverId: "srv",
       projects: [project({ projectKey: "project-1", workspaceKeys: ["feature", "main"] })],
     });
 
-    expect(projects[0]?.workspaces.map((placement) => placement.workspaceId)).toEqual([
-      "feature",
-      "main",
-    ]);
-  });
-
-  it("resolves workspace keys by known host prefix when server ids contain colons", () => {
-    const projects = buildSidebarProjectsFromStructure({
-      projects: [
-        project({
-          projectKey: "project-1",
-          hosts: [
-            {
-              serverId: "relay:paseo-host",
-              iconWorkingDir: "/repo/project-1",
-              canCreateWorktree: true,
-            },
-          ],
-          workspaceKeys: ["relay:paseo-host:ws-main"],
-        }),
-      ],
-    });
-
-    expect(projects[0]?.workspaces[0]).toMatchObject({
-      workspaceKey: "relay:paseo-host:ws-main",
-      serverId: "relay:paseo-host",
-      workspaceId: "ws-main",
-    });
-  });
-});
-
-describe("shared sidebar workspace model", () => {
-  it("feeds project placement and status grouping from the same cross-host workspace identities", () => {
-    const model = buildSidebarWorkspacePlacementModel({
-      projects: [
-        project({
-          projectKey: "getpaseo/paseo",
-          projectName: "getpaseo/paseo",
-          iconWorkingDir: "/repo/getpaseo/paseo",
-          hosts: [
-            { serverId: "host-a", iconWorkingDir: "/repo/getpaseo/paseo", canCreateWorktree: true },
-            { serverId: "host-b", iconWorkingDir: "/repo/getpaseo/paseo", canCreateWorktree: true },
-          ],
-          workspaceKeys: ["host-a:main", "host-b:feature"],
-        }),
-      ],
-    });
-    const statusRows = buildSidebarStatusWorkspacePlacements({
-      placements: model.workspaces,
-      sessions: [
-        {
-          serverId: "host-a",
-          workspaces: new Map([
-            [
-              "main",
-              workspace({
-                id: "main",
-                name: "main",
-                projectId: "getpaseo/paseo",
-                projectDisplayName: "getpaseo/paseo",
-                status: "done",
-              }),
-            ],
-          ]),
-        },
-        {
-          serverId: "host-b",
-          workspaces: new Map([
-            [
-              "feature",
-              workspace({
-                id: "feature",
-                name: "feature/status-flow",
-                projectId: "getpaseo/paseo",
-                projectDisplayName: "getpaseo/paseo",
-                status: "running",
-                statusEnteredAt: new Date("2026-06-10T00:00:00.000Z"),
-              }),
-            ],
-          ]),
-        },
-      ],
-    });
-
-    expect(model.workspaces.map((entry) => entry.workspaceKey)).toEqual([
-      "host-a:main",
-      "host-b:feature",
-    ]);
-    expect(model.projects).toEqual([
-      expect.objectContaining({
-        projectKey: "getpaseo/paseo",
-        hosts: [
-          { serverId: "host-a", iconWorkingDir: "/repo/getpaseo/paseo", canCreateWorktree: true },
-          { serverId: "host-b", iconWorkingDir: "/repo/getpaseo/paseo", canCreateWorktree: true },
-        ],
-        workspaces: [
-          expect.objectContaining({
-            workspaceKey: "host-a:main",
-            serverId: "host-a",
-            name: "main",
-          }),
-          expect.objectContaining({
-            workspaceKey: "host-b:feature",
-            serverId: "host-b",
-            name: "feature",
-          }),
-        ],
-      }),
-    ]);
-    expect(statusRows.map((entry) => [entry.workspaceKey, entry.statusBucket, entry.name])).toEqual(
-      [
-        ["host-a:main", "done", "main"],
-        ["host-b:feature", "running", "feature/status-flow"],
-      ],
-    );
-    expect(model.projectNamesByKey).toEqual(new Map([["getpaseo/paseo", "getpaseo/paseo"]]));
-  });
-});
-
-describe("shouldShowSidebarHostLabels", () => {
-  it("is false with no visible projects", () => {
-    expect(shouldShowSidebarHostLabels([])).toBe(false);
-  });
-
-  it("is false when every project lives on a single host", () => {
-    const projects = buildSidebarProjectsFromStructure({
-      projects: [
-        project({ projectKey: "project-a", workspaceKeys: ["ws-1"] }),
-        project({ projectKey: "project-b", workspaceKeys: ["ws-2"] }),
-      ],
-    });
-
-    expect(shouldShowSidebarHostLabels(projects)).toBe(false);
-  });
-
-  it("is true when projects span separate hosts", () => {
-    const projects = buildSidebarProjectsFromStructure({
-      projects: [
-        project({
-          projectKey: "project-a",
-          hosts: [
-            { serverId: "host-a", iconWorkingDir: "/repo/project-a", canCreateWorktree: true },
-          ],
-          workspaceKeys: ["host-a:ws-1"],
-        }),
-        project({
-          projectKey: "project-b",
-          hosts: [
-            { serverId: "host-b", iconWorkingDir: "/repo/project-b", canCreateWorktree: true },
-          ],
-          workspaceKeys: ["host-b:ws-2"],
-        }),
-      ],
-    });
-
-    expect(shouldShowSidebarHostLabels(projects)).toBe(true);
-  });
-
-  it("is true for a single project shared across hosts", () => {
-    const projects = buildSidebarProjectsFromStructure({
-      projects: [
-        project({
-          projectKey: "getpaseo/paseo",
-          hosts: [
-            { serverId: "host-a", iconWorkingDir: "/repo/paseo", canCreateWorktree: true },
-            { serverId: "host-b", iconWorkingDir: "/repo/paseo", canCreateWorktree: true },
-          ],
-          workspaceKeys: ["host-a:main", "host-b:feature"],
-        }),
-      ],
-    });
-
-    expect(shouldShowSidebarHostLabels(projects)).toBe(true);
+    expect(projects[0]?.workspaces.map((entry) => entry.workspaceId)).toEqual(["feature", "main"]);
   });
 });
 
@@ -402,13 +241,96 @@ describe("computeSidebarOrderUpdates", () => {
   });
 });
 
+describe("sortSidebarWorkspaceProjects", () => {
+  it("preserves manual order and project identity", () => {
+    const projects = [
+      {
+        ...sidebarProject({ projectKey: "project-1", workspaceKeys: [] }),
+        workspaces: [
+          workspace({ key: "old", name: "old" }),
+          workspace({ key: "new", name: "new" }),
+        ],
+      },
+    ];
+
+    expect(sortSidebarWorkspaceProjects({ projects, sortMode: "manual" })).toBe(projects);
+  });
+
+  it("sorts workspaces by created time", () => {
+    const [sortedProject] = sortSidebarWorkspaceProjects({
+      projects: [
+        {
+          ...sidebarProject({ projectKey: "project-1", workspaceKeys: [] }),
+          workspaces: [
+            workspace({ key: "old", name: "old", createdAt: "2026-01-01T00:00:00.000Z" }),
+            workspace({ key: "new", name: "new", createdAt: "2026-02-01T00:00:00.000Z" }),
+          ],
+        },
+      ],
+      sortMode: "created",
+    });
+
+    expect(sortedProject?.workspaces.map((entry) => entry.workspaceId)).toEqual(["new", "old"]);
+  });
+
+  it("sorts workspaces by last updated activity", () => {
+    const [sortedProject] = sortSidebarWorkspaceProjects({
+      projects: [
+        {
+          ...sidebarProject({ projectKey: "project-1", workspaceKeys: [] }),
+          workspaces: [
+            workspace({ key: "quiet", name: "quiet", activityAt: "2026-01-01T00:00:00.000Z" }),
+            workspace({ key: "active", name: "active", activityAt: "2026-02-01T00:00:00.000Z" }),
+          ],
+        },
+      ],
+      sortMode: "lastUpdated",
+    });
+
+    expect(sortedProject?.workspaces.map((entry) => entry.workspaceId)).toEqual([
+      "active",
+      "quiet",
+    ]);
+  });
+
+  it("sorts status rank before activity", () => {
+    const [sortedProject] = sortSidebarWorkspaceProjects({
+      projects: [
+        {
+          ...sidebarProject({ projectKey: "project-1", workspaceKeys: [] }),
+          workspaces: [
+            workspace({
+              key: "running",
+              name: "running",
+              statusBucket: "running",
+              activityAt: "2026-03-01T00:00:00.000Z",
+            }),
+            workspace({
+              key: "needs-input",
+              name: "needs input",
+              statusBucket: "needs_input",
+              activityAt: "2026-01-01T00:00:00.000Z",
+            }),
+          ],
+        },
+      ],
+      sortMode: "status",
+    });
+
+    expect(sortedProject?.workspaces.map((entry) => entry.workspaceId)).toEqual([
+      "needs-input",
+      "running",
+    ]);
+  });
+});
+
 describe("deriveSidebarLoadingState", () => {
   it("reports initial-load while active and unhydrated with no projects", () => {
     expect(
       deriveSidebarLoadingState({
         isActive: true,
-        serverIds: ["srv"],
-        hydratedServerIds: [],
+        serverId: "srv",
+        hasHydratedWorkspaces: false,
         hasProjects: false,
       }),
     ).toEqual({ isLoading: true, isInitialLoad: true, isRevalidating: false });
@@ -418,8 +340,8 @@ describe("deriveSidebarLoadingState", () => {
     expect(
       deriveSidebarLoadingState({
         isActive: true,
-        serverIds: ["srv"],
-        hydratedServerIds: [],
+        serverId: "srv",
+        hasHydratedWorkspaces: false,
         hasProjects: true,
       }),
     ).toEqual({ isLoading: true, isInitialLoad: false, isRevalidating: false });
@@ -429,8 +351,8 @@ describe("deriveSidebarLoadingState", () => {
     expect(
       deriveSidebarLoadingState({
         isActive: true,
-        serverIds: ["srv"],
-        hydratedServerIds: ["srv"],
+        serverId: "srv",
+        hasHydratedWorkspaces: true,
         hasProjects: true,
       }),
     ).toEqual({ isLoading: false, isInitialLoad: false, isRevalidating: false });
@@ -440,8 +362,8 @@ describe("deriveSidebarLoadingState", () => {
     expect(
       deriveSidebarLoadingState({
         isActive: false,
-        serverIds: ["srv"],
-        hydratedServerIds: [],
+        serverId: "srv",
+        hasHydratedWorkspaces: false,
         hasProjects: false,
       }),
     ).toEqual({ isLoading: false, isInitialLoad: false, isRevalidating: false });

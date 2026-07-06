@@ -352,6 +352,8 @@ export const ja: TranslationResources = {
       scriptsAccessibility: "ワークスペーススクリプト",
       copyPath: "パスをコピー",
       copyBranchName: "ブランチ名をコピー",
+      created: "Created {{value}}",
+      updated: "Updated {{value}}",
       copied: "コピーしました",
     },
     fileExplorer: {
@@ -470,6 +472,11 @@ export const ja: TranslationResources = {
         title: "タブを切り替え",
         searchPlaceholder: "タブを検索",
       },
+      info: {
+        created: "Created {{value}}",
+        updated: "Updated {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "{{label}}のメニューを開く",
         copyResumeCommand: "再開コマンドをコピー",
@@ -478,6 +485,8 @@ export const ja: TranslationResources = {
         rename: "名前を変更",
         closeAbove: "上のタブを閉じる",
         closeBelow: "下のタブを閉じる",
+        closeVerticalAbove: "Close above",
+        closeVerticalBelow: "Close below",
         closeLeft: "左のタブを閉じる",
         closeRight: "右のタブを閉じる",
         closeOthers: "他のタブを閉じる",
@@ -831,6 +840,16 @@ export const ja: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "Collapse workspace",
+        expand: "Expand workspace",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "Show all {{count}}",
+        showAllLabel: "Show all tabs",
+        showLess: "Show less",
+        showLessLabel: "Show fewer tabs",
+      },
       status: {
         scriptsAvailable: "スクリプトが利用可能",
         creating: "作成中...",
@@ -1552,6 +1571,16 @@ export const ja: TranslationResources = {
           claude: "Claude",
           ghostty: "Ghostty",
           auto: "システム",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

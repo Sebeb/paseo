@@ -3,6 +3,11 @@ import { useTranslation } from "react-i18next";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import type { ProjectIcon } from "@getpaseo/protocol/messages";
 
+export interface ProjectIconPresentation {
+  dataUri: string | null;
+  backgroundColor: string | null;
+}
+
 export function projectIconQueryKey(serverId: string, cwd: string) {
   return ["projectIcon", serverId, cwd] as const;
 }
@@ -12,6 +17,13 @@ export function projectIconToDataUri(icon: ProjectIcon | null): string | null {
     return null;
   }
   return `data:${icon.mimeType};base64,${icon.data}`;
+}
+
+export function projectIconToPresentation(icon: ProjectIcon | null): ProjectIconPresentation {
+  return {
+    dataUri: projectIconToDataUri(icon),
+    backgroundColor: icon?.backgroundColor ?? null,
+  };
 }
 
 interface UseProjectIconQueryOptions {

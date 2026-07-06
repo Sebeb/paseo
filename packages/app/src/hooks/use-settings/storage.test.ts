@@ -69,6 +69,14 @@ describe("loadAppSettingsFromStorage", () => {
     expect(result.workspaceTitleSource).toBe("title");
   });
 
+  it("defaults tab layout mode to horizontal when storage is empty", async () => {
+    const deps = makeDeps();
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.tabLayoutMode).toBe("horizontal");
+  });
+
   it("loads configured terminal scrollback lines from app settings", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
@@ -147,6 +155,54 @@ describe("loadAppSettingsFromStorage", () => {
     const result = await loadAppSettingsFromStorage(deps);
 
     expect(result.language).toBe("zh-CN");
+  });
+
+  it("loads persisted tab layout mode", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ tabLayoutMode: "vertical" }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.tabLayoutMode).toBe("vertical");
+  });
+
+  it("drops an unknown persisted tab layout mode back to horizontal", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ tabLayoutMode: "floating" }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.tabLayoutMode).toBe("horizontal");
+  });
+
+  it("migrates legacy embedded tabs on to sidebar tab layout mode", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ embeddedTabs: true }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.tabLayoutMode).toBe("sidebar");
+  });
+
+  it("migrates legacy embedded tabs off to horizontal tab layout mode", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ embeddedTabs: false }),
+      }),
+    });
+
+    const result = await loadAppSettingsFromStorage(deps);
+
+    expect(result.tabLayoutMode).toBe("horizontal");
   });
 
   it("drops an unknown persisted language back to system", async () => {

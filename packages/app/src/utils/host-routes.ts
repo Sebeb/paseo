@@ -564,3 +564,30 @@ export function buildProjectSettingsRoute(projectKey: string) {
   }
   return `/settings/projects/${encodeSegment(normalized)}` as const;
 }
+
+export function mapPathnameToServer(pathname: string, nextServerId: string) {
+  const normalized = trimNonEmpty(nextServerId);
+  if (!normalized) {
+    return "/" as const;
+  }
+
+  const suffix = pathname.replace(/^\/h\/[^/]+\/?/, "");
+  const base = buildHostRootRoute(normalized);
+  if (suffix.startsWith("settings")) {
+    return buildSettingsHostRoute(normalized);
+  }
+  if (suffix.startsWith("sessions")) {
+    return `${base}/sessions` as const;
+  }
+  if (suffix.startsWith("open-project")) {
+    return `${base}/open-project` as const;
+  }
+  const workspaceRoute = parseHostWorkspaceRouteFromPathname(pathname);
+  if (workspaceRoute) {
+    return buildHostWorkspaceRoute(normalized, workspaceRoute.workspaceId);
+  }
+  if (suffix.startsWith("agent/")) {
+    return `${base}/${suffix}` as const;
+  }
+  return base;
+}

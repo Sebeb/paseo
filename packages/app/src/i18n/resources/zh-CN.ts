@@ -348,6 +348,8 @@ export const zhCN: TranslationResources = {
       scriptsAccessibility: "Workspace scripts",
       copyPath: "复制路径",
       copyBranchName: "复制分支名称",
+      created: "创建于 {{value}}",
+      updated: "更新于 {{value}}",
       copied: "已复制",
     },
     fileExplorer: {
@@ -466,6 +468,11 @@ export const zhCN: TranslationResources = {
         title: "切换标签",
         searchPlaceholder: "搜索标签",
       },
+      info: {
+        created: "创建于 {{value}}",
+        updated: "更新于 {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "打开 {{label}} 的菜单",
         copyResumeCommand: "复制恢复命令",
@@ -474,6 +481,8 @@ export const zhCN: TranslationResources = {
         rename: "重命名",
         closeAbove: "关闭上方标签",
         closeBelow: "关闭下方标签",
+        closeVerticalAbove: "关闭上方",
+        closeVerticalBelow: "关闭下方",
         closeLeft: "关闭左侧标签",
         closeRight: "关闭右侧标签",
         closeOthers: "关闭其他标签",
@@ -811,6 +820,16 @@ export const zhCN: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "折叠工作区",
+        expand: "展开工作区",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "显示全部 {{count}}",
+        showAllLabel: "显示所有标签",
+        showLess: "显示更少",
+        showLessLabel: "显示更少标签",
+      },
       status: {
         scriptsAvailable: "有可用 scripts",
         creating: "正在创建...",
@@ -1518,6 +1537,16 @@ export const zhCN: TranslationResources = {
           claude: "Claude",
           ghostty: "Ghostty",
           auto: "系统",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

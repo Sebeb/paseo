@@ -6,6 +6,8 @@ import { isWeb } from "@/constants/platform";
 import { getMimeTypeFromPath } from "@/attachments/file-types";
 import { readDesktopFileBytes, type PickedFile } from "@/attachments/picked-file";
 
+export { readDesktopFileBytes } from "@/attachments/picked-file";
+
 async function pickFilesWithDesktopDialog(): Promise<PickedFile[] | null> {
   const dialog = getDesktopHost()?.dialog;
   const dialogOpen = dialog?.open;

@@ -348,6 +348,8 @@ export const ar: TranslationResources = {
       scriptsAccessibility: "البرامج النصية Workspace",
       copyPath: "نسخ المسار",
       copyBranchName: "نسخ اسم الفرع",
+      created: "تم الإنشاء {{value}}",
+      updated: "تم التحديث {{value}}",
       copied: "تم النسخ",
     },
     fileExplorer: {
@@ -466,6 +468,11 @@ export const ar: TranslationResources = {
         title: "علامة التبويب التبديل",
         searchPlaceholder: "علامات تبويب البحث",
       },
+      info: {
+        created: "تم الإنشاء {{value}}",
+        updated: "تم التحديث {{value}}",
+        promptCount: "{{count}} prompts",
+      },
       menu: {
         openFor: "فتح القائمة لـ{{label}}",
         copyResumeCommand: "نسخ أمر السيرة الذاتية",
@@ -474,6 +481,8 @@ export const ar: TranslationResources = {
         rename: "إعادة تسمية",
         closeAbove: "إغلاق علامات التبويب أعلاه",
         closeBelow: "إغلاق علامات التبويب أدناه",
+        closeVerticalAbove: "إغلاق أعلاه",
+        closeVerticalBelow: "إغلاق أدناه",
         closeLeft: "بالقرب من اليسار",
         closeRight: "قريب من اليمين",
         closeOthers: "أغلق علامات التبويب الأخرى",
@@ -819,6 +828,16 @@ export const ar: TranslationResources = {
       },
     },
     workspace: {
+      embeddedTabs: {
+        collapse: "طي مساحة العمل",
+        expand: "توسيع مساحة العمل",
+        title: "Tabs",
+        noWorkspaceSelected: "No workspace selected",
+        showAll: "إظهار الكل {{count}}",
+        showAllLabel: "إظهار كل علامات التبويب",
+        showLess: "إظهار أقل",
+        showLessLabel: "إظهار عدد أقل من علامات التبويب",
+      },
       status: {
         scriptsAvailable: "البرامج النصية المتاحة",
         creating: "جارٍ الإنشاء...",
@@ -1536,6 +1555,16 @@ export const ar: TranslationResources = {
           claude: "كلود",
           ghostty: "شبحي",
           auto: "نظام",
+        },
+      },
+      tabs: {
+        tabLayout: "Tab layout",
+        tabLayoutHint: "Choose where workspace tabs appear",
+        tabLayoutAccessibility: "Tab layout: {{value}}",
+        options: {
+          horizontal: "Horizontal",
+          vertical: "Vertical",
+          sidebar: "Sidebar",
         },
       },
       fonts: {

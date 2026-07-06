@@ -14,6 +14,8 @@ function createWorkspace(
     projectKind: input.projectKind ?? "git",
     workspaceKind: input.workspaceKind ?? "checkout",
     name: input.name ?? "main",
+    createdAt: input.createdAt ?? null,
+    activityAt: input.activityAt ?? null,
     status: input.status ?? "running",
     archivingAt: input.archivingAt ?? null,
     statusEnteredAt: null,

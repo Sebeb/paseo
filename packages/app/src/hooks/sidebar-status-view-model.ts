@@ -1,6 +1,10 @@
-import type { SidebarStatusWorkspacePlacement } from "@/hooks/sidebar-workspaces-view-model";
+import {
+  sortSidebarWorkspaces,
+  type SidebarWorkspaceEntry,
+} from "@/hooks/sidebar-workspaces-view-model";
+import type { SidebarWorkspaceSortMode } from "@/stores/sidebar-view-store";
 
-export type StatusBucket = SidebarStatusWorkspacePlacement["statusBucket"];
+export type StatusBucket = SidebarWorkspaceEntry["statusBucket"];
 
 export const STATUS_BUCKET_ORDER: readonly StatusBucket[] = [
   "needs_input",
@@ -21,14 +25,14 @@ export const STATUS_BUCKET_LABELS: Record<StatusBucket, string> = {
 export interface StatusGroup {
   bucket: StatusBucket;
   label: string;
-  rows: SidebarStatusWorkspacePlacement[];
+  rows: SidebarWorkspaceEntry[];
 }
 
 export function buildStatusGroups(
-  workspaces: SidebarStatusWorkspacePlacement[],
-  projectNamesByKey: Map<string, string>,
+  workspaces: SidebarWorkspaceEntry[],
+  sortMode: SidebarWorkspaceSortMode,
 ): StatusGroup[] {
-  const bucketRows = new Map<StatusBucket, SidebarStatusWorkspacePlacement[]>();
+  const bucketRows = new Map<StatusBucket, SidebarWorkspaceEntry[]>();
 
   for (const ws of workspaces) {
     const bucket: StatusBucket = ws.statusBucket;
@@ -46,38 +50,14 @@ export function buildStatusGroups(
     const rows = bucketRows.get(bucket);
     if (!rows || rows.length === 0) continue;
 
-    rows.sort((a, b) => compareStatusRows(a, b, projectNamesByKey));
-    groups.push({ bucket, label: STATUS_BUCKET_LABELS[bucket], rows });
+    groups.push({
+      bucket,
+      label: STATUS_BUCKET_LABELS[bucket],
+      rows: sortSidebarWorkspaces({ workspaces: rows, sortMode }),
+    });
   }
 
   return groups;
-}
-
-function compareStatusRows(
-  a: SidebarStatusWorkspacePlacement,
-  b: SidebarStatusWorkspacePlacement,
-  projectNamesByKey: Map<string, string>,
-): number {
-  const aTime = a.statusEnteredAt?.getTime() ?? null;
-  const bTime = b.statusEnteredAt?.getTime() ?? null;
-
-  if (aTime !== null && bTime !== null) {
-    if (aTime !== bTime) return bTime - aTime;
-  } else if (aTime !== null) {
-    return -1;
-  } else if (bTime !== null) {
-    return 1;
-  }
-
-  const aProject = projectNamesByKey.get(a.projectKey) ?? "";
-  const bProject = projectNamesByKey.get(b.projectKey) ?? "";
-  const projectCmp = aProject.localeCompare(bProject);
-  if (projectCmp !== 0) return projectCmp;
-
-  const nameCmp = a.name.localeCompare(b.name);
-  if (nameCmp !== 0) return nameCmp;
-
-  return a.workspaceKey.localeCompare(b.workspaceKey);
 }
 
 export function buildStatusShortcutIndex(groups: StatusGroup[]): Map<string, number> {

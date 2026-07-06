@@ -1,17 +1,19 @@
 import { router, usePathname } from "expo-router";
-import {
-  CalendarClock,
-  FolderPlus,
-  History,
-  Home,
-  Plus,
-  Search,
-  Server,
-  Settings,
-  X,
-} from "lucide-react-native";
+import { FolderPlus, History, Home, Search, Settings, X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  type Dispatch,
+  memo,
+  type ComponentProps,
+  type ReactElement,
+  type RefObject,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Pressable,
   StyleSheet as RNStyleSheet,
@@ -19,6 +21,8 @@ import {
   useWindowDimensions,
   View,
   type PressableStateCallbackType,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -31,9 +35,8 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
-import { HostPicker } from "@/components/hosts/host-picker";
-import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
-import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/sidebar-display-preferences-menu";
+import { SidebarGroupingSelector } from "@/components/sidebar/sidebar-grouping-selector";
+import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/combobox";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -42,44 +45,45 @@ import { useSidebarAnimation } from "@/contexts/sidebar-animation-context";
 import { useOpenProjectPicker } from "@/hooks/use-open-project-picker";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useSidebarShortcutModel } from "@/hooks/use-sidebar-shortcut-model";
-import { canCreateWorktreeForProjectKind } from "@/projects/host-projects";
-import { useHostFeature } from "@/runtime/host-features";
+import { useAppSettings } from "@/hooks/use-settings";
 import {
   type SidebarProjectEntry,
-  type SidebarStatusWorkspacePlacement,
+  type SidebarWorkspaceEntry,
   useSidebarWorkspacesList,
 } from "@/hooks/use-sidebar-workspaces-list";
-import { useStatusModeWorkspacePlacements } from "@/hooks/use-status-mode-workspaces";
-import { useSidebarViewStore, type SidebarGroupMode } from "@/stores/sidebar-view-store";
+import {
+  useSidebarViewStore,
+  type SidebarBadgeMode,
+  type SidebarGroupMode,
+} from "@/stores/sidebar-view-store";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
-import { useHosts } from "@/runtime/host-runtime";
-import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
-import { useWorkspace } from "@/stores/session-store-hooks";
+import { useHostRuntimeSnapshot, useHosts } from "@/runtime/host-runtime";
 import {
   MAX_SIDEBAR_WIDTH,
+  MAX_VERTICAL_TABS_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
+  MIN_VERTICAL_TABS_SIDEBAR_WIDTH,
   selectIsAgentListOpen,
   usePanelStore,
 } from "@/stores/panel-store";
+import {
+  useActiveWorkspaceSelection,
+  type ActiveWorkspaceSelection,
+} from "@/stores/navigation-active-workspace-store";
+import { resolveActiveHost } from "@/utils/active-host";
+import { formatConnectionStatus } from "@/utils/daemons";
 import { useWindowControlsPadding } from "@/utils/desktop-window";
 import { canCloseLeftSidebarGesture } from "@/utils/sidebar-animation-state";
+import { resolveSingleProjectViewProject } from "@/utils/sidebar-single-project-view";
 import {
-  buildOpenProjectRoute,
-  buildNewWorkspaceRoute,
-  buildSchedulesRoute,
-  buildSessionsRoute,
-  buildSettingsAddHostRoute,
-  buildSettingsHostSectionRoute,
+  buildHostOpenProjectRoute,
+  buildHostSessionsRoute,
   buildSettingsRoute,
+  mapPathnameToServer,
 } from "@/utils/host-routes";
-import type { ShortcutKey } from "@/utils/format-shortcut";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
-import {
-  SidebarSelectedProjectHeaderActions,
-  SidebarWorkspaceList,
-} from "./sidebar-workspace-list";
-import { resolveSingleProjectViewProject } from "@/utils/sidebar-single-project-view";
+import { SidebarVerticalWorkspaceTabs, SidebarWorkspaceList } from "./sidebar-workspace-list";
 
 const MIN_CHAT_WIDTH = 400;
 
@@ -92,40 +96,47 @@ interface LeftSidebarProps {
 
 interface SidebarSharedProps {
   theme: SidebarTheme;
-  statusWorkspacePlacements: SidebarStatusWorkspacePlacement[];
+  activeServerId: string | null;
+  activeHostLabel: string;
+  activeHostStatusColor: string;
+  hostOptions: ComboboxOption[];
+  hostTriggerRef: RefObject<View | null>;
+  isHostPickerOpen: boolean;
+  setIsHostPickerOpen: Dispatch<SetStateAction<boolean>>;
   projects: SidebarProjectEntry[];
-  projectNamesByKey: Map<string, string>;
-  singleProjectViewEnabled: boolean;
-  selectedSingleProject: SidebarProjectEntry | null;
-  headerProjectName: string | null;
-  handleSingleProjectSelect: (projectKey: string) => void;
-  handleSingleProjectHover: (projectName: string | null) => void;
   isInitialLoad: boolean;
   isRevalidating: boolean;
   isManualRefresh: boolean;
   groupMode: SidebarGroupMode;
+  singleProjectViewEnabled: boolean;
+  selectedSingleProject: SidebarProjectEntry | null;
+  headerProjectName: string | null;
   collapsedProjectKeys: SidebarShortcutModel["collapsedProjectKeys"];
   shortcutIndexByWorkspaceKey: SidebarShortcutModel["shortcutIndexByWorkspaceKey"];
   toggleProjectCollapsed: SidebarShortcutModel["toggleProjectCollapsed"];
+  handleSingleProjectSelect: (projectKey: string) => void;
+  handleSingleProjectHover: (projectName: string | null) => void;
   handleRefresh: () => void;
+  handleHostSelect: (nextServerId: string) => void;
   handleOpenProject: () => void;
   handleHome: () => void;
   handleSettings: () => void;
   labels: SidebarLabels;
-  newWorkspaceKeys: ShortcutKey[][] | null;
-  handleAddHost: () => void;
-  handleOpenHostSettings: (serverId: string) => void;
+  renderHostOption: (input: {
+    option: ComboboxOption;
+    selected: boolean;
+    active: boolean;
+    onPress: () => void;
+  }) => ReactElement;
 }
 
 interface SidebarLabels {
   addProject: string;
-  newWorkspace: string;
   home: string;
   settings: string;
   switchHost: string;
   searchHosts: string;
   sessions: string;
-  schedules: string;
   closeSidebar: string;
 }
 
@@ -135,14 +146,13 @@ interface MobileSidebarProps extends SidebarSharedProps {
   isOpen: boolean;
   closeSidebar: () => void;
   handleViewMoreNavigate: () => void;
-  handleViewSchedulesNavigate: () => void;
 }
 
 interface DesktopSidebarProps extends SidebarSharedProps {
   insetsTop: number;
   isOpen: boolean;
+  showVerticalTabs: boolean;
   handleViewMore: () => void;
-  handleViewSchedules: () => void;
 }
 
 export const LeftSidebar = memo(function LeftSidebar({
@@ -157,25 +167,73 @@ export const LeftSidebar = memo(function LeftSidebar({
   const isOpen = usePanelStore((state) =>
     selectIsAgentListOpen(state, { isCompact: isCompactLayout }),
   );
+  const { settings } = useAppSettings();
+  const showDesktopVerticalTabs = settings.tabLayoutMode === "vertical" && !isCompactLayout;
   const showMobileAgent = usePanelStore((state) => state.showMobileAgent);
+  const pathname = usePathname();
+  const daemons = useHosts();
+  const activeDaemon = useMemo(
+    () => resolveActiveHost({ hosts: daemons, pathname }),
+    [daemons, pathname],
+  );
+  const activeServerId = activeDaemon?.serverId ?? null;
+  const activeHostLabel = useMemo(() => {
+    if (!activeDaemon) return t("sidebar.host.noHost");
+    const trimmed = activeDaemon.label?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : activeDaemon.serverId;
+  }, [activeDaemon, t]);
+  const activeHostSnapshot = useHostRuntimeSnapshot(activeServerId ?? "");
+  const activeHostStatus = activeServerId
+    ? (activeHostSnapshot?.connectionStatus ?? "connecting")
+    : "idle";
+  let activeHostStatusColor: string;
+  if (activeHostStatus === "online") activeHostStatusColor = theme.colors.palette.green[400];
+  else if (activeHostStatus === "connecting")
+    activeHostStatusColor = theme.colors.palette.amber[500];
+  else activeHostStatusColor = theme.colors.palette.red[500];
+  const hostOptions = useMemo(
+    () =>
+      daemons.map((daemon) => ({
+        id: daemon.serverId,
+        label: daemon.label?.trim() || daemon.serverId,
+      })),
+    [daemons],
+  );
+  const renderHostOption = useCallback(
+    ({
+      option,
+      selected,
+      active,
+      onPress,
+    }: {
+      option: ComboboxOption;
+      selected: boolean;
+      active: boolean;
+      onPress: () => void;
+    }) => (
+      <HostSwitchOption
+        serverId={option.id}
+        label={option.label}
+        selected={selected}
+        active={active}
+        onPress={onPress}
+      />
+    ),
+    [],
+  );
+  const hostTriggerRef = useRef<View | null>(null);
+  const [isHostPickerOpen, setIsHostPickerOpen] = useState(false);
 
-  const {
-    workspacePlacements,
-    projects,
-    projectNamesByKey,
-    isInitialLoad,
-    isRevalidating,
-    refreshAll,
-  } = useSidebarWorkspacesList({
-    enabled: isCompactLayout || isOpen,
-  });
-  const statusWorkspacePlacements = useStatusModeWorkspacePlacements({
-    placements: workspacePlacements,
+  const { projects, isInitialLoad, isRevalidating, refreshAll } = useSidebarWorkspacesList({
+    serverId: activeServerId,
+    enabled: isCompactLayout || isOpen || showDesktopVerticalTabs,
   });
   const { collapsedProjectKeys, shortcutIndexByWorkspaceKey, toggleProjectCollapsed } =
     useSidebarShortcutModel({ projects });
 
-  const groupMode = useSidebarViewStore((state) => state.groupMode);
+  const groupMode = useSidebarViewStore((state) =>
+    activeServerId ? state.getGroupMode(activeServerId) : "project",
+  );
   const singleProjectViewSettingEnabled = useSidebarViewStore(
     (state) => state.singleProjectViewEnabled,
   );
@@ -195,29 +253,28 @@ export const LeftSidebar = memo(function LeftSidebar({
         : null,
     [activeWorkspaceSelection, projects],
   );
-  const activeWorkspaceSelectionKey = activeWorkspaceSelection
+  const activeWorkspaceSelectionKeyValue = activeWorkspaceSelection
     ? `${activeWorkspaceSelection.serverId}:${activeWorkspaceSelection.workspaceId}`
     : "";
   const syncedActiveWorkspaceSelectionKeyRef = useRef("");
 
   useEffect(() => {
-    if (!singleProjectViewEnabled) {
-      syncedActiveWorkspaceSelectionKeyRef.current = "";
+    if (!singleProjectViewEnabled || !activeWorkspaceSelectionKeyValue || !activeSingleProject) {
       return;
     }
-    if (!activeSingleProject) {
+    if (syncedActiveWorkspaceSelectionKeyRef.current === activeWorkspaceSelectionKeyValue) {
       return;
     }
-    if (syncedActiveWorkspaceSelectionKeyRef.current === activeWorkspaceSelectionKey) {
-      return;
+    syncedActiveWorkspaceSelectionKeyRef.current = activeWorkspaceSelectionKeyValue;
+    if (activeSingleProject.projectKey !== singleProjectViewProjectKey) {
+      setSingleProjectViewProjectKey(activeSingleProject.projectKey);
     }
-    syncedActiveWorkspaceSelectionKeyRef.current = activeWorkspaceSelectionKey;
-    setSingleProjectViewProjectKey(activeSingleProject.projectKey);
   }, [
     activeSingleProject,
-    activeWorkspaceSelectionKey,
+    activeWorkspaceSelectionKeyValue,
     setSingleProjectViewProjectKey,
     singleProjectViewEnabled,
+    singleProjectViewProjectKey,
   ]);
 
   const selectedSingleProject = useMemo(
@@ -277,55 +334,44 @@ export const LeftSidebar = memo(function LeftSidebar({
     router.push(buildSettingsRoute());
   }, []);
 
-  const handleAddHostMobile = useCallback(() => {
-    showMobileAgent();
-    router.push(buildSettingsAddHostRoute(Date.now()));
-  }, [showMobileAgent]);
-
-  const handleAddHostDesktop = useCallback(() => {
-    router.push(buildSettingsAddHostRoute(Date.now()));
-  }, []);
-
-  const handleOpenHostSettingsMobile = useCallback(
-    (serverId: string) => {
-      showMobileAgent();
-      router.push(buildSettingsHostSectionRoute(serverId, "connections"));
-    },
-    [showMobileAgent],
-  );
-
-  const handleOpenHostSettingsDesktop = useCallback((serverId: string) => {
-    router.push(buildSettingsHostSectionRoute(serverId, "connections"));
-  }, []);
-
   const handleHomeMobile = useCallback(() => {
+    if (!activeServerId) return;
     showMobileAgent();
-    router.push(buildOpenProjectRoute());
-  }, [showMobileAgent]);
+    router.push(buildHostOpenProjectRoute(activeServerId));
+  }, [activeServerId, showMobileAgent]);
 
   const handleHomeDesktop = useCallback(() => {
-    router.push(buildOpenProjectRoute());
-  }, []);
+    if (!activeServerId) return;
+    router.push(buildHostOpenProjectRoute(activeServerId));
+  }, [activeServerId]);
 
   const handleViewMoreNavigate = useCallback(() => {
-    router.push(buildSessionsRoute());
-  }, []);
+    if (!activeServerId) {
+      return;
+    }
+    router.push(buildHostSessionsRoute(activeServerId));
+  }, [activeServerId]);
 
-  const handleViewSchedulesNavigate = useCallback(() => {
-    router.push(buildSchedulesRoute());
-  }, []);
+  const handleHostSelect = useCallback(
+    (nextServerId: string) => {
+      if (!nextServerId) {
+        return;
+      }
+      const nextPath = mapPathnameToServer(pathname, nextServerId);
+      setIsHostPickerOpen(false);
+      router.push(nextPath);
+    },
+    [pathname],
+  );
 
-  const newWorkspaceKeys = useShortcutKeys("new-workspace");
   const labels = useMemo(
     (): SidebarLabels => ({
       addProject: t("sidebar.actions.addProject"),
-      newWorkspace: t("sidebar.actions.newWorkspace"),
       home: t("sidebar.actions.home"),
       settings: t("sidebar.actions.settings"),
       switchHost: t("sidebar.host.switchTitle"),
       searchHosts: t("sidebar.host.searchPlaceholder"),
       sessions: t("sidebar.sections.sessions"),
-      schedules: t("sidebar.sections.schedules"),
       closeSidebar: t("sidebar.actions.closeSidebar"),
     }),
     [t],
@@ -333,24 +379,30 @@ export const LeftSidebar = memo(function LeftSidebar({
 
   const sharedProps = {
     theme,
-    statusWorkspacePlacements,
+    activeServerId,
+    activeHostLabel,
+    activeHostStatusColor,
+    hostOptions,
+    hostTriggerRef,
+    isHostPickerOpen,
+    setIsHostPickerOpen,
     projects,
-    projectNamesByKey,
-    singleProjectViewEnabled,
-    selectedSingleProject,
-    headerProjectName,
-    handleSingleProjectSelect,
-    handleSingleProjectHover,
     isInitialLoad,
     isRevalidating,
     isManualRefresh,
     groupMode,
+    singleProjectViewEnabled,
+    selectedSingleProject,
+    headerProjectName,
     collapsedProjectKeys,
     shortcutIndexByWorkspaceKey,
     toggleProjectCollapsed,
+    handleSingleProjectSelect,
+    handleSingleProjectHover,
     handleRefresh,
+    handleHostSelect,
+    renderHostOption,
     labels,
-    newWorkspaceKeys,
   };
 
   if (isCompactLayout) {
@@ -364,10 +416,7 @@ export const LeftSidebar = memo(function LeftSidebar({
         handleOpenProject={handleOpenProjectMobile}
         handleHome={handleHomeMobile}
         handleSettings={handleSettingsMobile}
-        handleAddHost={handleAddHostMobile}
-        handleOpenHostSettings={handleOpenHostSettingsMobile}
         handleViewMoreNavigate={handleViewMoreNavigate}
-        handleViewSchedulesNavigate={handleViewSchedulesNavigate}
       />
     );
   }
@@ -377,41 +426,97 @@ export const LeftSidebar = memo(function LeftSidebar({
       {...sharedProps}
       insetsTop={insets.top}
       isOpen={isOpen}
+      showVerticalTabs={showDesktopVerticalTabs}
       handleOpenProject={handleOpenProjectDesktop}
       handleHome={handleHomeDesktop}
       handleSettings={handleSettingsDesktop}
-      handleAddHost={handleAddHostDesktop}
-      handleOpenHostSettings={handleOpenHostSettingsDesktop}
       handleViewMore={handleViewMoreNavigate}
-      handleViewSchedules={handleViewSchedulesNavigate}
     />
   );
 });
 
-function sidebarHostOptionTestID(serverId: string): string {
-  return `sidebar-host-row-${serverId}`;
+interface HostPickerTriggerProps {
+  triggerRef: React.Ref<View>;
+  setIsHostPickerOpen: Dispatch<SetStateAction<boolean>>;
+  hostOptionsEmpty: boolean;
+  hostStatusDotStyle: StyleProp<ViewStyle>;
+  activeHostLabel: string;
+}
+
+function HostPickerTrigger({
+  triggerRef,
+  setIsHostPickerOpen,
+  hostOptionsEmpty,
+  hostStatusDotStyle,
+  activeHostLabel,
+}: HostPickerTriggerProps) {
+  const pressableStyle = useCallback(
+    ({ hovered = false }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.hostTrigger,
+      hovered && styles.hostTriggerHovered,
+    ],
+    [],
+  );
+  const handlePress = useCallback(() => setIsHostPickerOpen(true), [setIsHostPickerOpen]);
+  return (
+    <Pressable
+      ref={triggerRef}
+      style={pressableStyle}
+      onPress={handlePress}
+      disabled={hostOptionsEmpty}
+    >
+      <View style={hostStatusDotStyle} />
+      <Text style={styles.hostTriggerText} numberOfLines={1}>
+        {activeHostLabel}
+      </Text>
+    </Pressable>
+  );
+}
+
+function HostSwitchOption({
+  serverId,
+  label,
+  selected,
+  active,
+  onPress,
+}: {
+  serverId: string;
+  label: string;
+  selected: boolean;
+  active: boolean;
+  onPress: () => void;
+}) {
+  const snapshot = useHostRuntimeSnapshot(serverId);
+  const connectionStatus = snapshot?.connectionStatus ?? "connecting";
+
+  return (
+    <ComboboxItem
+      label={label}
+      description={formatConnectionStatus(connectionStatus)}
+      selected={selected}
+      active={active}
+      onPress={onPress}
+    />
+  );
 }
 
 function FooterIconButton({
-  buttonRef,
   onPress,
   testID,
   accessibilityLabel,
   icon: Icon,
-  iconSize,
   theme,
+  isActive = false,
 }: {
   onPress: () => void;
   testID: string;
   accessibilityLabel: string;
   icon: typeof FolderPlus;
-  iconSize?: number;
   theme: SidebarTheme;
-  buttonRef?: RefObject<View | null>;
+  isActive?: boolean;
 }) {
   return (
     <Pressable
-      ref={buttonRef}
       style={styles.footerIconButton}
       testID={testID}
       nativeID={testID}
@@ -423,63 +528,11 @@ function FooterIconButton({
     >
       {({ hovered }) => (
         <Icon
-          size={iconSize ?? theme.iconSize.md}
-          color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
+          size={theme.iconSize.md}
+          color={hovered || isActive ? theme.colors.foreground : theme.colors.foregroundMuted}
         />
       )}
     </Pressable>
-  );
-}
-
-function SidebarHostPicker({
-  theme,
-  onAddHost,
-  onOpenHostSettings,
-}: {
-  theme: SidebarTheme;
-  onAddHost: () => void;
-  onOpenHostSettings: (serverId: string) => void;
-}) {
-  const hosts = useHosts();
-  const triggerRef = useRef<View | null>(null);
-  const [isOpen, setIsOpen] = useState(false);
-
-  const handleSelect = useCallback(
-    (id: string) => {
-      onOpenHostSettings(id);
-    },
-    [onOpenHostSettings],
-  );
-
-  const handleOpen = useCallback(() => setIsOpen(true), []);
-
-  return (
-    <HostPicker
-      hosts={hosts}
-      value=""
-      onSelect={handleSelect}
-      open={isOpen}
-      onOpenChange={setIsOpen}
-      anchorRef={triggerRef}
-      includeAddHost
-      onAddHost={onAddHost}
-      showActiveConnection
-      onOpenHostSettings={onOpenHostSettings}
-      searchable
-      desktopMinWidth={240}
-      addHostTestID="sidebar-host-add"
-      hostOptionTestID={sidebarHostOptionTestID}
-    >
-      <FooterIconButton
-        buttonRef={triggerRef}
-        onPress={handleOpen}
-        testID="sidebar-hosts-trigger"
-        accessibilityLabel="Hosts"
-        icon={Server}
-        iconSize={theme.iconSize.sm}
-        theme={theme}
-      />
-    </HostPicker>
   );
 }
 
@@ -513,88 +566,35 @@ function HeaderIconTooltipContent({
   );
 }
 
-function findProjectForWorkspaceSelection(
-  projects: SidebarProjectEntry[],
-  selection: { serverId: string; workspaceId: string },
-): SidebarProjectEntry | null {
-  for (const project of projects) {
-    const hasWorkspace = project.workspaces.some(
-      (workspace) =>
-        workspace.serverId === selection.serverId &&
-        workspace.workspaceId === selection.workspaceId,
-    );
-    if (hasWorkspace) {
-      return project;
-    }
-  }
-  return null;
-}
-
-const SidebarNewWorkspaceHeaderRow = memo(function SidebarNewWorkspaceHeaderRow({
-  label,
-  testID,
-  variant,
-  shortcutKeys,
-  onBeforeNavigate,
-}: {
-  label: string;
-  testID: string;
-  variant: "header" | "compact";
-  shortcutKeys: ShortcutKey[][] | null;
-  onBeforeNavigate?: () => void;
-}) {
-  const activeWorkspaceSelection = useActiveWorkspaceSelection();
-  const activeWorkspaceServerId = activeWorkspaceSelection?.serverId ?? null;
-  const activeWorkspaceId = activeWorkspaceSelection?.workspaceId ?? null;
-  const activeWorkspace = useWorkspace(activeWorkspaceServerId, activeWorkspaceId);
-  const supportsWorkspaceMultiplicity = useHostFeature(
-    activeWorkspaceServerId,
-    "workspaceMultiplicity",
-  );
-  const canUseActiveWorkspaceContext = Boolean(
-    activeWorkspace &&
-    (supportsWorkspaceMultiplicity || canCreateWorktreeForProjectKind(activeWorkspace.projectKind)),
-  );
-
-  const handlePress = useCallback(() => {
-    onBeforeNavigate?.();
-    router.push(
-      activeWorkspaceServerId
-        ? buildNewWorkspaceRoute(
-            activeWorkspace && canUseActiveWorkspaceContext
-              ? {
-                  serverId: activeWorkspaceServerId,
-                  sourceDirectory: activeWorkspace.projectRootPath,
-                  projectId: activeWorkspace.projectId,
-                }
-              : { serverId: activeWorkspaceServerId },
-          )
-        : buildNewWorkspaceRoute(),
-    );
-  }, [activeWorkspace, activeWorkspaceServerId, canUseActiveWorkspaceContext, onBeforeNavigate]);
-
-  return (
-    <SidebarHeaderRow
-      icon={Plus}
-      label={label}
-      onPress={handlePress}
-      testID={testID}
-      variant={variant}
-      shortcutKeys={shortcutKeys}
-    />
-  );
-});
-
 function SidebarFooter({
   theme,
+  activeServerId,
+  activeHostLabel,
+  hostStatusDotStyle,
+  hostOptions,
+  hostTriggerRef,
+  isHostPickerOpen,
+  setIsHostPickerOpen,
+  handleHostSelect,
+  renderHostOption,
+  handleViewMore,
   handleOpenProject,
   handleHome,
   handleSettings,
   labels,
-  handleAddHost,
-  handleOpenHostSettings,
+  isSessionsActive,
 }: {
   theme: SidebarTheme;
+  activeServerId: string | null;
+  activeHostLabel: string;
+  hostStatusDotStyle: StyleProp<ViewStyle>;
+  hostOptions: ComboboxOption[];
+  hostTriggerRef: RefObject<View | null>;
+  isHostPickerOpen: boolean;
+  setIsHostPickerOpen: Dispatch<SetStateAction<boolean>>;
+  handleHostSelect: (nextServerId: string) => void;
+  renderHostOption: SidebarSharedProps["renderHostOption"];
+  handleViewMore: () => void;
   handleOpenProject: () => void;
   handleHome: () => void;
   handleSettings: () => void;
@@ -604,19 +604,30 @@ function SidebarFooter({
     settings: string;
     switchHost: string;
     searchHosts: string;
+    sessions: string;
   };
-  handleAddHost: () => void;
-  handleOpenHostSettings: (serverId: string) => void;
+  isSessionsActive: boolean;
 }) {
   const newAgentKeys = useShortcutKeys("new-agent");
-
   return (
     <View style={styles.sidebarFooter}>
+      <View style={styles.footerHostSlot}>
+        <HostPickerTrigger
+          triggerRef={hostTriggerRef}
+          setIsHostPickerOpen={setIsHostPickerOpen}
+          hostOptionsEmpty={hostOptions.length === 0}
+          hostStatusDotStyle={hostStatusDotStyle}
+          activeHostLabel={activeHostLabel}
+        />
+      </View>
       <View style={styles.footerIconRow}>
-        <SidebarHostPicker
+        <FooterIconButton
+          onPress={handleViewMore}
+          testID="sidebar-sessions"
+          accessibilityLabel={labels.sessions}
+          icon={History}
           theme={theme}
-          onAddHost={handleAddHost}
-          onOpenHostSettings={handleOpenHostSettings}
+          isActive={isSessionsActive}
         />
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
@@ -647,45 +658,60 @@ function SidebarFooter({
           theme={theme}
         />
       </View>
+      <Combobox
+        options={hostOptions}
+        value={activeServerId ?? ""}
+        onSelect={handleHostSelect}
+        renderOption={renderHostOption}
+        searchable={false}
+        title={labels.switchHost}
+        searchPlaceholder={labels.searchHosts}
+        desktopMinWidth={280}
+        open={isHostPickerOpen}
+        onOpenChange={setIsHostPickerOpen}
+        anchorRef={hostTriggerRef}
+      />
     </View>
   );
 }
 
 function MobileSidebar({
   theme,
-  statusWorkspacePlacements,
+  activeServerId,
+  activeHostLabel,
+  activeHostStatusColor,
+  hostOptions,
+  hostTriggerRef,
+  isHostPickerOpen,
+  setIsHostPickerOpen,
   projects,
-  projectNamesByKey,
-  singleProjectViewEnabled,
-  selectedSingleProject,
-  headerProjectName,
-  handleSingleProjectSelect,
-  handleSingleProjectHover,
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
   groupMode,
+  singleProjectViewEnabled,
+  selectedSingleProject,
+  headerProjectName,
   collapsedProjectKeys,
   shortcutIndexByWorkspaceKey,
   toggleProjectCollapsed,
+  handleSingleProjectSelect,
+  handleSingleProjectHover,
   handleRefresh,
-  newWorkspaceKeys,
+  handleHostSelect,
+  renderHostOption,
   handleOpenProject,
   handleHome,
   handleSettings,
   labels,
-  handleAddHost,
-  handleOpenHostSettings,
   insetsTop,
   insetsBottom,
   isOpen,
   closeSidebar,
   handleViewMoreNavigate,
-  handleViewSchedulesNavigate,
 }: MobileSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
-  const isSchedulesActive = pathname.includes("/schedules");
   const {
     translateX,
     backdropOpacity,
@@ -707,18 +733,21 @@ function MobileSidebar({
   }, [closeSidebar, gestureAnimatingRef]);
 
   const handleViewMore = useCallback(() => {
+    if (!activeServerId) {
+      return;
+    }
     translateX.value = -windowWidth;
     backdropOpacity.value = 0;
     closeSidebar();
     handleViewMoreNavigate();
-  }, [backdropOpacity, closeSidebar, handleViewMoreNavigate, translateX, windowWidth]);
-
-  const handleViewSchedules = useCallback(() => {
-    translateX.value = -windowWidth;
-    backdropOpacity.value = 0;
-    closeSidebar();
-    handleViewSchedulesNavigate();
-  }, [backdropOpacity, closeSidebar, handleViewSchedulesNavigate, translateX, windowWidth]);
+  }, [
+    activeServerId,
+    backdropOpacity,
+    closeSidebar,
+    handleViewMoreNavigate,
+    translateX,
+    windowWidth,
+  ]);
 
   const handleWorkspacePress = useCallback(() => {
     closeSidebar();
@@ -813,6 +842,11 @@ function MobileSidebar({
     [windowWidth, insetsTop, insetsBottom],
   );
 
+  const hostStatusDotStyle = useMemo(
+    () => [styles.hostStatusDot, { backgroundColor: activeHostStatusColor }],
+    [activeHostStatusColor],
+  );
+
   const sidebarAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
   }));
@@ -864,37 +898,7 @@ function MobileSidebar({
       <GestureDetector gesture={closeGesture} touchAction="pan-y">
         <Animated.View style={mobileSidebarStyle} pointerEvents="auto">
           <View style={styles.sidebarContent} pointerEvents="auto">
-            <View style={styles.sidebarHeaderGroup}>
-              <SidebarNewWorkspaceHeaderRow
-                label={labels.newWorkspace}
-                testID="sidebar-global-new-workspace"
-                variant="compact"
-                shortcutKeys={newWorkspaceKeys}
-                onBeforeNavigate={closeSidebar}
-              />
-              <SidebarHeaderRow
-                icon={History}
-                label={labels.sessions}
-                onPress={handleViewMore}
-                isActive={isSessionsActive}
-                testID="sidebar-sessions"
-                variant="compact"
-              />
-              <SidebarHeaderRow
-                icon={CalendarClock}
-                label={labels.schedules}
-                onPress={handleViewSchedules}
-                isActive={isSchedulesActive}
-                testID="sidebar-schedules"
-                variant="compact"
-              />
-            </View>
-            <WorkspacesSectionHeader
-              title={headerProjectName ?? "Workspaces"}
-              projectTitle={singleProjectViewEnabled}
-              selectedProject={singleProjectViewEnabled ? selectedSingleProject : null}
-              onSelectedProjectWorkspacePress={closeSidebar}
-            />
+            <WorkspacesSectionHeader serverId={activeServerId} title={headerProjectName} />
             <Pressable
               style={styles.mobileCloseButton}
               onPress={closeSidebar}
@@ -919,17 +923,16 @@ function MobileSidebar({
               <SidebarAgentListSkeleton />
             ) : (
               <SidebarWorkspaceList
+                serverId={activeServerId}
                 collapsedProjectKeys={collapsedProjectKeys}
                 onToggleProjectCollapsed={toggleProjectCollapsed}
                 shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
                 groupMode={groupMode}
+                projects={projects}
                 singleProjectViewEnabled={singleProjectViewEnabled}
                 singleProjectViewProject={selectedSingleProject}
                 onSingleProjectSelected={handleSingleProjectSelect}
                 onSingleProjectHover={handleSingleProjectHover}
-                statusWorkspacePlacements={statusWorkspacePlacements}
-                projects={projects}
-                projectNamesByKey={projectNamesByKey}
                 isRefreshing={isManualRefresh && isRevalidating}
                 onRefresh={handleRefresh}
                 onWorkspacePress={handleWorkspacePress}
@@ -940,12 +943,21 @@ function MobileSidebar({
 
             <SidebarFooter
               theme={theme}
+              activeServerId={activeServerId}
+              activeHostLabel={activeHostLabel}
+              hostStatusDotStyle={hostStatusDotStyle}
+              hostOptions={hostOptions}
+              hostTriggerRef={hostTriggerRef}
+              isHostPickerOpen={isHostPickerOpen}
+              setIsHostPickerOpen={setIsHostPickerOpen}
+              handleHostSelect={handleHostSelect}
+              renderHostOption={renderHostOption}
+              handleViewMore={handleViewMore}
               handleOpenProject={handleOpenProject}
               handleHome={handleHome}
               handleSettings={handleSettings}
               labels={labels}
-              handleAddHost={handleAddHost}
-              handleOpenHostSettings={handleOpenHostSettings}
+              isSessionsActive={isSessionsActive}
             />
           </View>
         </Animated.View>
@@ -956,48 +968,66 @@ function MobileSidebar({
 
 function DesktopSidebar({
   theme,
-  statusWorkspacePlacements,
+  activeServerId,
+  activeHostLabel,
+  activeHostStatusColor,
+  hostOptions,
+  hostTriggerRef,
+  isHostPickerOpen,
+  setIsHostPickerOpen,
   projects,
-  projectNamesByKey,
-  singleProjectViewEnabled,
-  selectedSingleProject,
-  headerProjectName,
-  handleSingleProjectSelect,
-  handleSingleProjectHover,
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
   groupMode,
+  singleProjectViewEnabled,
+  selectedSingleProject,
+  headerProjectName,
   collapsedProjectKeys,
   shortcutIndexByWorkspaceKey,
   toggleProjectCollapsed,
+  handleSingleProjectSelect,
+  handleSingleProjectHover,
   handleRefresh,
-  newWorkspaceKeys,
+  handleHostSelect,
+  renderHostOption,
   handleOpenProject,
   handleHome,
   handleSettings,
   labels,
-  handleAddHost,
-  handleOpenHostSettings,
   insetsTop,
   isOpen,
+  showVerticalTabs,
   handleViewMore,
-  handleViewSchedules,
 }: DesktopSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
-  const isSchedulesActive = pathname.includes("/schedules");
   const padding = useWindowControlsPadding("sidebar");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
+  const verticalTabsSidebarWidth = usePanelStore((state) => state.verticalTabsSidebarWidth);
+  const setVerticalTabsSidebarWidth = usePanelStore((state) => state.setVerticalTabsSidebarWidth);
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const badgeMode = useSidebarViewStore((state) =>
+    activeServerId ? state.getBadgeMode(activeServerId) : "status",
+  );
   const { width: viewportWidth } = useWindowDimensions();
+  const hostStatusDotStyle = useMemo(
+    () => [styles.hostStatusDot, { backgroundColor: activeHostStatusColor }],
+    [activeHostStatusColor],
+  );
 
   const startWidthRef = useRef(sidebarWidth);
   const resizeWidth = useSharedValue(sidebarWidth);
+  const startVerticalTabsWidthRef = useRef(verticalTabsSidebarWidth);
+  const resizeVerticalTabsWidth = useSharedValue(verticalTabsSidebarWidth);
 
   useEffect(() => {
     resizeWidth.value = sidebarWidth;
   }, [sidebarWidth, resizeWidth]);
+  useEffect(() => {
+    resizeVerticalTabsWidth.value = verticalTabsSidebarWidth;
+  }, [resizeVerticalTabsWidth, verticalTabsSidebarWidth]);
 
   const resizeGesture = useMemo(
     () =>
@@ -1010,9 +1040,10 @@ function DesktopSidebar({
         .onUpdate((event) => {
           // Dragging right (positive translationX) increases width
           const newWidth = startWidthRef.current + event.translationX;
+          const reservedTabsWidth = showVerticalTabs ? verticalTabsSidebarWidth : 0;
           const maxWidth = Math.max(
             MIN_SIDEBAR_WIDTH,
-            Math.min(MAX_SIDEBAR_WIDTH, viewportWidth - MIN_CHAT_WIDTH),
+            Math.min(MAX_SIDEBAR_WIDTH, viewportWidth - MIN_CHAT_WIDTH - reservedTabsWidth),
           );
           const clampedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxWidth, newWidth));
           resizeWidth.value = clampedWidth;
@@ -1020,11 +1051,57 @@ function DesktopSidebar({
         .onEnd(() => {
           runOnJS(setSidebarWidth)(resizeWidth.value);
         }),
-    [sidebarWidth, resizeWidth, setSidebarWidth, viewportWidth],
+    [
+      resizeWidth,
+      setSidebarWidth,
+      showVerticalTabs,
+      sidebarWidth,
+      verticalTabsSidebarWidth,
+      viewportWidth,
+    ],
   );
 
   const resizeAnimatedStyle = useAnimatedStyle(() => ({
     width: resizeWidth.value,
+  }));
+  const effectiveSidebarWidth = isOpen ? sidebarWidth : 0;
+  const verticalTabsResizeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .hitSlop({ left: 8, right: 8, top: 0, bottom: 0 })
+        .onStart(() => {
+          startVerticalTabsWidthRef.current = verticalTabsSidebarWidth;
+          resizeVerticalTabsWidth.value = verticalTabsSidebarWidth;
+        })
+        .onUpdate((event) => {
+          const newWidth = startVerticalTabsWidthRef.current + event.translationX;
+          const maxWidth = Math.max(
+            MIN_VERTICAL_TABS_SIDEBAR_WIDTH,
+            Math.min(
+              MAX_VERTICAL_TABS_SIDEBAR_WIDTH,
+              viewportWidth - MIN_CHAT_WIDTH - effectiveSidebarWidth,
+            ),
+          );
+          const clampedWidth = Math.max(
+            MIN_VERTICAL_TABS_SIDEBAR_WIDTH,
+            Math.min(maxWidth, newWidth),
+          );
+          resizeVerticalTabsWidth.value = clampedWidth;
+        })
+        .onEnd(() => {
+          runOnJS(setVerticalTabsSidebarWidth)(resizeVerticalTabsWidth.value);
+        }),
+    [
+      effectiveSidebarWidth,
+      resizeVerticalTabsWidth,
+      setVerticalTabsSidebarWidth,
+      verticalTabsSidebarWidth,
+      viewportWidth,
+    ],
+  );
+
+  const verticalTabsResizeAnimatedStyle = useAnimatedStyle(() => ({
+    width: resizeVerticalTabsWidth.value,
   }));
 
   const paddingTopSpacerStyle = useMemo(() => ({ height: padding.top }), [padding.top]);
@@ -1040,82 +1117,174 @@ function DesktopSidebar({
     () => [styles.resizeHandle, isWeb && ({ cursor: "col-resize" } as object)],
     [],
   );
+  const selectedWorkspace = useMemo(
+    () =>
+      findSelectedWorkspace({
+        projects,
+        activeServerId,
+        activeWorkspaceSelection,
+      }),
+    [activeServerId, activeWorkspaceSelection, projects],
+  );
+  const verticalTabsSidebarStyle = useMemo(
+    () => [styles.verticalTabsSidebar, verticalTabsResizeAnimatedStyle],
+    [verticalTabsResizeAnimatedStyle],
+  );
 
-  if (!isOpen) {
+  if (!isOpen && !showVerticalTabs) {
     return null;
   }
 
   return (
-    <Animated.View style={desktopSidebarStyle}>
-      <View style={desktopSidebarBorderStyle}>
-        <View style={styles.sidebarDragArea}>
-          <TitlebarDragRegion />
-          {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
-          <View style={styles.sidebarHeaderGroup}>
-            <SidebarNewWorkspaceHeaderRow
-              label={labels.newWorkspace}
-              testID="sidebar-global-new-workspace"
-              variant="compact"
-              shortcutKeys={newWorkspaceKeys}
+    <View style={styles.desktopSidebarShell}>
+      {isOpen ? (
+        <Animated.View style={desktopSidebarStyle}>
+          <View style={desktopSidebarBorderStyle}>
+            <View style={styles.sidebarDragArea}>
+              <TitlebarDragRegion />
+              {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
+            </View>
+            <WorkspacesSectionHeader serverId={activeServerId} title={headerProjectName} />
+
+            {isInitialLoad ? (
+              <SidebarAgentListSkeleton />
+            ) : (
+              <SidebarWorkspaceList
+                serverId={activeServerId}
+                collapsedProjectKeys={collapsedProjectKeys}
+                onToggleProjectCollapsed={toggleProjectCollapsed}
+                shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+                groupMode={groupMode}
+                projects={projects}
+                singleProjectViewEnabled={singleProjectViewEnabled}
+                singleProjectViewProject={selectedSingleProject}
+                onSingleProjectSelected={handleSingleProjectSelect}
+                onSingleProjectHover={handleSingleProjectHover}
+                isRefreshing={isManualRefresh && isRevalidating}
+                onRefresh={handleRefresh}
+                onAddProject={handleOpenProject}
+              />
+            )}
+
+            <SidebarCalloutSlot />
+
+            <SidebarFooter
+              theme={theme}
+              activeServerId={activeServerId}
+              activeHostLabel={activeHostLabel}
+              hostStatusDotStyle={hostStatusDotStyle}
+              hostOptions={hostOptions}
+              hostTriggerRef={hostTriggerRef}
+              isHostPickerOpen={isHostPickerOpen}
+              setIsHostPickerOpen={setIsHostPickerOpen}
+              handleHostSelect={handleHostSelect}
+              renderHostOption={renderHostOption}
+              handleViewMore={handleViewMore}
+              handleOpenProject={handleOpenProject}
+              handleHome={handleHome}
+              handleSettings={handleSettings}
+              labels={labels}
+              isSessionsActive={isSessionsActive}
             />
-            <SidebarHeaderRow
-              icon={History}
-              label={labels.sessions}
-              onPress={handleViewMore}
-              isActive={isSessionsActive}
-              testID="sidebar-sessions"
-              variant="compact"
-            />
-            <SidebarHeaderRow
-              icon={CalendarClock}
-              label={labels.schedules}
-              onPress={handleViewSchedules}
-              isActive={isSchedulesActive}
-              testID="sidebar-schedules"
-              variant="compact"
-            />
+
+            <GestureDetector gesture={resizeGesture}>
+              <View style={resizeHandleStyle} />
+            </GestureDetector>
           </View>
+        </Animated.View>
+      ) : null}
+      {showVerticalTabs ? (
+        <VerticalTabsSidebar
+          style={verticalTabsSidebarStyle}
+          selectedWorkspace={selectedWorkspace}
+          badgeMode={badgeMode}
+          onWorkspacePress={undefined}
+          resizeGesture={verticalTabsResizeGesture}
+          resizeHandleStyle={resizeHandleStyle}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function findSelectedWorkspace({
+  projects,
+  activeServerId,
+  activeWorkspaceSelection,
+}: {
+  projects: SidebarProjectEntry[];
+  activeServerId: string | null;
+  activeWorkspaceSelection: ReturnType<typeof useActiveWorkspaceSelection>;
+}): SidebarWorkspaceEntry | null {
+  if (!activeServerId || activeWorkspaceSelection?.serverId !== activeServerId) {
+    return null;
+  }
+  for (const project of projects) {
+    const workspace = project.workspaces.find(
+      (entry) => entry.workspaceId === activeWorkspaceSelection.workspaceId,
+    );
+    if (workspace) {
+      return workspace;
+    }
+  }
+  return null;
+}
+
+function findProjectForWorkspaceSelection(
+  projects: readonly SidebarProjectEntry[],
+  selection: ActiveWorkspaceSelection,
+): SidebarProjectEntry | null {
+  for (const project of projects) {
+    if (
+      project.workspaces.some(
+        (workspace) =>
+          workspace.serverId === selection.serverId &&
+          workspace.workspaceId === selection.workspaceId,
+      )
+    ) {
+      return project;
+    }
+  }
+  return null;
+}
+
+function VerticalTabsSidebar({
+  style,
+  selectedWorkspace,
+  badgeMode,
+  onWorkspacePress,
+  resizeGesture,
+  resizeHandleStyle,
+}: {
+  style: ComponentProps<typeof Animated.View>["style"];
+  selectedWorkspace: SidebarWorkspaceEntry | null;
+  badgeMode: SidebarBadgeMode;
+  onWorkspacePress?: () => void;
+  resizeGesture: ReturnType<typeof Gesture.Pan>;
+  resizeHandleStyle: StyleProp<ViewStyle>;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Animated.View style={style}>
+      <View style={styles.verticalTabsSidebarBorder}>
+        <View style={styles.verticalTabsHeader}>
+          <Text style={styles.verticalTabsTitle}>{t("sidebar.workspace.embeddedTabs.title")}</Text>
         </View>
-        <WorkspacesSectionHeader
-          title={headerProjectName ?? "Workspaces"}
-          projectTitle={singleProjectViewEnabled}
-          selectedProject={singleProjectViewEnabled ? selectedSingleProject : null}
-        />
-
-        {isInitialLoad ? (
-          <SidebarAgentListSkeleton />
-        ) : (
-          <SidebarWorkspaceList
-            collapsedProjectKeys={collapsedProjectKeys}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            groupMode={groupMode}
-            singleProjectViewEnabled={singleProjectViewEnabled}
-            singleProjectViewProject={selectedSingleProject}
-            onSingleProjectSelected={handleSingleProjectSelect}
-            onSingleProjectHover={handleSingleProjectHover}
-            statusWorkspacePlacements={statusWorkspacePlacements}
-            projects={projects}
-            projectNamesByKey={projectNamesByKey}
-            isRefreshing={isManualRefresh && isRevalidating}
-            onRefresh={handleRefresh}
-            onAddProject={handleOpenProject}
-          />
-        )}
-
-        <SidebarCalloutSlot />
-
-        <SidebarFooter
-          theme={theme}
-          handleOpenProject={handleOpenProject}
-          handleHome={handleHome}
-          handleSettings={handleSettings}
-          labels={labels}
-          handleAddHost={handleAddHost}
-          handleOpenHostSettings={handleOpenHostSettings}
-        />
-
-        {/* Resize handle - absolutely positioned over right border */}
+        <View style={styles.verticalTabsBody}>
+          {selectedWorkspace ? (
+            <SidebarVerticalWorkspaceTabs
+              workspace={selectedWorkspace}
+              badgeMode={badgeMode}
+              onWorkspacePress={onWorkspacePress}
+            />
+          ) : (
+            <View style={styles.verticalTabsEmpty}>
+              <Text style={styles.verticalTabsEmptyText}>
+                {t("sidebar.workspace.embeddedTabs.noWorkspaceSelected")}
+              </Text>
+            </View>
+          )}
+        </View>
         <GestureDetector gesture={resizeGesture}>
           <View style={resizeHandleStyle} />
         </GestureDetector>
@@ -1125,20 +1294,20 @@ function DesktopSidebar({
 }
 
 function WorkspacesSectionHeader({
+  serverId,
   title,
-  projectTitle = false,
-  selectedProject = null,
-  onSelectedProjectWorkspacePress,
 }: {
-  title: string;
-  projectTitle?: boolean;
-  selectedProject?: SidebarProjectEntry | null;
-  onSelectedProjectWorkspacePress?: () => void;
+  serverId: string | null;
+  title?: string | null;
 }) {
   const { theme } = useUnistyles();
   const setCommandCenterOpen = useKeyboardShortcutsStore((state) => state.setCommandCenterOpen);
   const commandCenterKeys = useShortcutKeys("toggle-command-center");
   const handleSearchPress = useCallback(() => setCommandCenterOpen(true), [setCommandCenterOpen]);
+  const titleStyle = useMemo(
+    () => [styles.workspacesSectionTitle, title && styles.workspacesSectionProjectTitle],
+    [title],
+  );
   const searchButtonStyle = useCallback(
     ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.workspacesHeaderIconButton,
@@ -1146,23 +1315,13 @@ function WorkspacesSectionHeader({
     ],
     [],
   );
-  const titleStyle = useMemo(
-    () => [styles.workspacesSectionTitle, projectTitle && styles.workspacesProjectTitle],
-    [projectTitle],
-  );
 
   return (
     <View style={styles.workspacesSectionHeader}>
       <Text style={titleStyle} numberOfLines={1}>
-        {title}
+        {title ?? "Workspaces"}
       </Text>
       <View style={styles.workspacesSectionActions}>
-        {selectedProject ? (
-          <SidebarSelectedProjectHeaderActions
-            project={selectedProject}
-            onWorkspacePress={onSelectedProjectWorkspacePress}
-          />
-        ) : null}
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
             <Pressable
@@ -1189,7 +1348,7 @@ function WorkspacesSectionHeader({
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
             <View>
-              <SidebarDisplayPreferencesMenu />
+              <SidebarGroupingSelector serverId={serverId} />
             </View>
           </TooltipTrigger>
           <TooltipContent side="bottom" align="center" offset={8}>
@@ -1253,18 +1412,18 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
-    flex: 1,
     minWidth: 0,
+    flexShrink: 1,
   },
-  workspacesProjectTitle: {
+  workspacesSectionProjectTitle: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
   },
   workspacesSectionActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
-    flexShrink: 0,
   },
   workspacesHeaderIconButton: {
     width: 28,
@@ -1279,6 +1438,10 @@ const styles = StyleSheet.create((theme) => ({
   sidebarContent: {
     flex: 1,
     minHeight: 0,
+  },
+  desktopSidebarShell: {
+    flexDirection: "row",
+    alignItems: "stretch",
   },
   mobileCloseButton: {
     position: "absolute",
@@ -1297,6 +1460,40 @@ const styles = StyleSheet.create((theme) => ({
     borderRightColor: theme.colors.border,
     backgroundColor: theme.colors.surfaceSidebar,
   },
+  verticalTabsSidebar: {
+    position: "relative",
+  },
+  verticalTabsSidebarBorder: {
+    flex: 1,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceSidebar,
+  },
+  verticalTabsHeader: {
+    minHeight: 37,
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing[4],
+  },
+  verticalTabsTitle: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.normal,
+  },
+  verticalTabsBody: {
+    flex: 1,
+    minHeight: 0,
+    paddingTop: theme.spacing[1],
+  },
+  verticalTabsEmpty: {
+    minHeight: 36,
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing[2],
+  },
+  verticalTabsEmptyText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.normal,
+  },
   resizeHandle: {
     position: "absolute",
     right: -5,
@@ -1308,14 +1505,44 @@ const styles = StyleSheet.create((theme) => ({
   sidebarDragArea: {
     position: "relative",
   },
-  sidebarFooter: {
+  hostTrigger: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-start",
+    gap: theme.spacing[2],
+    minWidth: 0,
+    paddingVertical: theme.spacing[1],
+    paddingHorizontal: theme.spacing[2],
+    borderRadius: theme.borderRadius.lg,
+  },
+  hostTriggerHovered: {
+    backgroundColor: theme.colors.surfaceSidebarHover,
+  },
+  hostStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: theme.borderRadius.full,
+  },
+  hostTriggerText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  sidebarFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[3],
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
+  },
+  footerHostSlot: {
+    flexGrow: 0,
+    flexShrink: 1,
+    minWidth: 0,
+    marginRight: theme.spacing[2],
   },
   footerIconRow: {
     flexDirection: "row",
@@ -1330,6 +1557,34 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
     paddingVertical: theme.spacing[1],
     paddingHorizontal: theme.spacing[1],
+  },
+  hostPickerList: {
+    gap: theme.spacing[2],
+  },
+  hostPickerOption: {
+    paddingVertical: theme.spacing[3],
+    paddingHorizontal: theme.spacing[3],
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+  },
+  hostPickerOptionText: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
+  hostPickerCancel: {
+    paddingVertical: theme.spacing[3],
+    paddingHorizontal: theme.spacing[3],
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface0,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    alignItems: "center",
+  },
+  hostPickerCancelText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
   },
   tooltipRow: {
     flexDirection: "row",

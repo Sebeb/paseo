@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { formatDuration, formatMessageTimestamp } from "./time";
+import { describe, it, expect, vi } from "vitest";
+import {
+  formatAbsoluteDateTime,
+  formatDuration,
+  formatMessageTimestamp,
+  formatRecentOrAbsoluteDateTime,
+} from "./time";
 
 describe("formatDuration", () => {
   it("renders sub-minute durations as whole seconds", () => {
@@ -52,5 +57,29 @@ describe("formatMessageTimestamp", () => {
     const formatted = formatMessageTimestamp(date, now);
     expect(formatted).toMatch(/Apr|April/);
     expect(formatted).toMatch(/2026/);
+  });
+});
+
+describe("formatRecentOrAbsoluteDateTime", () => {
+  it("uses relative labels for timestamps from the last week", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 4, 14, 17, 30));
+    try {
+      const date = new Date(2026, 4, 14, 15, 30);
+      expect(formatRecentOrAbsoluteDateTime(date)).toBe("2h ago");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses absolute labels for older timestamps", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 4, 14, 17, 30));
+    try {
+      const date = new Date(2026, 3, 1, 9, 5);
+      expect(formatRecentOrAbsoluteDateTime(date)).toBe(formatAbsoluteDateTime(date));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

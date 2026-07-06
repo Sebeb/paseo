@@ -19,6 +19,8 @@ function workspace(
     projectKind: input.projectKind ?? "git",
     workspaceKind: input.workspaceKind ?? "worktree",
     name: input.name ?? input.id,
+    createdAt: input.createdAt ?? null,
+    activityAt: input.activityAt ?? null,
     status: input.status ?? "done",
     archivingAt: input.archivingAt ?? null,
     statusEnteredAt: null,

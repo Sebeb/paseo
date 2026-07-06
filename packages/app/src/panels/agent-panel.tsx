@@ -3,19 +3,30 @@ import type { TFunction } from "i18next";
 import { SquarePen } from "lucide-react-native";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import ReanimatedAnimated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { StyleSheet } from "react-native-unistyles";
 import invariant from "tiny-invariant";
 import { shallow, useShallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { AgentStreamView, type AgentStreamViewHandle } from "@/agent-stream/view";
 import { ArchivedAgentCallout } from "@/components/archived-agent-callout";
-import { FileDropZone } from "@/components/file-drop/file-drop-zone";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Composer } from "@/composer";
 import { AgentModeControl } from "@/composer/agent-controls/mode-control";
+import { FileDropZone } from "@/components/file-drop-zone";
+import { uploadFileAttachments } from "@/composer/actions";
+import {
+  getMimeTypeFromPath,
+  isRasterImageFile,
+  isRasterImagePath,
+} from "@/attachments/file-types";
+import { readDesktopFileBytes } from "@/hooks/use-file-picker";
+import type { DroppedItem } from "@/hooks/use-file-drop-zone";
+import type { UserComposerAttachment } from "@/attachments/types";
 import { RewindComposerRestoreProvider } from "@/components/rewind/composer-restore";
+import type { ImageAttachment } from "@/composer/types";
 import { getProviderIcon } from "@/components/provider-icons";
 import {
   ToastViewport,
@@ -40,6 +51,7 @@ import {
 import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
 import { useContainerWidthBelow } from "@/hooks/use-container-width";
+import { useFormPreferences } from "@/hooks/use-form-preferences";
 import {
   clearHistorySyncErrorAfterSuccessfulSync,
   reconcileMissingAgentStateWithPresentAgent,
@@ -48,6 +60,8 @@ import { usePaneContext, usePaneFocus } from "@/panels/pane-context";
 import type { PanelDescriptor, PanelRegistration } from "@/panels/panel-registry";
 import { RenderProfile } from "@/utils/render-profiler";
 import { buildDraftPanelDescriptor } from "@/panels/draft-panel-descriptor";
+import { useSidebarViewStore } from "@/stores/sidebar-view-store";
+import type { WorkspaceDraftTabSetup } from "@/stores/workspace-tabs-store";
 import {
   type HostRuntimeConnectionStatus,
   useHostRuntimeClient,
@@ -67,7 +81,6 @@ import { usePanelStore } from "@/stores/panel-store";
 import { type Agent, useSessionStore } from "@/stores/session-store";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { buildWorkspaceTabPersistenceKey } from "@/stores/workspace-tabs-store";
-import type { Theme } from "@/styles/theme";
 import { useArchiveSubagent, useDetachSubagent, useSubagentsForParent } from "@/subagents";
 import { SubagentsTrack } from "@/subagents/track";
 import type { PendingPermission } from "@/types/shared";
@@ -83,16 +96,10 @@ import { buildDraftAgentSetup, type ClientSlashCommand } from "@/client-slash-co
 interface ChatAgentStateShape {
   serverId: string | null;
   id: string | null;
-  provider?: Agent["provider"];
   status: Agent["status"] | null;
   cwd: string | null;
   workspaceId?: string;
   capabilities?: Agent["capabilities"];
-  currentModeId?: Agent["currentModeId"];
-  model?: Agent["model"];
-  thinkingOptionId?: Agent["thinkingOptionId"];
-  runtimeInfo?: Agent["runtimeInfo"];
-  features?: Agent["features"];
   lastError?: Agent["lastError"] | null;
 }
 
@@ -133,16 +140,10 @@ function selectChatAgentState(
   return {
     serverId: agent.serverId,
     id: agent.id,
-    provider: agent.provider,
     status: agent.status,
     cwd: agent.cwd,
     workspaceId: agent.workspaceId,
     capabilities: agent.capabilities,
-    currentModeId: agent.currentModeId,
-    model: agent.model,
-    thinkingOptionId: agent.thinkingOptionId,
-    runtimeInfo: agent.runtimeInfo,
-    features: agent.features,
     lastError: agent.lastError ?? null,
     archivedAt: agent.archivedAt ?? null,
     requiresAttention: agent.requiresAttention ?? false,
@@ -160,16 +161,10 @@ function buildChatAgentFromState(
   return {
     serverId: state.serverId,
     id: state.id,
-    provider: state.provider,
     status: state.status,
     cwd: state.cwd,
     workspaceId: state.workspaceId,
     capabilities: state.capabilities,
-    currentModeId: state.currentModeId,
-    model: state.model,
-    thinkingOptionId: state.thinkingOptionId,
-    runtimeInfo: state.runtimeInfo,
-    features: state.features,
     lastError: state.lastError ?? null,
     projectPlacement,
   };
@@ -204,7 +199,7 @@ function renderChatAgentNonReadyView(args: {
     return (
       <View style={styles.container} testID="agent-loading">
         <View style={styles.errorContainer}>
-          <ThemedActivityIndicator size="large" uniProps={foregroundMutedColorMapping} />
+          <LoadingSpinner size="large" />
         </View>
       </View>
     );
@@ -402,7 +397,7 @@ export const agentPanelRegistration: PanelRegistration<"agent"> = {
 };
 
 export function useDraftPanelDescriptor(
-  target: { kind: "draft"; draftId: string },
+  target: { kind: "draft"; draftId: string; setup?: WorkspaceDraftTabSetup },
   context: { serverId: string },
 ) {
   const createDescriptorState = useCreateFlowStore(
@@ -420,10 +415,14 @@ export function useDraftPanelDescriptor(
       };
     }),
   );
+  const badgeMode = useSidebarViewStore((state) => state.getBadgeMode(context.serverId));
+  const { preferences } = useFormPreferences();
+  const draftProvider = target.setup?.provider ?? preferences.provider ?? "codex";
+  const icon = badgeMode === "status" ? getProviderIcon(draftProvider) : SquarePen;
 
   return buildDraftPanelDescriptor({
     ...createDescriptorState,
-    icon: SquarePen,
+    icon,
   });
 }
 
@@ -561,7 +560,18 @@ function AgentPanelBody({
     (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b),
   );
   const agentState = useSessionStore(
-    useShallow((state) => selectChatAgentState(state, serverId, agentId)),
+    useShallow((state) => {
+      const agent = resolveChatAgentFromSession(state, serverId, agentId);
+      return {
+        serverId: agent?.serverId ?? null,
+        id: agent?.id ?? null,
+        status: agent?.status ?? null,
+        cwd: agent?.cwd ?? null,
+        workspaceId: agent?.workspaceId,
+        lastError: agent?.lastError ?? null,
+        archivedAt: agent?.archivedAt ?? null,
+      };
+    }),
   );
   const [lookupState, setLookupState] = useState<AgentLookupState>({ tag: "idle" });
   const lookupAttemptTokenRef = useRef(0);
@@ -592,7 +602,7 @@ function AgentPanelBody({
     const attemptToken = ++lookupAttemptTokenRef.current;
 
     client
-      .fetchAgent({ agentId })
+      .fetchAgent(agentId)
       .then((result) => {
         if (attemptToken !== lookupAttemptTokenRef.current) {
           return;
@@ -648,16 +658,9 @@ function AgentPanelBody({
       ? {
           serverId: agentState.serverId,
           id: agentState.id,
-          provider: agentState.provider,
           status: agentState.status,
           cwd: agentState.cwd,
           workspaceId: agentState.workspaceId,
-          capabilities: agentState.capabilities,
-          currentModeId: agentState.currentModeId,
-          model: agentState.model,
-          thinkingOptionId: agentState.thinkingOptionId,
-          runtimeInfo: agentState.runtimeInfo,
-          features: agentState.features,
           lastError: agentState.lastError ?? null,
           projectPlacement,
         }
@@ -667,7 +670,7 @@ function AgentPanelBody({
     return (
       <View style={styles.container} testID="agent-loading">
         <View style={styles.errorContainer}>
-          <ThemedActivityIndicator size="large" uniProps={foregroundMutedColorMapping} />
+          <LoadingSpinner size="large" />
         </View>
       </View>
     );
@@ -707,6 +710,8 @@ function ChatAgentContent({
   const { api: toastApi, toast: toastState, dismiss: dismissToast } = useToastHost();
   const { isArchivingAgent } = useArchiveAgent();
   const streamViewRef = useRef<AgentStreamViewHandle>(null);
+  const addImagesRef = useRef<((images: ImageAttachment[]) => void) | null>(null);
+  const addFilesRef = useRef<((files: UserComposerAttachment[]) => void) | null>(null);
   const clearOnAgentBlurRef = useRef<() => void>(() => {});
   const wasPaneFocusedRef = useRef(isPaneFocused);
   const reconnectToastArmedRef = useRef(false);
@@ -715,6 +720,54 @@ function ChatAgentContent({
     routeKey: string;
     reason: "initial-entry" | "resume";
   } | null>(null);
+  const handleFilesDropped = useCallback((files: ImageAttachment[]) => {
+    addImagesRef.current?.(files);
+  }, []);
+
+  const handleAddImagesCallback = useCallback((addImages: (images: ImageAttachment[]) => void) => {
+    addImagesRef.current = addImages;
+  }, []);
+
+  const handleAddFilesCallback = useCallback(
+    (addFiles: (files: UserComposerAttachment[]) => void) => {
+      addFilesRef.current = addFiles;
+    },
+    [],
+  );
+
+  const handleGenericFilesDropped = useCallback(
+    async (items: DroppedItem[]) => {
+      if (!client || !isConnected) return;
+      const nonImageItems = items.filter((item) => {
+        if (item.kind === "web-file") return !isRasterImageFile(item.file);
+        return !isRasterImagePath(item.path);
+      });
+      if (nonImageItems.length === 0) return;
+      try {
+        const files = await Promise.all(
+          nonImageItems.map(async (item) => {
+            if (item.kind === "web-file") {
+              return {
+                fileName: item.file.name,
+                mimeType: item.file.type || getMimeTypeFromPath(item.file.name),
+                bytes: new Uint8Array(await item.file.arrayBuffer()),
+              };
+            }
+            const fileName = item.path.split("/").pop() ?? item.path.split("\\").pop() ?? item.path;
+            const bytes = await readDesktopFileBytes(item.path);
+            return { fileName, mimeType: getMimeTypeFromPath(item.path), bytes };
+          }),
+        );
+        const uploaded = await uploadFileAttachments({ client, files });
+        addFilesRef.current?.(uploaded);
+      } catch (error) {
+        console.error("[AgentPanel] Failed to upload dropped files:", error);
+        toastApi.error(error instanceof Error ? error.message : "Failed to upload file");
+      }
+    },
+    [client, isConnected, toastApi],
+  );
+
   const agentState = useSessionStore(
     useShallow((state) => selectChatAgentState(state, serverId, agentId)),
   );
@@ -996,7 +1049,7 @@ function ChatAgentContent({
         const currentAgent =
           currentSession?.agents.get(agentId) ?? currentSession?.agentDetails.get(agentId);
         if (!currentAgent) {
-          const result = await client.fetchAgent({ agentId });
+          const result = await client.fetchAgent(agentId);
           if (attemptToken !== initAttemptTokenRef.current) {
             return;
           }
@@ -1072,6 +1125,10 @@ function ChatAgentContent({
       dismiss={dismissToast}
       streamViewRef={streamViewRef}
       animatedContentStyle={animatedContentStyle}
+      handleFilesDropped={handleFilesDropped}
+      handleGenericFilesDropped={handleGenericFilesDropped}
+      handleAddImagesCallback={handleAddImagesCallback}
+      handleAddFilesCallback={handleAddFilesCallback}
       handleComposerHeightChange={handleComposerHeightChange}
       handleMessageSent={handleMessageSent}
       showHistorySyncOverlay={showHistorySyncOverlay}
@@ -1097,6 +1154,10 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   dismiss,
   streamViewRef,
   animatedContentStyle,
+  handleFilesDropped,
+  handleGenericFilesDropped,
+  handleAddImagesCallback,
+  handleAddFilesCallback,
   handleComposerHeightChange,
   handleMessageSent,
   showHistorySyncOverlay,
@@ -1118,6 +1179,10 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   dismiss: () => void;
   streamViewRef: React.RefObject<AgentStreamViewHandle | null>;
   animatedContentStyle: object[];
+  handleFilesDropped: (files: ImageAttachment[]) => void;
+  handleGenericFilesDropped: (items: DroppedItem[]) => void;
+  handleAddImagesCallback: (addImages: (images: ImageAttachment[]) => void) => void;
+  handleAddFilesCallback: (addFiles: (files: UserComposerAttachment[]) => void) => void;
   handleComposerHeightChange: (height: number) => void;
   handleMessageSent: () => void;
   showHistorySyncOverlay: boolean;
@@ -1176,6 +1241,8 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
         agentInputDraft={agentInputDraft}
         onAttentionInputFocus={onAttentionInputFocus}
         onAttentionPromptSend={onAttentionPromptSend}
+        onAddImages={handleAddImagesCallback}
+        onAddFiles={handleAddFilesCallback}
         onComposerHeightChange={handleComposerHeightChange}
         onMessageSent={handleMessageSent}
       />
@@ -1189,23 +1256,29 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   return (
     <RewindComposerRestoreProvider text={agentInputDraft.text} setText={agentInputDraft.setText}>
       <View style={styles.root}>
-        <FileDropZone style={styles.container} disabled={isArchivingCurrentAgent}>
-          {contentContainer}
+        <FileDropZone
+          onFilesDropped={handleFilesDropped}
+          onGenericFilesDropped={handleGenericFilesDropped}
+          disabled={isArchivingCurrentAgent}
+        >
+          <View style={styles.container}>
+            {contentContainer}
 
-          {composerSection}
+            {composerSection}
 
-          {showHistorySyncOverlay ? (
-            <View style={styles.historySyncOverlay} testID="agent-history-overlay">
-              <ThemedActivityIndicator size="large" uniProps={foregroundMutedColorMapping} />
-            </View>
-          ) : null}
+            {showHistorySyncOverlay ? (
+              <View style={styles.historySyncOverlay} testID="agent-history-overlay">
+                <LoadingSpinner size="large" />
+              </View>
+            ) : null}
 
-          <ToastViewport toast={toast} onDismiss={dismiss} placement="panel" />
+            <ToastViewport toast={toast} onDismiss={dismiss} placement="panel" />
+          </View>
         </FileDropZone>
 
         {isArchivingCurrentAgent ? (
           <View style={styles.archivingOverlay} testID="agent-archiving-overlay">
-            <ThemedActivityIndicator size="large" uniProps={foregroundColorMapping} />
+            <LoadingSpinner size="large" />
             <Text style={styles.archivingTitle}>{t("agentPanel.states.archivingTitle")}</Text>
             <Text style={styles.archivingSubtitle}>{t("agentPanel.states.archivingSubtitle")}</Text>
           </View>
@@ -1292,6 +1365,8 @@ const AgentComposerSection = memo(function AgentComposerSection({
   agentInputDraft,
   onAttentionInputFocus,
   onAttentionPromptSend,
+  onAddImages,
+  onAddFiles,
   onComposerHeightChange,
   onMessageSent,
 }: {
@@ -1305,6 +1380,8 @@ const AgentComposerSection = memo(function AgentComposerSection({
   agentInputDraft: AgentInputDraft;
   onAttentionInputFocus: () => void;
   onAttentionPromptSend: () => void;
+  onAddImages: (addImages: (images: ImageAttachment[]) => void) => void;
+  onAddFiles: (addFiles: (files: UserComposerAttachment[]) => void) => void;
   onComposerHeightChange: (height: number) => void;
   onMessageSent: () => void;
 }) {
@@ -1328,6 +1405,8 @@ const AgentComposerSection = memo(function AgentComposerSection({
       agentInputDraft={agentInputDraft}
       onAttentionInputFocus={onAttentionInputFocus}
       onAttentionPromptSend={onAttentionPromptSend}
+      onAddImages={onAddImages}
+      onAddFiles={onAddFiles}
       onComposerHeightChange={onComposerHeightChange}
       onMessageSent={onMessageSent}
     />
@@ -1343,6 +1422,8 @@ function ActiveAgentComposer({
   agentInputDraft,
   onAttentionInputFocus,
   onAttentionPromptSend,
+  onAddImages,
+  onAddFiles,
   onComposerHeightChange,
   onMessageSent,
 }: {
@@ -1354,6 +1435,8 @@ function ActiveAgentComposer({
   agentInputDraft: AgentInputDraft;
   onAttentionInputFocus: () => void;
   onAttentionPromptSend: () => void;
+  onAddImages: (addImages: (images: ImageAttachment[]) => void) => void;
+  onAddFiles: (addFiles: (files: UserComposerAttachment[]) => void) => void;
   onComposerHeightChange: (height: number) => void;
   onMessageSent: () => void;
 }) {
@@ -1390,7 +1473,7 @@ function ActiveAgentComposer({
     workspaceId,
   });
   const attachmentScopeKeys = useMemo(
-    () => [workspaceAttachmentScopeKey],
+    () => (workspaceAttachmentScopeKey ? [workspaceAttachmentScopeKey] : undefined),
     [workspaceAttachmentScopeKey],
   );
   const openFileExplorerForCheckout = usePanelStore((state) => state.openFileExplorerForCheckout);
@@ -1502,6 +1585,8 @@ function ActiveAgentComposer({
         isSubmitLoading={isSubmitLoading}
         onAttentionInputFocus={onAttentionInputFocus}
         onAttentionPromptSend={onAttentionPromptSend}
+        onAddImages={onAddImages}
+        onAddFiles={onAddFiles}
         onComposerHeightChange={onComposerHeightChange}
         onMessageSent={onMessageSent}
         onClientSlashCommand={handleClientSlashCommand}
@@ -1546,7 +1631,7 @@ function AgentSessionUnavailableState({
       <View style={styles.centerState}>
         {isConnecting || isPreparingSession ? (
           <>
-            <ActivityIndicator size="large" />
+            <LoadingSpinner size="large" />
             <Text style={styles.loadingText}>
               {isPreparingSession
                 ? t("agentPanel.unavailable.preparingSession", { serverLabel })
@@ -1573,15 +1658,6 @@ function AgentSessionUnavailableState({
     </View>
   );
 }
-
-const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
-
-const foregroundMutedColorMapping = (theme: Theme) => ({
-  color: theme.colors.foregroundMuted,
-});
-const foregroundColorMapping = (theme: Theme) => ({
-  color: theme.colors.foreground,
-});
 
 const styles = StyleSheet.create((theme) => ({
   root: {

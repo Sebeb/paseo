@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, realpathSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { deflateSync } from "zlib";
 import {
   findProjectIcon,
   getProjectIcon,
@@ -13,6 +14,51 @@ import {
 
 function createTempDir(): string {
   return realpathSync(mkdtempSync(join(tmpdir(), "project-icon-test-")));
+}
+
+interface RgbaColor {
+  red: number;
+  green: number;
+  blue: number;
+  alpha: number;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  return Buffer.concat([length, Buffer.from(type), data, Buffer.alloc(4)]);
+}
+
+function createRgbaPng(width: number, height: number, pixels: RgbaColor[]): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+
+  const scanlines = Buffer.alloc(height * (1 + width * 4));
+  for (let y = 0; y < height; y += 1) {
+    const rowOffset = y * (1 + width * 4);
+    scanlines[rowOffset] = 0;
+    for (let x = 0; x < width; x += 1) {
+      const pixel = pixels[y * width + x];
+      if (!pixel) {
+        throw new Error("missing png pixel");
+      }
+      const offset = rowOffset + 1 + x * 4;
+      scanlines[offset] = pixel.red;
+      scanlines[offset + 1] = pixel.green;
+      scanlines[offset + 2] = pixel.blue;
+      scanlines[offset + 3] = pixel.alpha;
+    }
+  }
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(scanlines)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 describe("findProjectIcon", () => {
@@ -386,6 +432,30 @@ describe("getProjectIcon", () => {
     expect(result?.data).toBe(squarePng.toString("base64"));
   });
 
+  it("extracts the dominant opaque edge color from PNG icons", async () => {
+    const transparent = { red: 0, green: 0, blue: 0, alpha: 0 };
+    const edge = { red: 12, green: 34, blue: 56, alpha: 255 };
+    const center = { red: 240, green: 120, blue: 20, alpha: 255 };
+    const pixels = Array.from({ length: 7 * 7 }, (_, index) => {
+      const x = index % 7;
+      const y = Math.floor(index / 7);
+      if (x < 2 || x > 4 || y < 2 || y > 4) {
+        return transparent;
+      }
+      return x === 3 && y === 3 ? center : edge;
+    });
+    const png = createRgbaPng(7, 7, pixels);
+    writeFileSync(join(tempDir, "icon.png"), png);
+
+    const result = await getProjectIcon(tempDir);
+
+    expect(result).toEqual({
+      data: png.toString("base64"),
+      mimeType: "image/png",
+      backgroundColor: "#0c2238",
+    });
+  });
+
   it("returns null for non-square PNG", async () => {
     writeFileSync(join(tempDir, "favicon.png"), nonSquarePng);
 
@@ -409,8 +479,8 @@ describe("getProjectIcon", () => {
     expect(result?.mimeType).toBe("image/svg+xml");
   });
 
-  it("returns null for files over 32KB", async () => {
-    const largeContent = Buffer.alloc(33 * 1024, 0);
+  it("returns null for files over 2MB", async () => {
+    const largeContent = Buffer.alloc(2 * 1024 * 1024 + 1, 0);
     writeFileSync(join(tempDir, "favicon.ico"), largeContent);
 
     const result = await getProjectIcon(tempDir);

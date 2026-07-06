@@ -8,7 +8,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import type {
   PressableProps,
   PressableStateCallbackType,
@@ -17,6 +17,7 @@ import type {
   ViewStyle,
 } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 type ButtonVariant = "default" | "secondary" | "outline" | "ghost" | "destructive";
 type ButtonSize = "xs" | "sm" | "md" | "lg";
@@ -206,7 +207,7 @@ export function Button({
     if (loading) {
       return (
         <View>
-          <ActivityIndicator size="small" color={resolveIconColor()} />
+          <LoadingSpinner size="small" />
         </View>
       );
     }

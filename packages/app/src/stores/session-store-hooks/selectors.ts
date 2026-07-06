@@ -23,8 +23,10 @@ export interface SessionsSnapshot {
 }
 
 export interface SidebarOrderSnapshot {
-  projectOrder: string[];
-  workspaceOrderByProject: Record<string, string[]>;
+  projectOrderByServerId?: Record<string, string[]>;
+  workspaceOrderByServerAndProject?: Record<string, string[]>;
+  projectOrder?: string[];
+  workspaceOrderByProject?: Record<string, string[]>;
 }
 
 const EMPTY_WORKSPACE_KEYS: string[] = [];
@@ -162,12 +164,60 @@ export function selectWorkspaceStructureProjects(
   return buildWorkspaceStructureProjects({ sessions });
 }
 
-export function selectProjectOrder(state: SidebarOrderSnapshot): string[] {
-  return state.projectOrder ?? EMPTY_WORKSPACE_KEYS;
+function appendUniqueKeys(target: string[], source: readonly string[]): void {
+  const seen = new Set(target);
+  for (const key of source) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    target.push(key);
+  }
 }
 
-export function selectWorkspaceOrderByScope(state: SidebarOrderSnapshot): Record<string, string[]> {
-  return state.workspaceOrderByProject ?? {};
+function extractWorkspaceOrderScope(
+  scopeKey: string,
+): { serverId: string; projectKey: string } | null {
+  const separatorIndex = scopeKey.indexOf("::");
+  if (separatorIndex < 0) return null;
+  const serverId = scopeKey.slice(0, separatorIndex).trim();
+  const projectKey = scopeKey.slice(separatorIndex + 2).trim();
+  if (!serverId || !projectKey) return null;
+  return { serverId, projectKey };
+}
+
+export function selectProjectOrder(
+  state: SidebarOrderSnapshot,
+  serverIds: readonly string[] = [],
+): string[] {
+  const byServer = state.projectOrderByServerId ?? {};
+  const requestedServerIds = serverIds.length > 0 ? serverIds : Object.keys(byServer);
+  const projectOrder: string[] = [];
+  for (const serverId of requestedServerIds) {
+    appendUniqueKeys(projectOrder, byServer[serverId] ?? EMPTY_WORKSPACE_KEYS);
+  }
+  appendUniqueKeys(projectOrder, state.projectOrder ?? EMPTY_WORKSPACE_KEYS);
+  return projectOrder.length > 0 ? projectOrder : EMPTY_WORKSPACE_KEYS;
+}
+
+export function selectWorkspaceOrderByScope(
+  state: SidebarOrderSnapshot,
+  serverIds: readonly string[] = [],
+): Record<string, string[]> {
+  const workspaceOrderByProject: Record<string, string[]> = {
+    ...state.workspaceOrderByProject,
+  };
+  const requestedServerIds = new Set(serverIds);
+
+  for (const [scopeKey, order] of Object.entries(state.workspaceOrderByServerAndProject ?? {})) {
+    const scope = extractWorkspaceOrderScope(scopeKey);
+    if (!scope) continue;
+    if (requestedServerIds.size > 0 && !requestedServerIds.has(scope.serverId)) continue;
+    const existing = workspaceOrderByProject[scope.projectKey] ?? [];
+    const merged = [...existing];
+    appendUniqueKeys(merged, order);
+    workspaceOrderByProject[scope.projectKey] = merged;
+  }
+
+  return workspaceOrderByProject;
 }
 
 export function composeWorkspaceStructure(input: {

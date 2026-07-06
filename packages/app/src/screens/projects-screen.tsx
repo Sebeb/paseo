@@ -42,7 +42,7 @@ export default function ProjectsScreen({ view }: ProjectsScreenProps) {
   if (isLoading && projects.length === 0) {
     return (
       <View style={styles.centered} testID="projects-list">
-        <LoadingSpinner size="large" color={styles.spinnerColor.color} />
+        <LoadingSpinner size="large" />
       </View>
     );
   }
@@ -227,8 +227,5 @@ const styles = StyleSheet.create((theme) => ({
   },
   iconFallbackText: {
     fontSize: theme.fontSize.xs,
-  },
-  spinnerColor: {
-    color: theme.colors.foregroundMuted,
   },
 }));

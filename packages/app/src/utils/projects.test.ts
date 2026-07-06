@@ -42,6 +42,8 @@ function workspace(input: {
     projectKind: "git",
     workspaceKind: "local_checkout",
     name: input.id,
+    createdAt: null,
+    activityAt: null,
     status: "done",
     archivingAt: null,
     statusEnteredAt: null,
