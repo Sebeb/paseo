@@ -75,6 +75,7 @@ const WORKSPACE_TITLE_SOURCE_ITEMS: Array<{ value: WorkspaceTitleSource; label: 
 const TAB_LAYOUT_MODE_ITEMS: Array<{ value: AppTabLayoutMode; label: string }> = [
   { value: "horizontal", label: "Horizontal" },
   { value: "sidebar", label: "Sidebar" },
+  { value: "vertical", label: "Vertical" },
 ];
 
 type DisplayPreferenceSectionId = "projects" | "workspaces" | "tabs";

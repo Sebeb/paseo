@@ -193,25 +193,26 @@ describe("sidebar display preferences menu", () => {
 
     expect(sidebarMenu.getByTestId("sidebar-tab-layout-mode-horizontal")).not.toBeNull();
     expect(sidebarMenu.getByTestId("sidebar-tab-layout-mode-sidebar")).not.toBeNull();
+    expect(sidebarMenu.getByTestId("sidebar-tab-layout-mode-vertical")).not.toBeNull();
     expect(sidebarMenu.getByTestId("sidebar-tab-sort-manual")).not.toBeNull();
     expect(sidebarMenu.getByTestId("sidebar-recent-tab-count-5")).not.toBeNull();
   });
 
   it("proxies tab view mode changes through app settings", () => {
     appSettings.current = {
-      tabLayoutMode: "sidebar",
+      tabLayoutMode: "vertical",
       workspaceTitleSource: "title",
     };
     const { getByTestId } = render(
       <SidebarTabDisplayPreferencesMenuItems serverId="srv" closeOnSelect={false} />,
     );
 
-    expect(getByTestId("sidebar-tab-layout-mode-sidebar").getAttribute("data-selected")).toBe(
+    expect(getByTestId("sidebar-tab-layout-mode-vertical").getAttribute("data-selected")).toBe(
       "true",
     );
-    fireEvent.click(getByTestId("sidebar-tab-layout-mode-horizontal"));
+    fireEvent.click(getByTestId("sidebar-tab-layout-mode-sidebar"));
 
-    expect(updateSettings).toHaveBeenCalledWith({ tabLayoutMode: "horizontal" });
+    expect(updateSettings).toHaveBeenCalledWith({ tabLayoutMode: "sidebar" });
   });
 
   it("does not close the popup when selecting preferences", () => {
@@ -238,6 +239,7 @@ describe("sidebar display preferences menu", () => {
 
     expect(getByTestId("sidebar-tab-layout-mode-horizontal")).not.toBeNull();
     expect(getByTestId("sidebar-tab-layout-mode-sidebar")).not.toBeNull();
+    expect(getByTestId("sidebar-tab-layout-mode-vertical")).not.toBeNull();
     expect(getByTestId("sidebar-tab-sort-manual")).not.toBeNull();
     expect(getByTestId("sidebar-recent-tab-count-5")).not.toBeNull();
     expect(getByTestId("sidebar-badge-mode-status")).not.toBeNull();
