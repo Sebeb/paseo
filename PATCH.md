@@ -4,7 +4,7 @@ Branch: `feat/sidebar-workspace-tabs`
 
 Base: `origin/main`
 
-Anchor commit: 49a90175d2976d3c4057dfcb7ecea8c182b23eef — feat(sidebar): surface embedded tab status
+Anchor commit: 7a87367b75486fed3c2b862638ecb11618d5aaa0 — feat(sidebar-tabs): add status hover summaries
 
 ## Purpose
 
@@ -49,6 +49,7 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - In sidebar tab layout, status grouping now groups embedded workspace tabs by their tab status bucket, renders matching project subtitles/icons under each tab row, and filters each embedded workspace tree to the status group being shown.
 - Workspace and project rows suppress draft-only status dots/badges so a typed draft in an embedded tab does not make the whole workspace or project look active; embedded tab rows still show draft status directly.
 - Parent embedded tab rows keep their normal tab icon visible at rest, swap the leading slot to the expand/collapse chevron only on hover/touch/compact layouts, and show a small collapsed-subtree count before the label when descendants are hidden.
+- Project, workspace, and embedded-tab hover cards include status explainer rows so status dots can be interpreted without opening the tab or workspace.
 
 ## Restored Main Polish
 
@@ -217,6 +218,27 @@ Behavior:
 - Moves the sessions/history action into the footer and marks it active when the current route is the sessions route.
 - Passes active workspace selection and sidebar badge mode into the desktop sidebar so `SidebarVerticalWorkspaceTabs` can render only the vertical tab rail while the workspace/project list is closed.
 - Uses a separate persisted `verticalTabsSidebarWidth` for the vertical tab rail instead of reusing the normal project/workspace sidebar width.
+
+## Status Explainer Hover Rows
+
+### `packages/app/src/components/sidebar/sidebar-entry-status-explainer-rows.tsx`
+
+This new shared component renders a compact row for each visible status kind in a `SidebarTabStatusSummary`. It accepts an optional `excludeKinds` set so workspace and project rows can suppress draft-only status in the same way their badges do, while embedded tab rows can show the full tab-level status.
+
+Behavior:
+
+- Reuses the sidebar status summary model so labels and counts match badge ordering.
+- Renders one row per status kind with the matching icon, localized label, and count.
+- Returns `null` when the summary has no visible rows after exclusions.
+
+### Hover Card Integration
+
+- `ProjectHoverCardContent` in `sidebar-workspace-list.tsx` shows workspace count, agent count, and status explainer rows for project-level summaries.
+- Embedded tab hover cards append status explainer rows under created/updated/prompt-count metadata.
+- `SidebarWorkspaceRowFrame` receives the workspace status summary and passes excluded draft status kinds to workspace hover content.
+- `workspace-hover-card.tsx` renders the same status explainer rows for workspace hover cards, alongside branch/path/diff/check metadata.
+
+Tests in `sidebar-entry-row.test.tsx` cover hover/status row behavior, and locale resource files add the new status explainer labels.
 
 The desktop layout has two separate width domains:
 
