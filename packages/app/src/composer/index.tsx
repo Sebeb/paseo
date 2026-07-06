@@ -129,6 +129,7 @@ import {
   createScheduledComposerMessage,
   resolveCreditRefreshTime,
   type ScheduleSendMode,
+  type ScheduleSendTarget,
 } from "@/composer/schedule-send";
 import {
   formatScheduledCountdown,
@@ -1096,6 +1097,8 @@ interface ComposerProps {
   onFocusInput?: (focus: () => void) => void;
   /** Optional draft context for listing commands before an agent exists. */
   commandDraftConfig?: DraftCommandConfig;
+  /** Schedule target for non-agent composers. Existing agent composers default to their own agent. */
+  scheduleSendTarget?: ScheduleSendTarget | null;
   /** Called when a message is about to be sent (any path: keyboard, dictation, queued). */
   onMessageSent?: () => void;
   onComposerHeightChange?: (height: number) => void;
@@ -1305,6 +1308,7 @@ export function Composer({
   autoFocus = false,
   onFocusInput,
   commandDraftConfig,
+  scheduleSendTarget: scheduleSendTargetProp,
   onMessageSent,
   onComposerHeightChange,
   onAttentionInputFocus,
@@ -1565,6 +1569,19 @@ export function Composer({
 
   const isAgentRunning = agentState.status === "running";
   const hasAgent = agentState.status !== null;
+  const scheduleSendTarget = useMemo<ScheduleSendTarget | null>(() => {
+    if (scheduleSendTargetProp !== undefined) {
+      return scheduleSendTargetProp;
+    }
+    if (!hasAgent) {
+      return null;
+    }
+    return { type: "self", agentId };
+  }, [agentId, hasAgent, scheduleSendTargetProp]);
+  const scheduleSendProviderId =
+    scheduleSendTarget?.type === "new-agent"
+      ? scheduleSendTarget.config.provider
+      : agentState.provider;
 
   const queueWriter = useMemo<QueueWriter>(
     () => ({
@@ -1969,7 +1986,11 @@ export function Composer({
 
   const hasSendableContent = userInput.trim().length > 0 || selectedAttachments.length > 0;
   const canShowScheduleSend =
-    supportsScheduledComposerMessages && hasSendableContent && Boolean(client) && isConnected;
+    supportsScheduledComposerMessages &&
+    hasSendableContent &&
+    Boolean(client) &&
+    isConnected &&
+    Boolean(scheduleSendTarget);
   const providerUsage = useProviderUsage(serverId, { enabled: canShowScheduleSend });
 
   useEffect(() => {
@@ -1986,13 +2007,16 @@ export function Composer({
       if (!client) {
         throw new Error(t("composer.errors.daemonClientDisconnected"));
       }
+      if (!scheduleSendTarget) {
+        throw new Error("This message cannot be scheduled from here");
+      }
       const outgoingAttachments = buildOutgoingAttachments(attachments);
       setIsSchedulingMessage(true);
       setSendError(null);
       try {
         await createScheduledComposerMessage({
           client,
-          agentId,
+          target: scheduleSendTarget,
           text: userInput,
           attachments: outgoingAttachments,
           mode,
@@ -2010,7 +2034,6 @@ export function Composer({
       }
     },
     [
-      agentId,
       attachments,
       buildOutgoingAttachments,
       clearDraft,
@@ -2019,6 +2042,7 @@ export function Composer({
       providerUsage.view,
       refetchSchedules,
       resetSuppression,
+      scheduleSendTarget,
       setSelectedAttachments,
       setUserInput,
       t,
@@ -2032,18 +2056,18 @@ export function Composer({
     }
     return (
       <ScheduleSendControl
-        activeProviderId={agentState.provider}
+        activeProviderId={scheduleSendProviderId}
         providerUsageView={providerUsage.view}
         isScheduling={isSchedulingMessage}
         onSchedule={handleScheduleSend}
       />
     );
   }, [
-    agentState.provider,
     canShowScheduleSend,
     handleScheduleSend,
     isSchedulingMessage,
     providerUsage.view,
+    scheduleSendProviderId,
   ]);
 
   // Handle keyboard navigation for command autocomplete.

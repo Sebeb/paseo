@@ -690,6 +690,7 @@ export interface CreateScheduleOptions {
           sandboxMode?: string;
           networkAccess?: boolean;
           webSearch?: boolean;
+          featureValues?: AgentSessionConfig["featureValues"];
           extra?: AgentSessionConfig["extra"];
           systemPrompt?: string;
           mcpServers?: AgentSessionConfig["mcpServers"];

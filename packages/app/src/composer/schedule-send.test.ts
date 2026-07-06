@@ -77,7 +77,7 @@ describe("createScheduledComposerMessage", () => {
 
     await createScheduledComposerMessage({
       client: { scheduleCreate },
-      agentId: "00000000-0000-4000-8000-000000000001",
+      target: { type: "self", agentId: "00000000-0000-4000-8000-000000000001" },
       text: " later ",
       attachments,
       mode: { type: "at", date: new Date(Date.now() + 60 * 60 * 1000) },
@@ -97,6 +97,33 @@ describe("createScheduledComposerMessage", () => {
         runOnCreate: false,
       }),
     );
+  });
+
+  it("can schedule a message that creates a new agent", async () => {
+    const scheduleCreate = vi.fn(async () => ({ error: null, schedule: null, requestId: "req" }));
+    const target = {
+      type: "new-agent" as const,
+      config: {
+        provider: "codex" as const,
+        cwd: "/tmp/project",
+        modeId: "full-access",
+        model: "gpt-5",
+        thinkingOptionId: "medium",
+        featureValues: { plan_mode: true },
+      },
+    };
+
+    await createScheduledComposerMessage({
+      client: { scheduleCreate },
+      target,
+      text: "start later",
+      attachments: [],
+      mode: { type: "at", date: new Date(Date.now() + 60 * 60 * 1000) },
+      providerUsageView: { kind: "loading" },
+      encodeImages: async () => undefined,
+    });
+
+    expect(scheduleCreate).toHaveBeenCalledWith(expect.objectContaining({ target }));
   });
 });
 

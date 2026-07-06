@@ -8,6 +8,7 @@ import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
 import { useContainerWidthBelow } from "@/hooks/use-container-width";
 import invariant from "tiny-invariant";
 import { Composer } from "@/composer";
+import type { ScheduleSendTarget } from "@/composer/schedule-send";
 import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import { DraftAgentModeControl } from "@/composer/agent-controls/mode-control";
 import { ComposerImportPill } from "@/composer/draft/import-pill";
@@ -664,6 +665,37 @@ export function WorkspaceDraftAgentTab({
       ) : undefined,
     [isCompactComposerLayout, composerAgentControls],
   );
+  const scheduleSendTarget = useMemo<ScheduleSendTarget | null>(() => {
+    if (!composerState.selectedProvider || !composerState.workingDir) {
+      return null;
+    }
+    return {
+      type: "new-agent",
+      config: buildWorkspaceDraftAgentConfig({
+        provider: composerState.selectedProvider,
+        cwd: composerState.workingDir,
+        ...resolveDraftModeIdOverride({
+          autoSubmitConfig,
+          modeOptionsCount: composerState.modeOptions.length,
+          selectedMode: composerState.selectedMode,
+        }),
+        model: autoSubmitConfig?.model ?? (composerState.effectiveModelId || undefined),
+        thinkingOptionId:
+          autoSubmitConfig?.thinkingOptionId ??
+          (composerState.effectiveThinkingOptionId || undefined),
+        featureValues: autoSubmitConfig?.featureValues ?? composerState.featureValues,
+      }),
+    };
+  }, [
+    autoSubmitConfig,
+    composerState.effectiveModelId,
+    composerState.effectiveThinkingOptionId,
+    composerState.featureValues,
+    composerState.modeOptions.length,
+    composerState.selectedMode,
+    composerState.selectedProvider,
+    composerState.workingDir,
+  ]);
 
   return (
     <FileDropZone style={styles.container}>
@@ -719,6 +751,7 @@ export function WorkspaceDraftAgentTab({
           autoFocus={shouldAutoFocusWorkspaceDraftComposer({ isPaneFocused, isSubmitting })}
           onFocusInput={handleFocusInputCallback}
           commandDraftConfig={composerState.commandDraftConfig}
+          scheduleSendTarget={scheduleSendTarget}
           agentControls={composerAgentControls}
           footer={composerFooter}
           isCompactLayout={isCompactComposerLayout}
