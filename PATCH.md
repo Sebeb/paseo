@@ -4,7 +4,7 @@ Branch: `feat/thread-auto-title`
 
 Base: `origin/main`
 
-Anchor commit: 3cfc0b6386a4e5eabd2e8e77f37687ebe260730b — docs(patch): refresh PATCH.md for feat/thread-auto-title
+Anchor commit: 58fab4761c24b04d165b74d3f03c33c56181d5f7 — fix(server): fallback from missing native titles
 
 ## Agent Title Generation
 
@@ -63,15 +63,15 @@ No WebSocket or protocol message shape changes are introduced. The changes are i
 - `workspaceHasAnyAgent` first checks live agents from `agentManager.listAgents()` for the same `workspaceId`, then checks persisted records from `agentStorage.list()`. Persisted records count only when `workspaceId` matches and `internal !== true`; internal metadata agents do not make a workspace look initialized.
 - For non-worktree agent creation with an explicit `msg.workspaceId`, `writeInitialWorkspaceTitleIfUntitled` runs only when `isFirstAgentInWorkspace` is true. Existing workspace titles are never overwritten at this provisional stage.
 - Auto-title work is scheduled only when the initial prompt has non-empty text or attachments are present.
-- Providers with native thread titles use the native-title path. For those providers, only first agents schedule a workspace-title update, because the provider-native title refresh already updates the agent title independently.
-- Providers without native thread titles use the structured agent-title generator. That path always updates the created agent title when generation succeeds. It updates the workspace title only when `updateWorkspaceTitle` is true, which is wired to `isFirstAgentInWorkspace`.
-- `maybeAutoNameAgentTitleFromContext` re-checks `agentManager.supportsNativeThreadTitle(agentId)` before invoking the structured generator. If the session gained native-title support by the time the async task runs, the structured fallback exits without writing.
+- Providers with native thread-title support set `preferNativeTitle` on the scheduled title job. The job tries the provider-native title first and falls back to structured title generation when the native title is missing.
+- Providers without native thread-title support skip the native wait and use the structured agent-title generator immediately.
+- The selected title path always updates the created agent title when a title is found. It updates the workspace title only when `updateWorkspaceTitle` is true, which is wired to `isFirstAgentInWorkspace`.
 - Workspace title writes continue to use `applyGeneratedWorkspaceTitle`, which re-reads the workspace record and only replaces the title if it is absent or still equal to the prompt-derived provisional title. User renames that land during async generation are preserved.
 - Successful structured agent-title generation calls `agentManager.setTitle(agentId, title)`, then optionally applies the same title to the workspace and emits a workspace update.
 
 ## Codex Native Thread Titles
 
-**Purpose** — Prefer Codex's own thread name for Codex app-server sessions, so Paseo agent titles follow the provider-native thread title instead of duplicating local structured generation.
+**Purpose** — Prefer Codex's own thread name for Codex app-server sessions when it is available, while preserving local structured title generation as the fallback when a provider advertises native titles but has not produced one yet.
 
 **Files**
 
@@ -99,8 +99,10 @@ No WebSocket or protocol message shape changes are introduced. The changes are i
 - `AgentManager.supportsNativeThreadTitle(agentId)` returns true only when the live agent session exposes `getNativeTitle`.
 - `AgentManager.refreshNativeThreadTitle(agentId)` returns `null` when the agent or method is unavailable, calls the session method with the session as `this`, trims the result, ignores blank values, writes the agent title through `setTitle`, and returns the title that was applied.
 - On every completed stream turn, `AgentManager` now kicks off `refreshNativeThreadTitle(agent.id)` after refreshing runtime info. Failures are logged at debug and do not affect turn completion.
-- For the first agent in a workspace using native thread titles, `Session.scheduleNativeFirstAgentWorkspaceTitle` schedules `maybeApplyNativeFirstAgentWorkspaceTitle`.
-- `maybeApplyNativeFirstAgentWorkspaceTitle` polls the native title at delays `[0, 1000, 2000, 4000, 8000, 15000, 30000, 60000]` milliseconds. The first non-empty native title is applied to both the agent via `refreshNativeThreadTitle` and the workspace via `applyGeneratedWorkspaceTitle`, then a workspace update is emitted. If no title appears by the final attempt, it exits silently.
+- Create-agent title scheduling always goes through `scheduleAutoNameAgentTitleFromContext`. The scheduled input includes `preferNativeTitle`, which is set from `agentManager.supportsNativeThreadTitle(snapshot.id)` at creation time.
+- `maybeAutoNameAgentTitleFromContext` first calls `waitForNativeAgentTitle(agentId)` when `preferNativeTitle` is true. If no native title is available, it falls back to `generateAgentTitleFromFirstAgentContext` instead of exiting.
+- `waitForNativeAgentTitle` polls `agentManager.refreshNativeThreadTitle(agentId)` at delays `[0, 500, 1000, 2000]` milliseconds and returns the first non-empty title. If every attempt returns null, it returns null and lets the structured generator run.
+- The selected title, whether native or structured, is written through `agentManager.setTitle(agentId, title)`. When this is the first agent in a workspace, the same selected title is also applied through `applyGeneratedWorkspaceTitle` and a workspace update is emitted.
 
 ## Worktree Branch Naming Decoupling
 
@@ -130,6 +132,18 @@ No WebSocket or protocol message shape changes are introduced. The changes are i
 - It documents that the first agent in a workspace may initialize both the agent title and workspace title from the same generated or provider-native chat title, while later agents update only their own agent title.
 - It also clarifies that first-agent worktree branch generation remains a separate flow and only runs for the first worktree agent.
 
+## Tests
+
+**Files**
+
+- `packages/server/src/server/workspace-same-cwd-isolation.e2e.test.ts`
+
+**Behavior**
+
+- The same-cwd workspace isolation E2E suite now includes `NativeTitlelessMockLoadTestAgentClient`, a mock provider session that exposes `getNativeTitle()` but always returns `null`.
+- The `create_agent_request falls back to structured title when native title is unavailable` test creates a workspace, configures structured metadata generation through the mock model, creates an agent with an initial prompt, and verifies both the agent title and first-agent workspace title become the structured title.
+- This test covers the provider-native capability path where `preferNativeTitle` is true but `waitForNativeAgentTitle` never finds a native title, proving the session still falls back to daemon-side structured generation.
+
 ## Cross-Cutting Effects
 
 - No protocol schema fields, RPC names, or client-facing message types are changed.
@@ -137,4 +151,5 @@ No WebSocket or protocol message shape changes are introduced. The changes are i
 - Workspace record `title` remains a workspace display title and is guarded against later-agent overwrites.
 - Workspace record `branch` is updated independently from title generation after first-agent branch auto-naming.
 - Codex sessions now report provider-native title support through daemon-internal capability flags and expose the optional `AgentSession.getNativeTitle` method.
+- Providers that expose `getNativeTitle` but temporarily or permanently return no title still receive daemon-side structured title generation after the short native-title polling window.
 - The new agent-title generator creates internal, non-persistent structured-generation sessions, so metadata generation should not add visible user agents or persisted sessions.
