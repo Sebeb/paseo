@@ -4,7 +4,7 @@ Branch: `feat/conversation-branching`
 
 Base: `origin/main`
 
-Anchor commit: d76d9b2848ba0f73df038c674d0cad4ff52f2b4e — feat: add Duplicate chat to the agent tab context menu
+Anchor commit: 44d80544ca97d4d60900151c41da265b20905ae1 — fix: resolve branch message from timeline and left-align branch counter
 
 ## Conversation Branching Protocol
 
@@ -40,6 +40,10 @@ Adds a daemon/app contract for creating alternate continuations from a prior use
   - `{ type: "agent.branch.create.request"; agentId: string; messageId: string; requestId: string }`
 - `agent.branch.create.response`
   - `{ type: "agent.branch.create.response"; payload: { requestId: string; agentId: string; branchAgentId: string | null; group: AgentBranchGroup | null; ok: boolean; error: string | null } }`
+- `agent.duplicate.request`
+  - `{ type: "agent.duplicate.request"; agentId: string; requestId: string }`
+- `agent.duplicate.response`
+  - `{ type: "agent.duplicate.response"; payload: { requestId: string; agentId: string; duplicateAgentId: string | null; ok: boolean; error: string | null } }`
 - `agent.branch.groups.request`
   - `{ type: "agent.branch.groups.request"; agentId: string; requestId: string; groupId?: string }`
 - `agent.branch.groups.response`
@@ -49,9 +53,9 @@ Adds a daemon/app contract for creating alternate continuations from a prior use
 
 `AgentCapabilityFlagsSchema` accepts missing `supportsBranchConversation` and defaults it to `false`. `AgentBranchMembershipSchema` enforces positive integer ordinals and nullable message IDs. `AgentBranchingMetadataSchema` defaults missing memberships to an empty array and preserves an optional nullable `pendingGroupId`.
 
-The branch create and group list RPCs use dotted namespace request/response names. They are added to the session inbound/outbound unions and exported message types. The branch create response always carries `ok` and nullable `error`; failed responses keep `branchAgentId` and `group` nullable so the client can parse partial failure states.
+The branch create, duplicate, and group list RPCs use dotted namespace request/response names. They are added to the session inbound/outbound unions and exported message types. Branch create and duplicate responses always carry `ok` and nullable `error`; failed responses keep `branchAgentId`, `duplicateAgentId`, and `group` nullable so the client can parse partial failure states.
 
-Schema tests cover capability defaults, snapshot parsing with branch metadata, branch create request/response parsing, and branch group request/response parsing.
+Schema tests cover capability defaults, snapshot parsing with branch metadata, branch create request/response parsing, duplicate request/response parsing, and branch group request/response parsing.
 
 ## Server Branch Creation
 
@@ -117,7 +121,7 @@ Provider fork/rewind resolution details:
 - Updated branch metadata is persisted through `AgentStorage.upsert` and immediately emitted through `agentUpdates.emitStoredRecord`.
 - The success response includes the branch agent ID and the freshly listed group for the group ID.
 
-`markPendingBranchMessage(agentId, sentMessageId)` runs fire-and-forget when a user message is accepted on an agent with `branching.pendingGroupId`. The send request's client messageId cannot be stored directly: providers assign their own timeline ids (Claude uses the SDK/transcript uuid, Codex uses app-server item ids) and the app's branch counter is keyed by timeline message ids. Instead, `resolveBranchUserMessageId` polls the durable timeline (500ms interval, ~15s deadline) for the newest non-system-injected `user_message` row that either matches the sent client id or has a commit timestamp at/after the pending membership's `createdAt`. Once resolved, the membership's `messageId` is filled, `pendingGroupId` is cleared, and the record is persisted and re-emitted — which changes the branch agent's snapshot and triggers the app to refetch branch groups.
+`markPendingBranchMessage(agentId, sentMessageId)` runs fire-and-forget when a user message is accepted on an agent with `branching.pendingGroupId`, so the send response is not delayed. The send request's client messageId cannot be stored directly: providers assign their own timeline ids (Claude uses the SDK/transcript uuid, Codex uses app-server item ids) and the app's branch counter is keyed by timeline message ids. Instead, `resolveBranchUserMessageId` polls the durable timeline (500ms interval, ~15s deadline) for the newest non-system-injected `user_message` row that either matches the sent client id or has a commit timestamp at/after the pending membership's `createdAt`; timeline read failures and deadline expiry return `null`. Before writing, the session re-reads the latest stored record and only proceeds if the same pending group is still current. Once resolved, every null-message membership in that pending group is filled with the timeline message id, `pendingGroupId` is cleared, and the record is persisted and re-emitted — which changes the branch agent's snapshot and triggers the app to refetch branch groups.
 
 `listBranchGroupsForAgent(agentId, groupId?)` scans all stored agents. Without an explicit group ID, it first collects all group IDs present on the requested agent. With an explicit group ID, it includes that group even if the requested agent no longer has a local membership. It then scans all records again, gathers matching memberships into groups, includes `archivedAt` and `title` from each stored agent record, sorts each group's members by ordinal, and returns the groups.
 
@@ -129,6 +133,29 @@ Agent storage preserves existing `branching` across live-agent snapshot flushes,
 
 Duplicates an agent's full conversation into a new, independent agent — exposed as a "Duplicate chat" entry in the tab context menu. Uses the same fork-on-source machinery as branching but with no rollback and no branch-group linkage: the copy is a standalone sibling with the same config, labels, workspace, and title.
 
+### Files
+
+- `packages/protocol/src/messages.ts`
+- `packages/client/src/daemon-client.ts`
+- `packages/server/src/server/session.ts`
+- `packages/server/src/server/agent/agent-manager.ts`
+- `packages/server/src/server/agent/agent-sdk-types.ts`
+- `packages/server/src/server/agent/providers/claude/agent.ts`
+- `packages/server/src/server/agent/providers/codex-app-server-agent.ts`
+- `packages/app/src/screens/workspace/workspace-tab-menu.ts`
+- `packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx`
+- `packages/app/src/screens/workspace/workspace-screen.tsx`
+- `packages/app/src/components/split-container.tsx`
+- `packages/app/src/screens/workspace/workspace-tab-menu.test.ts`
+- `packages/app/src/i18n/resources/ar.ts`
+- `packages/app/src/i18n/resources/en.ts`
+- `packages/app/src/i18n/resources/es.ts`
+- `packages/app/src/i18n/resources/fr.ts`
+- `packages/app/src/i18n/resources/ja.ts`
+- `packages/app/src/i18n/resources/pt-BR.ts`
+- `packages/app/src/i18n/resources/ru.ts`
+- `packages/app/src/i18n/resources/zh-CN.ts`
+
 ### Public Surface
 
 - `agent.duplicate.request` — `{ type: "agent.duplicate.request"; agentId: string; requestId: string }`
@@ -136,18 +163,19 @@ Duplicates an agent's full conversation into a new, independent agent — expose
 - `AgentSession.duplicateConversation?(): Promise<AgentPersistenceHandle | null>` — fork the full conversation into a new provider session (Claude: SDK `forkSession` up to the last observed assistant message; Codex: `thread/fork` with no rollback). Returns null when there is no conversation history yet.
 - `AgentManager.duplicateConversation(agentId)`
 - `DaemonClient.duplicateAgent(agentId, options?): Promise<AgentDuplicatePayload>` — 30s timeout, throws on `ok: false`.
+- `WorkspaceTabMenuLabels.duplicateChat` and optional `onDuplicateChat(agentId)` tab-menu plumbing, using the `"copy-plus"` icon.
 
 ### Behavior
 
 `handleAgentDuplicateRequest` reuses `resolveAgentBranchSource` (live agent, not running, `supportsBranchConversation`, persisted, not archived), duplicates on the source, then creates the copy via `resumeAgentFromPersistence` (or `createAgent` for a null handle) and hydrates its timeline with `force` + `broadcast`. The source title is copied onto the duplicate record when present. No branching metadata is written — duplicates do not join a branch group.
 
-The feature is gated in the app by the same `serverInfo.features.agentBranching` flag as branching (both capabilities ship in the same daemon version).
+The feature is gated in the app by the same `serverInfo.features.agentBranching` flag as branching (both capabilities ship in the same daemon version). When the flag is true, `workspace-screen.tsx` passes a duplicate handler into desktop tabs, mobile tab menus, and split panes. The handler requires a connected daemon client, calls `client.duplicateAgent(agentId)`, opens the duplicate agent as the focused tab in the current workspace layout, fetches the duplicate timeline with `{ direction: "tail", projection: "projected" }`, and shows a localized toast on failure. The menu builder inserts the duplicate entry only for agent tabs and only when the handler is provided; terminal, draft, file, browser, and setup tabs never receive it.
 
 ## Daemon Client API
 
 ### Purpose
 
-Exposes typed client helpers for app code to create a branch and fetch branch groups without duplicating request/response wiring.
+Exposes typed client helpers for app code to create a branch, duplicate an agent, and fetch branch groups without duplicating request/response wiring.
 
 ### Files
 
@@ -156,6 +184,7 @@ Exposes typed client helpers for app code to create a branch and fetch branch gr
 ### Public Surface
 
 - `export type AgentBranchCreatePayload = AgentBranchCreateResponseMessage["payload"]`
+- `export type AgentDuplicatePayload = AgentDuplicateResponseMessage["payload"]`
 - `export type AgentBranchGroupsPayload = AgentBranchGroupsResponseMessage["payload"]`
 - `DaemonClient.createAgentBranch(agentId: string, messageId: string, options?: { requestId?: string }): Promise<AgentBranchCreatePayload>`
 - `DaemonClient.duplicateAgent(agentId: string, options?: { requestId?: string }): Promise<AgentDuplicatePayload>`
@@ -164,6 +193,8 @@ Exposes typed client helpers for app code to create a branch and fetch branch gr
 ### Behavior
 
 `createAgentBranch` sends `agent.branch.create.request` through `sendNamespacedCorrelatedSessionRequest`, uses a 30 second timeout, and throws `payload.error ?? "Agent branch failed"` when the daemon response has `ok: false`. Successful calls return the full payload so callers can use both the branch agent ID and updated group.
+
+`duplicateAgent` sends `agent.duplicate.request` through the same namespaced correlated path, uses a 30 second timeout, throws `payload.error ?? "Agent duplicate failed"` when `ok` is false, and returns the full payload so callers can open the duplicate agent and fetch its timeline.
 
 `fetchAgentBranchGroups` sends `agent.branch.groups.request`, includes `groupId` only when supplied, throws when the response has a non-null `error`, and otherwise returns the payload.
 
@@ -181,15 +212,28 @@ Adds controls to user-message rows for creating a branch from that message and f
 - `packages/app/src/components/branching/query-keys.ts`
 - `packages/app/src/components/branching/use-agent-branch-mutation.ts`
 - `packages/app/src/components/message.tsx`
+- `packages/app/src/components/split-container.tsx`
 - `packages/app/src/agent-stream/view.tsx`
 - `packages/app/src/agent-stream/strategy.ts`
 - `packages/app/src/agent-stream/strategy-web.tsx`
 - `packages/app/src/agent-stream/strategy-native.tsx`
 - `packages/app/src/hooks/use-agent-screen-state-machine.ts`
 - `packages/app/src/panels/agent-panel.tsx`
+- `packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx`
+- `packages/app/src/screens/workspace/workspace-screen.tsx`
+- `packages/app/src/screens/workspace/workspace-tab-menu.ts`
+- `packages/app/src/screens/workspace/workspace-tab-menu.test.ts`
 - `packages/app/src/stores/session-store.ts`
 - `packages/app/src/stores/workspace-layout-store.ts`
 - `packages/app/src/utils/agent-snapshots.ts`
+- `packages/app/src/i18n/resources/ar.ts`
+- `packages/app/src/i18n/resources/en.ts`
+- `packages/app/src/i18n/resources/es.ts`
+- `packages/app/src/i18n/resources/fr.ts`
+- `packages/app/src/i18n/resources/ja.ts`
+- `packages/app/src/i18n/resources/pt-BR.ts`
+- `packages/app/src/i18n/resources/ru.ts`
+- `packages/app/src/i18n/resources/zh-CN.ts`
 
 ### Public Surface
 
@@ -211,6 +255,11 @@ Adds controls to user-message rows for creating a branch from that message and f
 - `useAgentBranchMutation`
   - Input: `{ serverId?: string; workspaceId?: string; agentId?: string; messageId?: string; client?: DaemonClient | null }`
   - Returns `{ branchAgent(input: { rewoundText: string }): Promise<void>; isPending: boolean }`.
+- Workspace tab menu duplicate-chat plumbing
+  - `WorkspaceTabMenuLabels.duplicateChat` supplies localized copy.
+  - `WorkspaceTabMenuEntry.icon` accepts `"copy-plus"`.
+  - Desktop/mobile menu builders accept optional `onDuplicateChat(agentId)` and add a `duplicate-chat` item only for agent tabs.
+- `useWorkspaceLayoutStore.attachChildTab(workspaceKey, childTabId, parentTabId)` records source/branch tab parentage in `parentTabIdByTabId`.
 - `StreamViewportHandle.scrollToMessage(messageId: string, viewportY?: number | null): boolean`
   - The optional `viewportY` is used by the web viewport to preserve a target screen Y. Native keeps its existing centered-row scroll behavior.
 - App-side `Agent`, `AgentScreenAgent`, and chat panel state now carry `branching?: AgentBranchingMetadata`.
@@ -231,6 +280,8 @@ A user message can branch only when all of these are true:
 `UserMessage` shows its trailing action row when the message has text and either branch info is present, the layout is compact, the platform is native, or the row is hovered. The row stretches to the bubble's width: the branch counter sits at the bottom-left, and the timestamp, branch button, rewind menu, and copy button are grouped bottom-right (via `marginLeft: "auto"` so they stay right-aligned when no counter is shown).
 
 `BranchButton` ignores presses while pending, disables the pressable while pending, and passes the original user message text as `rewoundText`. It uses a tooltip on desktop and no mobile tooltip.
+
+The tab menu reuses the existing tab-menu entry builder for desktop context menus and mobile stacked tab menus. `duplicateChat` is translated in all app locale files touched by this branch, and the menu tests verify that the entry appears only for agent tabs with a handler, uses the `copy-plus` icon, calls `onDuplicateChat` with the agent id, and stays absent from non-agent tabs.
 
 `useAgentBranchMutation` performs the full app workflow after the daemon creates a branch:
 
@@ -260,6 +311,10 @@ Render profiling now treats `agent.branching` as a reason for agent stream re-re
 
 Branch metadata is stored inside each persisted agent record rather than in a separate table or file. There is no migration; records without `branching` parse normally. Branch metadata is copied into snapshots when present and is preserved during agent storage flushes.
 
+### Localization
+
+The app adds localized `workspace.tabs.menu.duplicateChat` and `workspace.tabs.toasts.failedToDuplicateChat` strings across the existing locale resource files (`ar`, `en`, `es`, `fr`, `ja`, `pt-BR`, `ru`, `zh-CN`). The branch button looks up `branch.tooltip` but supplies `"Branch from here"` as a default tooltip value at the component call site, so no locale resource entry is required for that label.
+
 ### Integration with feat/sidebar-workspace-tabs
 
 The branch mutation attaches the source agent's tab as a child of the branch tab via `attachChildTab` (`parentTabIdByTabId`). The sidebar workspace tab tree feature (`feat/sidebar-workspace-tabs`, not on this branch's base) prunes agent→agent tab parent links that the daemon does not corroborate via `parentAgentId` in `pruneStaleAgentParentTabMappings`. When both features are merged, the prune must also keep links between agents that share a branch group: `agent-visibility.ts` builds `branchGroupIdsByAgentId` from `agent.branching.memberships`, threads it through `WorkspaceTabSnapshot`, and the prune keeps a link when child and parent agents share any branch group id. This is implemented on the `merging` branch as commit `4877bd70d` ("fix(app): keep branch-linked agent tab parenting through reconcile") — carry it whenever these branches are recombined.
@@ -275,8 +330,11 @@ Protocol additions are optional or nullable where needed. Missing `supportsBranc
 - Defaulting missing rewind and branch capabilities to `false`.
 - Parsing branch metadata on agent snapshots.
 - Parsing the branch create RPC request and response.
+- Parsing the duplicate-agent RPC request and response.
 - Parsing the branch group RPC request and response.
 
 `packages/server/src/server/agent/providers/claude/rewind.test.ts` adds coverage for resolving fork targets from Claude rewind anchors, including normal previous-assistant forks, interrupted turns with null assistant anchors, fresh-session fallbacks when no assistant message precedes the target, missing-target errors, and detection of local command transcript records stored as strings or text blocks.
 
 `packages/server/src/server/agent/providers/codex/rewind.test.ts` adds coverage for ordinal fallback when Codex message IDs cannot be resolved after a resumed thread read, rejection of out-of-range ordinal fallbacks, and fork-without-source-mutation behavior for Codex branch creation.
+
+`packages/app/src/screens/workspace/workspace-tab-menu.test.ts` adds coverage for the Duplicate chat tab-menu entry, including handler-gated display, copy-plus icon selection, agent-id callback wiring, and omission from non-agent tabs.
