@@ -1,31 +1,34 @@
-# Patch Summary: Embedded Workspace Tabs In Sidebar
+# Patch Summary: Sidebar Workspace Tabs And Workspace Navigation History
 
-Branch: `feat/sidebar-workspace-tabs`
+Branch: `feat/window-back-forward-stack`
 
 Base: `origin/main`
 
-Anchor commit: 7a87367b75486fed3c2b862638ecb11618d5aaa0 — feat(sidebar-tabs): add status hover summaries
+Anchor commit: 08125b3d67298fd3533a2c9340ddf134ddf50973 — feat(app): add workspace back/forward navigation history
 
 ## Purpose
 
-This branch redesigns the sidebar so workspace tabs can be shown and controlled directly under each workspace. It adds sidebar-specific tab ordering, recent tab filtering, status badges, grouping controls, tab-close cleanup, and layout state needed for embedded tab presentation.
+This branch redesigns the sidebar so workspace tabs can be shown and controlled directly under each workspace, then layers client-local workspace back/forward navigation on top of the same visible workspace/tab model. It adds sidebar-specific tab ordering, visibility limits, status badges, grouping controls, tab-close cleanup, layout state needed for embedded tab presentation, and a persisted history stack for returning to recently focused workspace pane/tab selections.
 
-The branch is intentionally grouped because the sidebar list, workspace layout store, tab close behavior, status summaries, and sidebar preferences depend on each other.
+The branch is intentionally grouped because the sidebar list, workspace layout store, tab close behavior, status summaries, sidebar preferences, and workspace navigation history depend on the same current workspace/tab state.
 
 ## User-Facing Changes
 
 - Adds embedded workspace tabs inside sidebar workspace rows.
 - Adds sidebar grouping controls for:
   - project/status grouping
-  - workspace title source
-  - auto-collapse projects
-  - auto-collapse workspaces
-  - workspace sort mode (manual, created, lastUpdated, **status**)
-  - embedded tab sort mode (manual, created, lastUpdated, **status**)
-  - recent tab count
   - sidebar badge mode
+  - project sort mode (manual, created, lastUpdated, **status**)
+  - project visible count (3, 5, 10, all)
+  - project auto-collapse
+  - workspace title source
+  - workspace sort mode (manual, created, lastUpdated, **status**)
+  - workspace visible count (3, 5, 10, all)
+  - workspace auto-collapse
+  - embedded tab sort mode (manual, created, lastUpdated, **status**)
+  - embedded tab visible count (3, 5, 10, all)
 - Adds per-kind status count badges for workspace tabs (queued messages, draft, input required, unread, in-progress, failed).
-- Adds workspace expansion/collapse behavior for showing or hiding embedded tabs.
+- Adds workspace expansion/collapse behavior for showing or hiding embedded tabs, plus temporary "Show all" toggles when a project, workspace, status bucket, or embedded tab group is limited by a visible-count preference.
 - Adds shift-click workspace expansion controls.
 - Prevents attention-driven navigation from overriding explicit navigation.
 - Moves close-tab cleanup into a reusable workspace hook.
@@ -50,6 +53,9 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Workspace and project rows suppress draft-only status dots/badges so a typed draft in an embedded tab does not make the whole workspace or project look active; embedded tab rows still show draft status directly.
 - Parent embedded tab rows keep their normal tab icon visible at rest, swap the leading slot to the expand/collapse chevron only on hover/touch/compact layouts, and show a small collapsed-subtree count before the label when descendants are hidden.
 - Project, workspace, and embedded-tab hover cards include status explainer rows so status dots can be interpreted without opening the tab or workspace.
+- Adds workspace header Back and Forward buttons with dropdown history menus that show the target tab rows and status badges.
+- Adds keyboard shortcuts for workspace history navigation: Command+Left/Right on macOS desktop, Control+Left/Right on non-macOS desktop.
+- Adds browser mouse-button history navigation for side-button Back/Forward when the workspace screen is focused.
 
 ## Restored Main Polish
 
@@ -75,26 +81,31 @@ This new persisted zustand store owns sidebar-specific display preferences.
 #### Types
 
 - `SidebarGroupMode = "project" | "status"`
-- `SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated" | "status"`
-- `SidebarWorkspaceSortMode = SidebarEmbeddedTabSortMode`
-- `SidebarEmbeddedRecentTabCount = 3 | 5 | 10 | "all"`
+- `SidebarSortMode = "manual" | "created" | "lastUpdated" | "status"`
+- `SidebarEmbeddedTabSortMode = SidebarSortMode`
+- `SidebarWorkspaceSortMode = SidebarSortMode`
+- `SidebarProjectSortMode = SidebarSortMode`
+- `SidebarShowLastCount = 3 | 5 | 10 | "all"`
+- `SidebarEmbeddedRecentTabCount = SidebarShowLastCount`
+- `SidebarWorkspaceShowLastCount = SidebarShowLastCount`
+- `SidebarProjectShowLastCount = SidebarShowLastCount`
 - `SidebarBadgeMode = "diff" | "status" | "none"`
 
 #### Normalizers
 
-##### `normalizeTabSortMode(value)`
+##### `normalizeSortMode(value)`
 
-Returns a valid tab sort mode:
+Returns a valid sidebar sort mode:
 
 - accepts `"created"`, `"lastUpdated"`, `"manual"`, and `"status"`
 - falls back to `"manual"`
 
-##### `normalizeRecentTabCount(value)`
+##### `normalizeShowLastCount(value, fallback)`
 
-Returns a valid recent tab count:
+Returns a valid visible-count preference:
 
 - accepts `3`, `5`, `10`, and `"all"`
-- falls back to `5`
+- falls back to the caller-provided value, so projects/workspaces default to `"all"` while embedded tabs default to `5`
 
 ##### `normalizeBadgeMode(value)`
 
@@ -120,7 +131,7 @@ Returns a valid badge mode:
 ##### `getEmbeddedTabSortMode(serverId)` / `setEmbeddedTabSortMode(serverId, mode)`
 
 - Store and read per-server tab sort mode.
-- Always normalize values through `normalizeTabSortMode`.
+- Always normalize values through `normalizeSortMode`.
 
 ##### `getWorkspaceSortMode(serverId)` / `setWorkspaceSortMode(serverId, mode)`
 
@@ -128,10 +139,26 @@ Returns a valid badge mode:
 - Use the same value space and normalization as embedded tab sort mode: `"manual"`, `"created"`, `"lastUpdated"`, and `"status"`.
 - Empty server ids read as `"manual"` and are ignored on write.
 
+##### `getProjectSortMode(serverId)` / `setProjectSortMode(serverId, mode)`
+
+- Store and read per-server project sort mode.
+- Use the same value space and normalization as workspace and embedded-tab sorting.
+- Empty server ids read as `"manual"` and are ignored on write.
+
 ##### `getEmbeddedRecentTabCount(serverId)` / `setEmbeddedRecentTabCount(serverId, count)`
 
-- Store and read per-server recent tab count.
-- Always normalize values through `normalizeRecentTabCount`.
+- Store and read per-server embedded tab visible-count preference.
+- Always normalize values through `normalizeShowLastCount(value, 5)`.
+
+##### `getWorkspaceShowLastCount(serverId)` / `setWorkspaceShowLastCount(serverId, count)`
+
+- Store and read per-server workspace visible-count preference.
+- Normalize through `normalizeShowLastCount(value, "all")`.
+
+##### `getProjectShowLastCount(serverId)` / `setProjectShowLastCount(serverId, count)`
+
+- Store and read per-server project visible-count preference.
+- Normalize through `normalizeShowLastCount(value, "all")`.
 
 ##### `getBadgeMode(serverId)` / `setBadgeMode(serverId, mode)`
 
@@ -153,8 +180,11 @@ The store persists to `AsyncStorage` under `sidebar-group-mode`. It partializes 
 Persisted preference maps are:
 
 - `groupModeByServerId`
+- `projectSortModeByServerId`
 - `workspaceSortModeByServerId`
 - `embeddedTabSortModeByServerId`
+- `projectShowLastCountByServerId`
+- `workspaceShowLastCountByServerId`
 - `embeddedRecentTabCountByServerId`
 - `badgeModeByServerId`
 
@@ -174,32 +204,35 @@ This replaces the narrower display preferences menu with a broader sidebar contr
 Implementation details:
 
 - Reads app settings and sidebar view store state.
-- Reads current group mode, workspace sort mode, tab sort mode, recent count, badge mode, project auto-collapse state, and workspace auto-collapse state.
+- Reads current group mode, badge mode, project preferences, workspace preferences, and sidebar-tab preferences from `useSidebarViewStore`.
 - Writes per-server preferences only when `serverId` is non-null.
-- Shows embedded-tab controls only when `settings.tabLayoutMode !== "horizontal"`.
-- Shows the workspace auto-collapse toggle only for the sidebar tab layout; the project auto-collapse toggle is always available from the sidebar controls.
-- Uses `closeOnSelect = !showTabControls` so simple grouping closes the menu, while multi-control embedded tab settings can stay open.
+- Keeps group mode and badge mode as top-level menu sections.
+- Renders display preferences as one expanded section at a time: **Projects**, **Workspaces**, and, only when `settings.tabLayoutMode === "sidebar"`, **Tabs**.
+- Defaults the expanded section to **Workspaces** and moves back to **Workspaces** if the **Tabs** section was open and sidebar tab layout is disabled.
+- Keeps all preference item selections open with `closeOnSelect={false}` so the user can adjust multiple display settings in one pass.
 - Preserves the current `workspaceTitleSource` setting by writing through `updateSettings`.
 
-The workspace sort menu includes the same four options as tab sorting: Manual, Created, Last Updated, and **Status**. Status sorts workspaces by urgency, with recency and name as tiebreakers.
+The project, workspace, and tab sort menus use the same four options: Manual, Created, Last Updated, and **Status**. Status sorts by urgency, with recency and name as tiebreakers.
 
-The tab sort mode menu includes four options: Manual, Created, Last Updated, and **Status** (sorts by most urgent status, with recency as a tiebreaker).
+Each display section includes a **Show last** preference with `3`, `5`, `10`, and `All` choices. Projects and workspaces default to `All`; embedded sidebar tabs default to `5`.
 
-The top-level menu includes two persistent toggle items:
+The section-specific toggles are:
 
-- **Auto collapse projects** toggles `autoCollapseProjects` and keeps the menu open.
-- **Auto collapse workspaces** toggles `autoCollapseWorkspaces`, keeps the menu open, and is only rendered while the app uses sidebar tab layout.
+- **Projects / Auto collapse** toggles `autoCollapseProjects`.
+- **Workspaces / Title** writes the global `workspaceTitleSource` value.
+- **Workspaces / Auto collapse** toggles `autoCollapseWorkspaces`.
 
 #### Menu Item Components
 
 The selector defines typed item components for:
 
-- workspace title source
 - group mode
-- workspace sort mode
-- tab sort mode
-- recent tab count
 - badge mode
+- project sort mode and visible count
+- workspace sort mode
+- workspace visible count and title source
+- embedded tab sort mode and visible count
+- display-section headers with expanded accessibility state
 
 Each component creates a stable `handleSelect` callback that passes its typed value back to the parent.
 
@@ -213,7 +246,7 @@ Behavior:
 
 - Reads `settings.tabLayoutMode` and treats `"vertical"` on non-compact layouts as a mode where workspace tab content must remain mounted even when the project/workspace list is closed.
 - Calls `useSidebarWorkspacesList` when compact, when the main sidebar is open, or when the desktop vertical tab rail is visible.
-- Replaces `SidebarDisplayPreferencesMenu` with `SidebarGroupingSelector`, so one header/menu controls grouping, title source, workspace sorting, tab sorting, recent tab count, badge mode, and collapse preferences.
+- Uses `SidebarGroupingSelector` as the sidebar display menu, so one header/menu controls grouping, badge mode, project/workspace/tab sorting, visible-count preferences, title source, and collapse preferences.
 - Removes the global "new workspace" header/footer action from the sidebar shell.
 - Moves the sessions/history action into the footer and marks it active when the current route is the sessions route.
 - Passes active workspace selection and sidebar badge mode into the desktop sidebar so `SidebarVerticalWorkspaceTabs` can render only the vertical tab rail while the workspace/project list is closed.
@@ -701,7 +734,7 @@ Sequentially closes every recorded descendant for `parentTabId`, stopping and re
 
 ### `packages/app/src/hooks/sidebar-workspaces-view-model.ts`
 
-The sidebar workspace view model now supports explicit workspace sorting while preserving manual ordering as the persisted/default behavior.
+The sidebar workspace view model now supports explicit project/workspace sorting and visible-count limiting while preserving manual ordering as the persisted/default behavior.
 
 #### `SidebarWorkspaceEntry`
 
@@ -742,9 +775,28 @@ Workspace status urgency rank:
 
 Name tiebreaking uses `localeCompare` with `{ numeric: true, sensitivity: "base" }`, then falls back to `workspaceKey`.
 
+#### `sortSidebarProjects({ projects, sortMode })`
+
+Sorts top-level projects and returns a fresh array except in manual mode:
+
+- `"manual"` returns the input array by identity so persisted drag order remains the source of truth.
+- `"created"` sorts by the newest `createdAt` among each project's workspaces.
+- `"lastUpdated"` sorts by the newest `activityAt ?? createdAt ?? statusEnteredAt` among each project's workspaces.
+- `"status"` sorts by the most urgent workspace status rank in each project, then project last-updated time descending, then project name.
+- Empty projects sort as `done` for status urgency.
+
 #### `sortSidebarWorkspaceProjects({ projects, sortMode })`
 
 Sorts workspaces within each project by delegating to `sortSidebarWorkspaces`. In manual mode it returns the original `projects` array by identity so persisted drag order remains the source of truth.
+
+#### `applySidebarShowLastCount({ items, showLastCount, showAll, forceIncludeKey, getKey })`
+
+Applies the shared Project/Workspace/Tab visible-count policy:
+
+- If `showLastCount === "all"` or the transient `showAll` flag is true, returns a shallow copy of all items and hides the visibility toggle.
+- Otherwise returns the first `3`, `5`, or `10` items based on the stored preference.
+- If `forceIncludeKey` identifies an item outside the visible prefix, appends that item so the active project/workspace/tab remains visible even while the list is collapsed.
+- Reports `shouldShowVisibilityToggle` only when the stored limit hides at least one item.
 
 #### `useSidebarWorkspacesList(...)`
 
@@ -753,6 +805,8 @@ Sorts workspaces within each project by delegating to `sortSidebarWorkspaces`. I
 - In non-manual modes, hydrates each structural workspace row from the session workspace map before sorting so sort decisions use current timestamps/status.
 - Subscribes to `agents` and pending create attempts only for status sort, because those are only needed for effective status.
 - Continues writing missing project/workspace keys into the manual order store from the unsorted `baseProjects`, so switching back to manual preserves the user's order.
+
+Project-mode and status-mode sidebar renderers use `applySidebarShowLastCount` for top-level projects, per-project workspace lists, and status-bucket workspace lists. `SidebarShowAllToggle` renders the localized "Show all" / "Show less" row and resets transient expansion when the server, project, bucket, or stored visible-count preference changes.
 
 ### `packages/app/src/components/sidebar/sidebar-workspace-row-visibility.ts`
 
@@ -844,7 +898,7 @@ Key behavior:
 
 - Reads workspace tab layouts and pane state.
 - Builds embedded tab rows for each workspace.
-- Applies per-server tab sort and recent-count preferences.
+- Applies per-server tab sort and visible-count preferences.
 - Applies per-server workspace sort preferences in `useSidebarWorkspacesList`.
 - Applies manual order merges through `mergeEmbeddedVisibleTabOrder`.
 - Supports workspace collapse/expand and auto-collapse behavior.
@@ -866,10 +920,12 @@ When the sidebar grouping mode is status and `settings.tabLayoutMode === "sideba
 Supporting types:
 
 ```ts
-interface EmbeddedTabProjectLine {
+interface SidebarStatusTabLine {
   projectKey: string;
   projectName: string;
   iconDataUri: string | null;
+  kind?: "project" | "workspace";
+  workspaceKind?: SidebarWorkspaceEntry["workspaceKind"];
 }
 
 interface StatusTabWorkspaceRow {
@@ -900,10 +956,12 @@ interface StatusTabWorkspaceGroup {
 `SidebarStatusProjectWorkspaceTabs` renders `SidebarVerticalWorkspaceTabs` for a workspace inside one status bucket with:
 
 - `statusBucketFilter` set to the group bucket.
-- `projectLine` set to the workspace's project key/name/icon data.
-- `limitRecentTabs={false}` so a status bucket shows every matching embedded tab instead of applying the recent-tab limit.
+- `projectLine` built by `buildStatusTabLine`.
+- `lineKind: "project"` uses the workspace's project key/name/icon data.
+- `lineKind: "workspace"` uses `resolveSidebarWorkspacePrimaryLabel` plus workspace kind metadata, so status rows can show workspace labels when the grouping already implies project context.
+- `limitRecentTabs={false}` so a status bucket shows every matching embedded tab instead of applying the embedded-tab visible-count limit.
 
-`ProjectLineIcon` renders the project icon at 10 px in embedded tab subtitles. It uses the real project icon when available and otherwise falls back to `projectIconPlaceholderLabelFromDisplayName(projectName)`.
+`ProjectLineIcon` renders the project icon at 10 px in embedded tab subtitles. It uses the real project icon when available and otherwise falls back to `projectIconPlaceholderLabelFromDisplayName(projectName)`. Workspace-line rows use the workspace kind metadata instead of a project icon.
 
 #### `useSidebarTabStatusSummaries`
 
@@ -1174,11 +1232,120 @@ Shared navigation helpers used by layout close-successor logic and workspace key
 - Uses the active tab's position when present, otherwise starts from index 0.
 - Wraps cyclically for both forward and backward movement.
 
+## Workspace Navigation History
+
+This feature adds client-local Back/Forward navigation for workspace pane/tab selections. It is intentionally not daemon state: the app records visible layout selections and replays them by focusing the recorded pane/tab locally before navigating to the recorded workspace route.
+
+### `packages/app/src/stores/workspace-navigation-history-store/state.ts`
+
+#### Types
+
+```ts
+interface WorkspaceNavigationHistoryEntry {
+  serverId: string;
+  workspaceId: string;
+  projectId: string;
+  paneId: string;
+  tabId: string;
+  timestamp: number;
+}
+
+interface WorkspaceNavigationHistoryCoreState {
+  entries: WorkspaceNavigationHistoryEntry[];
+  currentIndex: number;
+}
+
+type WorkspaceNavigationHistoryGroupMode = "project" | "status";
+
+interface WorkspaceNavigationHistoryScope {
+  serverId: string;
+  projectId: string;
+  groupMode: WorkspaceNavigationHistoryGroupMode;
+}
+```
+
+#### Normalization
+
+- `initialWorkspaceNavigationHistoryCoreState` is `{ entries: [], currentIndex: -1 }`.
+- `MAX_HISTORY_ENTRIES` is `200`.
+- `normalizeWorkspaceNavigationHistoryEntry(value)` accepts only entries with non-empty trimmed `serverId`, `workspaceId`, `projectId`, `paneId`, and `tabId`. It keeps finite numeric timestamps and otherwise uses `Date.now()`.
+- `normalizeWorkspaceNavigationHistoryState(state)` filters invalid entries, keeps only the last 200 valid entries, and clamps `currentIndex` to `-1` for an empty list or to the nearest valid entry index.
+
+#### Entry comparison and append behavior
+
+- `workspaceNavigationEntriesEqual(left, right)` compares identity fields only: server, workspace, project, pane, and tab. The timestamp is ignored.
+- `appendWorkspaceNavigationHistoryEntry(state, entry)` normalizes the state and entry first.
+- If the normalized entry matches the current entry, it updates that current entry's timestamp without appending a duplicate.
+- If the user has gone back and then visits a new target, entries after `currentIndex` are discarded before appending, matching normal browser-history forward-stack truncation.
+- After append, the history is trimmed to the last 200 entries and `currentIndex` points at the newest entry.
+
+#### Indexing, scoping, and pruning
+
+- `setWorkspaceNavigationHistoryIndex(state, index)` ignores non-integer, negative, out-of-range, and no-op indexes.
+- `entryMatchesWorkspaceNavigationScope(entry, scope)` always requires matching `serverId`. In `"project"` group mode it also requires matching `projectId`; in `"status"` group mode it accepts entries across projects on the active host.
+- `findWorkspaceNavigationHistoryIndex({ entries, currentIndex, direction, scope, isValidEntry })` scans one step at a time backward or forward from `currentIndex`, returning the first entry that matches the scope and passes the caller's validity predicate.
+- `getWorkspaceNavigationHistoryItems(...)` returns every matching valid entry in scan order for menu rendering.
+- `pruneInvalidWorkspaceNavigationHistoryEntries(state, validity)` removes invalid entries. If the current entry remains valid it preserves that logical current entry; otherwise it moves to the last remaining valid entry.
+
+### `packages/app/src/stores/workspace-navigation-history-store/index.ts`
+
+This zustand store persists the normalized history state to `AsyncStorage`.
+
+Public surface:
+
+- `useWorkspaceNavigationHistoryStore`
+- store methods:
+  - `recordEntry(entry)`
+  - `setCurrentIndex(index)`
+  - `pruneInvalidEntries(isValidEntry)`
+  - `getHistoryItems({ direction, scope, isValidEntry })`
+- re-exported pure helpers from `state.ts`.
+
+Persistence:
+
+- Uses `createJSONStorage(() => AsyncStorage)`.
+- Persists under `workspace-navigation-history-state`, version `1`.
+- Partializes only `entries` and `currentIndex`.
+- Runs `normalizeWorkspaceNavigationHistoryState` during migration so bad persisted entries cannot poison the live store.
+
+### Sidebar Tab Click Recording
+
+`packages/app/src/components/sidebar-workspace-list.tsx` integrates the store with embedded sidebar tab clicks:
+
+- `WorkspaceNavigationHistoryTabRow` is exported for reuse by the workspace header history dropdown. It resolves a `WorkspaceTabDescriptor` through `WorkspaceTabPresentationResolver`, uses `SidebarEntryRowContent`, and renders status badges on the right when `badgeMode === "status"` or the primary status as a leading badge otherwise.
+- `buildFocusedWorkspaceNavigationEntry(selection, fallbackProjectId)` reads the selected workspace layout from `useWorkspaceLayoutStore`, extracts the focused pane and focused tab, resolves the project id from the session workspace descriptor or fallback, and returns a history entry with `Date.now()`.
+- `EmbeddedWorkspaceTabs` records the active workspace selection before focusing an embedded tab, then records the newly selected tab after `focusWorkspaceTab` or `focusWorkspacePane` and `navigateToWorkspace(..., { openAttentionAgent: false })`.
+- The sidebar integration records the previously visible tab before navigation, which is what makes Back return to the tab the user was actually viewing rather than just to the previous route.
+
+### Workspace Screen Integration
+
+`packages/app/src/screens/workspace/workspace-screen.tsx` owns header controls and keyboard/mouse handling:
+
+- `buildFocusedWorkspaceNavigationEntry({ serverId, workspaceId, projectId })` reads the current workspace layout by persistence key and returns the focused pane/tab as a history entry. It returns `null` when there is no valid server/workspace/project id, layout, focused pane, focused tab, or pane membership.
+- `isWorkspaceNavigationHistoryEntryValid(entry)` verifies that the workspace still exists, still belongs to the recorded project id, has a layout, contains the recorded pane, and still contains the recorded tab.
+- `buildWorkspaceNavigationHistoryScope({ serverId, projectId, groupMode })` returns `null` without a current project; otherwise it mirrors sidebar grouping by scoping history to the active project in project mode and across projects in status mode.
+- `buildWorkspaceNavigationHistoryRowItem(...)` converts a stored entry back into a `WorkspaceTabDescriptor` plus a single-tab `SidebarTabStatusSummary` for menu rendering.
+- `useWorkspaceNavigationHistoryControls(...)` reads `entries` and `currentIndex`, computes back/forward target indexes, builds dropdown rows, prunes invalid entries, and exposes `navigateBack`, `navigateForward`, and `selectRow`.
+- `focusEntry(entry, index)` sets the current history index, focuses the recorded pane, focuses the recorded tab, and calls `navigateToWorkspace(entry.serverId, entry.workspaceId, { openAttentionAgent: false })`.
+- On web, while the route is focused, `mousedown` button `3` triggers Back and button `4` triggers Forward when a target exists.
+- The workspace screen calls `recordFocusedWorkspaceNavigation()` before and after tab-opening, pane-focusing, terminal, setup, split, and move operations so the history follows user-visible selection changes.
+- `ScreenHeader.left` renders two `WorkspaceNavigationHistoryButton` controls immediately after `SidebarMenuToggle`. Each button is disabled when there is no target and opens a `ContextMenuContent` dropdown of target tab rows when history items exist.
+
+### Keyboard And Help Integration
+
+- `packages/app/src/keyboard/actions.ts` adds `workspace.navigation.back` and `workspace.navigation.forward` to `KeyboardActionId`.
+- `packages/app/src/keyboard/keyboard-action-dispatcher.ts` adds matching workspace-scoped action definitions.
+- `packages/app/src/keyboard/keyboard-shortcuts.ts` binds:
+  - `Cmd+ArrowLeft` / `Cmd+ArrowRight` on macOS desktop.
+  - `Ctrl+ArrowLeft` / `Ctrl+ArrowRight` on non-macOS desktop, excluding terminal focus.
+  - help ids `workspace-history-back` and `workspace-history-forward` in the navigation section.
+- `packages/app/src/keyboard/route-shortcut.ts` passes both actions through to the workspace keyboard dispatcher.
+
 ## Workspace Screen Integration
 
 ### `packages/app/src/screens/workspace/workspace-screen.tsx`
 
-The workspace screen now uses the shared sort/navigation helpers so the main workspace view and embedded sidebar tree agree on ordering, close-successor behavior, and keyboard traversal. It also adds split-pane creation controls to the workspace header.
+The workspace screen now uses the shared sort/navigation helpers so the main workspace view and embedded sidebar tree agree on ordering, close-successor behavior, keyboard traversal, and workspace history. It also adds split-pane creation controls and back/forward history controls to the workspace header.
 
 ### `packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx`
 
@@ -1444,6 +1611,17 @@ Also adds workspace hover-card timestamp labels in the same locale files:
 - `workspace.hoverCard.created`
 - `workspace.hoverCard.updated`
 
+Workspace history and visibility limiting add:
+
+- `workspace.navigation.back`
+- `workspace.navigation.forward`
+- `settings.shortcuts.help.historyBack`
+- `settings.shortcuts.help.historyForward`
+- `sidebar.workspace.embeddedTabs.showAll`
+- `sidebar.workspace.embeddedTabs.showAllLabel`
+- `sidebar.workspace.embeddedTabs.showLess`
+- `sidebar.workspace.embeddedTabs.showLessLabel`
+
 ## Documentation
 
 Updates:
@@ -1451,7 +1629,7 @@ Updates:
 - `docs/agent-lifecycle.md`
 - `docs/design.md`
 
-The docs describe tab/archive semantics and the visual conventions used by the new sidebar controls.
+The docs describe tab/archive semantics, the client-local workspace navigation history model, and the visual conventions used by the new sidebar controls.
 
 ## Tests
 
@@ -1466,20 +1644,23 @@ New and updated tests include:
 - `packages/app/src/utils/sidebar-active-ancestor-highlight.test.ts`
 - `packages/app/src/utils/sidebar-embedded-tab-tree.test.ts`
 - `packages/app/src/hooks/sidebar-status-view-model.test.ts`
+- `packages/app/src/components/sidebar/sidebar-display-preferences-menu.test.tsx`
 - `packages/app/src/utils/sidebar-tab-sort.test.ts`
 - `packages/app/src/utils/sidebar-tab-status-summary.test.ts`
 - `packages/app/src/utils/sidebar-shortcuts.test.ts`
 - `packages/app/src/workspace-tabs/agent-visibility.test.ts`
 - `packages/app/src/workspace-tabs/tab-navigation.test.ts`
 - `packages/app/src/screens/workspace/workspace-tab-close-tree.test.ts`
+- `packages/app/src/stores/workspace-navigation-history-store/state.test.ts`
+- `packages/app/src/keyboard/route-shortcut.test.ts`
 - `packages/app/src/utils/time.test.ts`
 - navigation and collapsed-section store tests
 
-These cover ordering, nested tree construction, row rendering, persisted sidebar preferences, main-pane lookup, close-descendant sequencing, tab status summaries (including draft state and queued message counts), navigation behavior, and collapsed-section state.
+These cover ordering, nested tree construction, row rendering, persisted sidebar preferences, display preference sections, visible-count limiting, main-pane lookup, close-descendant sequencing, tab status summaries (including draft state and queued message counts), workspace history append/scope/prune behavior, keyboard route dispatch, navigation behavior, and collapsed-section state.
 
 ## Verification
 
-The branch commits were created with the repo pre-commit hook enabled.
+The implementation commits on this branch were created with the repo pre-commit hook enabled.
 
 The hook ran:
 
@@ -1487,4 +1668,4 @@ The hook ran:
 - `npm run format:check:files` on changed files.
 - `npm run typecheck` across workspaces.
 
-All passed for each implementation commit.
+All passed for each implementation commit. This `PATCH.md` refresh did not run lint, typecheck, or tests; the patch-md workflow is documentation-only.
