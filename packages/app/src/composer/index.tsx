@@ -129,6 +129,12 @@ import {
   resolveCreditRefreshTime,
   type ScheduleSendMode,
 } from "@/composer/schedule-send";
+import {
+  formatScheduledCountdown,
+  selectScheduledComposerMessages,
+  type ScheduledComposerMessage,
+} from "@/composer/scheduled-messages";
+import { useSchedules } from "@/hooks/use-schedules";
 
 type QueuedMessage = QueuedComposerMessage;
 
@@ -582,6 +588,8 @@ function renderAttachmentTray(args: RenderAttachmentTrayArgs): ReactElement | nu
 
 interface RenderQueueTrackArgs {
   queuedMessages: readonly QueuedMessage[];
+  scheduledMessages: readonly ScheduledComposerMessage[];
+  countdownNow: number;
   handleEditQueuedMessage: (id: string) => void;
   handleSendQueuedNow: (id: string) => Promise<void>;
   editLabel: string;
@@ -589,9 +597,16 @@ interface RenderQueueTrackArgs {
 }
 
 function renderQueueTrack(args: RenderQueueTrackArgs): ReactElement | null {
-  const { queuedMessages, handleEditQueuedMessage, handleSendQueuedNow, editLabel, sendNowLabel } =
-    args;
-  if (queuedMessages.length === 0) return null;
+  const {
+    queuedMessages,
+    scheduledMessages,
+    countdownNow,
+    handleEditQueuedMessage,
+    handleSendQueuedNow,
+    editLabel,
+    sendNowLabel,
+  } = args;
+  if (queuedMessages.length === 0 && scheduledMessages.length === 0) return null;
   return (
     <View style={styles.queueTrack}>
       {queuedMessages.map((item) => (
@@ -603,6 +618,9 @@ function renderQueueTrack(args: RenderQueueTrackArgs): ReactElement | null {
           editLabel={editLabel}
           sendNowLabel={sendNowLabel}
         />
+      ))}
+      {scheduledMessages.map((item) => (
+        <ScheduledMessageRow key={item.id} item={item} now={countdownNow} />
       ))}
     </View>
   );
@@ -824,6 +842,20 @@ function QueuedMessageRow({
           <ThemedArrowUp size={ICON_SIZE.sm} uniProps={iconAccentForegroundMapping} />
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+function ScheduledMessageRow({ item, now }: { item: ScheduledComposerMessage; now: number }) {
+  const countdown = formatScheduledCountdown(item.dueAt, now);
+  return (
+    <View style={styles.queueItem}>
+      <Text style={styles.queueText} numberOfLines={2} ellipsizeMode="tail">
+        {item.text}
+      </Text>
+      <Text style={styles.queueCountdown} numberOfLines={1}>
+        {countdown}
+      </Text>
     </View>
   );
 }
@@ -1274,6 +1306,17 @@ export function Composer({
     state.sessions[serverId]?.queuedMessages?.get(agentId),
   );
   const queuedMessages = queuedMessagesRaw ?? EMPTY_ARRAY;
+  const { schedules, refetch: refetchSchedules } = useSchedules();
+  const scheduledMessages = useMemo(
+    () =>
+      selectScheduledComposerMessages({
+        schedules,
+        serverId,
+        agentId,
+      }),
+    [agentId, schedules, serverId],
+  );
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
 
   const setQueuedMessages = useSessionStore((state) => state.setQueuedMessages);
   const setAgentStreamTail = useSessionStore((state) => state.setAgentStreamTail);
@@ -1845,6 +1888,15 @@ export function Composer({
     supportsScheduledComposerMessages && hasSendableContent && Boolean(client) && isConnected;
   const providerUsage = useProviderUsage(serverId, { enabled: canShowScheduleSend });
 
+  useEffect(() => {
+    if (scheduledMessages.length === 0) {
+      return;
+    }
+    setCountdownNow(Date.now());
+    const interval = setInterval(() => setCountdownNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [scheduledMessages.length]);
+
   const handleScheduleSend = useCallback(
     async (mode: ScheduleSendMode) => {
       if (!client) {
@@ -1868,6 +1920,7 @@ export function Composer({
         resetSuppression();
         clearSentAttachments(outgoingAttachments);
         clearDraft("sent");
+        refetchSchedules();
       } finally {
         setIsSchedulingMessage(false);
       }
@@ -1880,6 +1933,7 @@ export function Composer({
       clearSentAttachments,
       client,
       providerUsage.view,
+      refetchSchedules,
       resetSuppression,
       setSelectedAttachments,
       setUserInput,
@@ -2198,12 +2252,21 @@ export function Composer({
     () =>
       renderQueueTrack({
         queuedMessages,
+        scheduledMessages,
+        countdownNow,
         handleEditQueuedMessage,
         handleSendQueuedNow,
         editLabel: t("composer.attachments.editQueuedMessage"),
         sendNowLabel: t("composer.attachments.sendQueuedMessageNow"),
       }),
-    [handleEditQueuedMessage, handleSendQueuedNow, queuedMessages, t],
+    [
+      countdownNow,
+      handleEditQueuedMessage,
+      handleSendQueuedNow,
+      queuedMessages,
+      scheduledMessages,
+      t,
+    ],
   );
 
   const messageInputContainerRef = useRef<View>(null);
@@ -2581,6 +2644,11 @@ const styles = StyleSheet.create((theme: Theme) => ({
     flex: 1,
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
+  },
+  queueCountdown: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    flexShrink: 0,
   },
   queueActions: {
     flexDirection: "row",

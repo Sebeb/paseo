@@ -179,6 +179,15 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   );
 });
 
+export function SidebarWorkspaceMessageStatusBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <View style={styles.messageStatusBadge} testID="sidebar-message-status-badge">
+      <Text style={styles.messageStatusBadgeText}>{count}</Text>
+    </View>
+  );
+}
+
 function WorkspaceLeadingVisual({
   workspace,
   isLoading,
@@ -580,6 +589,24 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
   },
   workspaceRowRight: sidebarWorkspaceRowStyles.rowRight,
+  messageStatusBadge: {
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: theme.spacing[1],
+    borderRadius: theme.borderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface1,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    flexShrink: 0,
+  },
+  messageStatusBadgeText: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.medium,
+    lineHeight: 14,
+  },
   shortcutBadgeOverlay: {
     position: "absolute",
     top: 1,

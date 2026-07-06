@@ -60,6 +60,7 @@ import { useAppSettings, type WorkspaceTitleSource } from "@/hooks/use-settings"
 import {
   SidebarWorkspaceRowFrame,
   SidebarWorkspaceRowContent,
+  SidebarWorkspaceMessageStatusBadge,
   SidebarWorkspaceTrailingActionBase,
   SidebarWorkspaceTrailingActionOverlay,
   SidebarWorkspaceTrailingActionSlot,
@@ -116,6 +117,7 @@ interface StatusWorkspaceListProps {
   badgeMode: SidebarBadgeMode;
   workspaceSortMode: SidebarWorkspaceSortMode;
   tabStatusSummaries: Map<string, SidebarTabStatusSummary>;
+  messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>;
   onWorkspacePress?: () => void;
 }
 
@@ -128,6 +130,7 @@ export function SidebarStatusWorkspaceList({
   badgeMode,
   workspaceSortMode,
   tabStatusSummaries,
+  messageStatusCountsByWorkspaceKey,
   onWorkspacePress,
 }: StatusWorkspaceListProps) {
   const groups = useMemo(
@@ -170,6 +173,7 @@ export function SidebarStatusWorkspaceList({
             showShortcutBadges={showShortcutBadges}
             badgeMode={badgeMode}
             tabStatusSummaries={tabStatusSummaries}
+            messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
             onWorkspacePress={onWorkspacePress}
           />
         </NestableScrollContainer>
@@ -191,6 +195,7 @@ export function SidebarStatusWorkspaceList({
             showShortcutBadges={showShortcutBadges}
             badgeMode={badgeMode}
             tabStatusSummaries={tabStatusSummaries}
+            messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
             onWorkspacePress={onWorkspacePress}
           />
         </ScrollView>
@@ -208,6 +213,7 @@ function StatusGroupList({
   showShortcutBadges,
   badgeMode,
   tabStatusSummaries,
+  messageStatusCountsByWorkspaceKey,
   onWorkspacePress,
 }: {
   groups: StatusGroup[];
@@ -218,6 +224,7 @@ function StatusGroupList({
   showShortcutBadges: boolean;
   badgeMode: SidebarBadgeMode;
   tabStatusSummaries: Map<string, SidebarTabStatusSummary>;
+  messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>;
   onWorkspacePress?: () => void;
 }) {
   return (
@@ -241,6 +248,9 @@ function StatusGroupList({
                   badgeMode={badgeMode}
                   tabStatusSummary={
                     tabStatusSummaries.get(workspace.workspaceKey) ?? EMPTY_TAB_STATUS_SUMMARY
+                  }
+                  messageStatusCount={
+                    messageStatusCountsByWorkspaceKey.get(workspace.workspaceKey) ?? 0
                   }
                   onWorkspacePress={onWorkspacePress}
                 />
@@ -343,6 +353,7 @@ const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
   showShortcutBadge,
   badgeMode,
   tabStatusSummary,
+  messageStatusCount,
   onWorkspacePress,
 }: {
   workspace: SidebarWorkspaceEntry;
@@ -352,6 +363,7 @@ const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
   showShortcutBadge: boolean;
   badgeMode: SidebarBadgeMode;
   tabStatusSummary: SidebarTabStatusSummary;
+  messageStatusCount: number;
   onWorkspacePress?: () => void;
 }) {
   const hydratedWorkspace = useSidebarWorkspaceEntry(serverId, workspace.workspaceId);
@@ -377,6 +389,7 @@ const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
       showShortcutBadge={showShortcutBadge}
       badgeMode={badgeMode}
       tabStatusSummary={tabStatusSummary}
+      messageStatusCount={messageStatusCount}
       onPress={handlePress}
     />
   );
@@ -390,6 +403,7 @@ function StatusWorkspaceRowWithMenu({
   showShortcutBadge,
   badgeMode,
   tabStatusSummary,
+  messageStatusCount,
   onPress,
 }: {
   workspace: SidebarWorkspaceEntry;
@@ -399,6 +413,7 @@ function StatusWorkspaceRowWithMenu({
   showShortcutBadge: boolean;
   badgeMode: SidebarBadgeMode;
   tabStatusSummary: SidebarTabStatusSummary;
+  messageStatusCount: number;
   onPress: () => void;
 }) {
   const { t } = useTranslation();
@@ -528,6 +543,7 @@ function StatusWorkspaceRowWithMenu({
         showShortcutBadge={showShortcutBadge}
         badgeMode={badgeMode}
         tabStatusSummary={tabStatusSummary}
+        messageStatusCount={messageStatusCount}
         onPress={onPress}
         isArchiving={isArchiving}
         archiveLabel={t("sidebar.workspace.actions.archive")}
@@ -567,6 +583,52 @@ function StatusWorkspaceRowWithMenu({
   );
 }
 
+function getStatusWorkspaceActionVisibility({
+  badgeMode,
+  hasArchiveAction,
+  hasDiffStat,
+  hasVcOperationBadges,
+  isHovered,
+  isTouchPlatform,
+  messageStatusCount,
+  shortcutNumber,
+  showShortcutBadge,
+  tabStatusSummary,
+}: {
+  badgeMode: SidebarBadgeMode;
+  hasArchiveAction: boolean;
+  hasDiffStat: boolean;
+  hasVcOperationBadges: boolean;
+  isHovered: boolean;
+  isTouchPlatform: boolean;
+  messageStatusCount: number;
+  shortcutNumber: number | null;
+  showShortcutBadge: boolean;
+  tabStatusSummary: SidebarTabStatusSummary;
+}) {
+  const showShortcut = showShortcutBadge && shortcutNumber !== null;
+  const showStatusSummary =
+    badgeMode === "status" &&
+    !showShortcut &&
+    getVisibleSidebarEntryStatusKinds(tabStatusSummary).length > 0;
+  const showKebabInSlot =
+    hasArchiveAction && (isHovered || isTouchPlatform) && !showStatusSummary && !showShortcut;
+  const showVcOperationBadges =
+    hasVcOperationBadges && !showKebabInSlot && !showShortcut && !showStatusSummary;
+  const showDiffStat =
+    badgeMode === "diff" && hasDiffStat && !showKebabInSlot && !showShortcut && !showStatusSummary;
+  const showActionBase = showVcOperationBadges || showStatusSummary || showDiffStat;
+  const showActionOverlay = showKebabInSlot;
+
+  return {
+    showActionBase,
+    showActionOverlay,
+    showDiffStat,
+    showStatusSummary,
+    shouldRenderActionSlot: showActionBase || showActionOverlay || messageStatusCount > 0,
+  };
+}
+
 function StatusWorkspaceRowInner({
   workspace,
   workspaceTitleSource,
@@ -576,6 +638,7 @@ function StatusWorkspaceRowInner({
   showShortcutBadge,
   badgeMode,
   tabStatusSummary,
+  messageStatusCount,
   onPress,
   isArchiving,
   archiveLabel,
@@ -597,6 +660,7 @@ function StatusWorkspaceRowInner({
   showShortcutBadge: boolean;
   badgeMode: SidebarBadgeMode;
   tabStatusSummary: SidebarTabStatusSummary;
+  messageStatusCount: number;
   onPress: () => void;
   isArchiving: boolean;
   archiveLabel?: string;
@@ -627,29 +691,18 @@ function StatusWorkspaceRowInner({
   return (
     <SidebarWorkspaceRowFrame workspace={workspace} statusSummary={tabStatusSummary}>
       {({ isHovered, hoverHandlers }) => {
-        const showShortcut = showShortcutBadge && shortcutNumber !== null;
-        const showStatusSummary =
-          badgeMode === "status" &&
-          !showShortcut &&
-          getVisibleSidebarEntryStatusKinds(tabStatusSummary).length > 0;
-        const showKebab = Boolean(
-          onArchive && (isHovered || isTouchPlatform) && !showStatusSummary,
-        );
-        const showKebabInSlot = showKebab && !showShortcut;
-        const showVcOperationBadges =
-          pendingBranchActionIds.length > 0 &&
-          !showKebabInSlot &&
-          !showShortcut &&
-          !showStatusSummary;
-        const showDiffStat =
-          badgeMode === "diff" &&
-          Boolean(workspace.diffStat) &&
-          !showKebabInSlot &&
-          !showShortcut &&
-          !showStatusSummary;
-        const showActionBase = showVcOperationBadges || showStatusSummary || showDiffStat;
-        const showActionOverlay = showKebabInSlot;
-        const shouldRenderActionSlot = showActionBase || showActionOverlay;
+        const visibility = getStatusWorkspaceActionVisibility({
+          badgeMode,
+          hasArchiveAction: Boolean(onArchive),
+          hasDiffStat: Boolean(workspace.diffStat),
+          hasVcOperationBadges: pendingBranchActionIds.length > 0,
+          isHovered,
+          isTouchPlatform,
+          messageStatusCount,
+          shortcutNumber,
+          showShortcutBadge,
+          tabStatusSummary,
+        });
         const workspaceRowStyle = getStatusWorkspaceRowStyle({ selected, isHovered });
         return (
           <View style={styles.workspaceRowContainer} {...hoverHandlers}>
@@ -669,19 +722,20 @@ function StatusWorkspaceRowInner({
                 isHovered={isHovered}
                 isLoading={isArchiving}
                 suppressStatusLoader={badgeMode === "status"}
-                suppressStatusVisual={badgeMode === "status" || showStatusSummary}
+                suppressStatusVisual={badgeMode === "status" || visibility.showStatusSummary}
                 shortcutNumber={shortcutNumber}
                 showShortcutBadge={showShortcutBadge}
-                hasTrailingContent={shouldRenderActionSlot}
+                hasTrailingContent={visibility.shouldRenderActionSlot}
               >
-                {shouldRenderActionSlot ? (
+                {visibility.shouldRenderActionSlot ? (
                   <StatusWorkspaceActionSlot
                     workspace={workspace}
                     statusSummary={tabStatusSummary}
-                    showStatusSummary={showStatusSummary}
-                    showDiffStat={showDiffStat}
-                    showBase={showActionBase}
-                    showOverlay={showActionOverlay}
+                    messageStatusCount={messageStatusCount}
+                    showStatusSummary={visibility.showStatusSummary}
+                    showDiffStat={visibility.showDiffStat}
+                    showBase={visibility.showActionBase}
+                    showOverlay={visibility.showActionOverlay}
                     onCopyPath={onCopyPath}
                     onCopyBranchName={onCopyBranchName}
                     onRename={onRename}
@@ -706,6 +760,7 @@ function StatusWorkspaceRowInner({
 function StatusWorkspaceActionSlot({
   workspace,
   statusSummary,
+  messageStatusCount,
   showStatusSummary,
   showDiffStat,
   showBase,
@@ -723,6 +778,7 @@ function StatusWorkspaceActionSlot({
 }: {
   workspace: SidebarWorkspaceEntry;
   statusSummary: SidebarTabStatusSummary;
+  messageStatusCount: number;
   showStatusSummary: boolean;
   showDiffStat: boolean;
   showBase: boolean;
@@ -739,33 +795,38 @@ function StatusWorkspaceActionSlot({
   pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
 }) {
   return (
-    <SidebarWorkspaceTrailingActionSlot>
-      <SidebarWorkspaceTrailingActionBase visible={showBase}>
-        <StatusWorkspaceBaseMeta
-          workspace={workspace}
-          statusSummary={statusSummary}
-          showStatusSummary={showStatusSummary}
-          showDiffStat={showDiffStat}
-          pendingBranchActionIds={pendingBranchActionIds}
-        />
-      </SidebarWorkspaceTrailingActionBase>
-      <SidebarWorkspaceTrailingActionOverlay visible={showOverlay}>
-        {onArchive ? (
-          <StatusKebabMenu
-            workspaceKey={workspace.workspaceKey}
-            onCopyPath={onCopyPath}
-            onCopyBranchName={onCopyBranchName}
-            onRename={onRename}
-            onMarkAsRead={onMarkAsRead}
-            onArchive={onArchive}
-            archiveLabel={archiveLabel}
-            archiveStatus={archiveStatus}
-            archivePendingLabel={archivePendingLabel}
-            archiveShortcutKeys={archiveShortcutKeys}
-          />
-        ) : null}
-      </SidebarWorkspaceTrailingActionOverlay>
-    </SidebarWorkspaceTrailingActionSlot>
+    <>
+      <SidebarWorkspaceMessageStatusBadge count={messageStatusCount} />
+      {showBase || showOverlay ? (
+        <SidebarWorkspaceTrailingActionSlot>
+          <SidebarWorkspaceTrailingActionBase visible={showBase}>
+            <StatusWorkspaceBaseMeta
+              workspace={workspace}
+              statusSummary={statusSummary}
+              showStatusSummary={showStatusSummary}
+              showDiffStat={showDiffStat}
+              pendingBranchActionIds={pendingBranchActionIds}
+            />
+          </SidebarWorkspaceTrailingActionBase>
+          <SidebarWorkspaceTrailingActionOverlay visible={showOverlay}>
+            {onArchive ? (
+              <StatusKebabMenu
+                workspaceKey={workspace.workspaceKey}
+                onCopyPath={onCopyPath}
+                onCopyBranchName={onCopyBranchName}
+                onRename={onRename}
+                onMarkAsRead={onMarkAsRead}
+                onArchive={onArchive}
+                archiveLabel={archiveLabel}
+                archiveStatus={archiveStatus}
+                archivePendingLabel={archivePendingLabel}
+                archiveShortcutKeys={archiveShortcutKeys}
+              />
+            ) : null}
+          </SidebarWorkspaceTrailingActionOverlay>
+        </SidebarWorkspaceTrailingActionSlot>
+      ) : null}
+    </>
   );
 }
 
