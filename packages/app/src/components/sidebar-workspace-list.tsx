@@ -66,8 +66,10 @@ import {
   ExternalLink,
   Globe,
   Folder,
+  FolderGit2,
   GitPullRequest,
   MessageCircle,
+  Monitor,
   Settings,
   Settings2,
   MoreVertical,
@@ -102,13 +104,18 @@ import {
   STATUS_BUCKET_ORDER,
   type StatusBucket,
 } from "@/hooks/sidebar-status-view-model";
+import { applySidebarShowLastCount } from "@/hooks/sidebar-workspaces-view-model";
 import {
   resolveProjectActivationWorkspace,
   useSidebarWorkspaceEntry,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
-import { useAppSettings, type WorkspaceTitleSource } from "@/hooks/use-settings";
+import {
+  useAppSettings,
+  type AppTabLayoutMode,
+  type WorkspaceTitleSource,
+} from "@/hooks/use-settings";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useSessionStore, type Agent } from "@/stores/session-store";
 import {
@@ -125,6 +132,7 @@ import {
   type SidebarBadgeMode,
   type SidebarEmbeddedTabSortMode,
   type SidebarEmbeddedRecentTabCount,
+  type SidebarWorkspaceShowLastCount,
   type SidebarWorkspaceSortMode,
 } from "@/stores/sidebar-view-store";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
@@ -179,7 +187,9 @@ import {
   SidebarEntryStatusBadges,
 } from "@/components/sidebar/sidebar-entry-row";
 import { SidebarEntryStatusExplainerRows } from "@/components/sidebar/sidebar-entry-status-explainer-rows";
+import { SidebarShowAllToggle } from "@/components/sidebar/sidebar-show-all-toggle";
 import { mergeEmbeddedVisibleTabOrder } from "@/components/sidebar/embedded-tabs-order";
+import { buildStatusTabLine, type SidebarStatusTabLine } from "@/utils/sidebar-status-tab-line";
 import {
   getWorkspaceRowRightVisibility,
   type WorkspaceRowRightVisibility,
@@ -283,6 +293,8 @@ function getPressClickCount(event: GestureResponderEvent): number | null {
 const WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS = [
   "draft",
 ] as const satisfies readonly SidebarEntryStatusKind[];
+const EMBEDDED_TAB_ROW_HEIGHT = 36;
+const EMBEDDED_TAB_PROJECT_LINE_ROW_HEIGHT = 46;
 const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedGitPullRequest = withUnistyles(GitPullRequest);
 const ThemedGitHubIcon = withUnistyles(GitHubIcon);
@@ -302,7 +314,9 @@ const ThemedBot = withUnistyles(Bot);
 const ThemedCalendarPlus = withUnistyles(CalendarPlus);
 const ThemedClock3 = withUnistyles(Clock3);
 const ThemedFolder = withUnistyles(Folder);
+const ThemedFolderGit2 = withUnistyles(FolderGit2);
 const ThemedMessageCircle = withUnistyles(MessageCircle);
+const ThemedMonitor = withUnistyles(Monitor);
 
 interface EmbeddedSidebarTabItem {
   descriptor: WorkspaceTabDescriptor;
@@ -312,11 +326,7 @@ interface EmbeddedSidebarTabItem {
   forceShown: boolean;
 }
 
-interface EmbeddedTabProjectLine {
-  projectKey: string;
-  projectName: string;
-  iconDataUri: string | null;
-}
+type EmbeddedTabProjectLine = SidebarStatusTabLine;
 
 interface StatusTabWorkspaceRow {
   project: SidebarProjectEntry;
@@ -958,6 +968,37 @@ function activeWorkspaceSelectionKey(selection: ActiveWorkspaceSelection | null)
   return selection ? `${selection.serverId}:${selection.workspaceId}` : "";
 }
 
+function getSelectedProjectKey(input: {
+  projects: readonly SidebarProjectEntry[];
+  selection: ActiveWorkspaceSelection | null;
+  serverId: string | null;
+  selectionEnabled: boolean;
+}): string | null {
+  if (!input.selectionEnabled || !input.serverId || input.selection?.serverId !== input.serverId) {
+    return null;
+  }
+  const selectedWorkspaceId = input.selection.workspaceId;
+  const selectedProject = input.projects.find((project) =>
+    project.workspaces.some((workspace) => workspace.workspaceId === selectedWorkspaceId),
+  );
+  return selectedProject?.projectKey ?? null;
+}
+
+function getSelectedWorkspaceKey(input: {
+  project: SidebarProjectEntry;
+  selection: ActiveWorkspaceSelection | null;
+  serverId: string | null;
+  selectionEnabled: boolean;
+}): string | null {
+  if (!input.selectionEnabled || !input.serverId || input.selection?.serverId !== input.serverId) {
+    return null;
+  }
+  const selectedWorkspace = input.project.workspaces.find(
+    (workspace) => workspace.workspaceId === input.selection?.workspaceId,
+  );
+  return selectedWorkspace?.workspaceKey ?? null;
+}
+
 function selectionForSelectedWorkspace(
   selected: boolean,
   workspace: SidebarWorkspaceEntry,
@@ -1051,6 +1092,8 @@ interface WorkspaceRowInnerProps {
   expanded?: boolean;
   onToggleExpanded?: (event: GestureResponderEvent) => void;
   archiveShortcutKeys?: ShortcutKey[][] | null;
+  statusSummaryToggleActive?: boolean;
+  onStatusSummaryPress?: (event: GestureResponderEvent) => void;
 }
 
 function getWorkspaceArchiveStatus(
@@ -1143,16 +1186,6 @@ function newWorkspaceTabButtonStyle({
   pressed,
 }: PressableStateCallbackType & { hovered?: boolean }) {
   return [styles.workspaceIconButton, (hovered || pressed) && styles.workspaceIconButtonHovered];
-}
-
-function embeddedTabsVisibilityToggleStyle({
-  hovered = false,
-  pressed,
-}: PressableStateCallbackType & { hovered?: boolean }) {
-  return [
-    styles.embeddedTabsVisibilityToggle,
-    (hovered || pressed) && styles.embeddedTabsVisibilityToggleHovered,
-  ];
 }
 
 function embeddedTabCloseButtonStyle({
@@ -1557,6 +1590,8 @@ function WorkspaceRowRightGroup({
   expanded,
   visibility: providedVisibility,
   pendingBranchActionIds,
+  statusSummaryToggleActive = false,
+  onStatusSummaryPress,
 }: {
   workspace: SidebarWorkspaceEntry;
   badgeMode: SidebarBadgeMode;
@@ -1582,6 +1617,8 @@ function WorkspaceRowRightGroup({
   expanded: boolean;
   visibility?: WorkspaceRowRightVisibility;
   pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
+  statusSummaryToggleActive?: boolean;
+  onStatusSummaryPress?: (event: GestureResponderEvent) => void;
 }) {
   const { t } = useTranslation();
   const visibility =
@@ -1629,6 +1666,8 @@ function WorkspaceRowRightGroup({
           onMarkAsRead={onMarkAsRead}
           onRename={onRename}
           pendingBranchActionIds={pendingBranchActionIds}
+          statusSummaryToggleActive={statusSummaryToggleActive}
+          onStatusSummaryPress={onStatusSummaryPress}
         />
       ) : null}
     </>
@@ -1655,6 +1694,8 @@ function WorkspaceRowActionSlot({
   onMarkAsRead,
   onRename,
   pendingBranchActionIds,
+  statusSummaryToggleActive,
+  onStatusSummaryPress,
 }: {
   workspace: SidebarWorkspaceEntry;
   statusSummary: SidebarTabStatusSummary;
@@ -1675,6 +1716,8 @@ function WorkspaceRowActionSlot({
   onMarkAsRead?: () => void;
   onRename?: () => void;
   pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
+  statusSummaryToggleActive: boolean;
+  onStatusSummaryPress?: (event: GestureResponderEvent) => void;
 }) {
   const showActionControls = showCreateTab || showCreateTabMenu || showKebab;
   const actionControlCount = Number(showCreateTab) + Number(showCreateTabMenu) + Number(showKebab);
@@ -1700,6 +1743,8 @@ function WorkspaceRowActionSlot({
           showDiffStat={showDiffStat}
           showStatusSummary={showStatusSummary}
           pendingBranchActionIds={pendingBranchActionIds}
+          statusSummaryToggleActive={statusSummaryToggleActive}
+          onStatusSummaryPress={onStatusSummaryPress}
         />
       </SidebarWorkspaceTrailingActionBase>
       <SidebarWorkspaceTrailingActionOverlay visible={showActionControls}>
@@ -1731,6 +1776,8 @@ function WorkspaceRowTrailingMeta({
   showDiffStat,
   showStatusSummary,
   pendingBranchActionIds,
+  statusSummaryToggleActive,
+  onStatusSummaryPress,
 }: {
   workspace: SidebarWorkspaceEntry;
   statusSummary: SidebarTabStatusSummary;
@@ -1738,21 +1785,86 @@ function WorkspaceRowTrailingMeta({
   showDiffStat: boolean;
   showStatusSummary: boolean;
   pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
+  statusSummaryToggleActive: boolean;
+  onStatusSummaryPress?: (event: GestureResponderEvent) => void;
 }) {
   const showPrHint = Boolean(!showOperationBadges && showDiffStat && workspace.prHint);
+  let statusBadges: ReactNode = null;
+  if (!showOperationBadges && showStatusSummary) {
+    statusBadges = (
+      <SidebarEntryStatusBadges
+        summary={statusSummary}
+        excludeKinds={WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS}
+      />
+    );
+    if (onStatusSummaryPress) {
+      statusBadges = (
+        <StatusSummaryToggleButton
+          active={statusSummaryToggleActive}
+          testID={`sidebar-workspace-status-toggle-${workspace.workspaceKey}`}
+          onPress={onStatusSummaryPress}
+        >
+          {statusBadges}
+        </StatusSummaryToggleButton>
+      );
+    }
+  }
+
   return (
     <View style={styles.workspaceDiffMetaRow}>
       {showOperationBadges ? <SidebarVcOperationBadges actionIds={pendingBranchActionIds} /> : null}
-      {!showOperationBadges && showStatusSummary ? (
-        <SidebarEntryStatusBadges
-          summary={statusSummary}
-          excludeKinds={WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS}
-        />
-      ) : null}
+      {statusBadges}
       {!showOperationBadges && showDiffStat ? (
         <WorkspaceRowDiffMeta workspace={workspace} showPrHint={showPrHint} />
       ) : null}
     </View>
+  );
+}
+
+function StatusSummaryToggleButton({
+  active,
+  testID,
+  onPress,
+  children,
+}: {
+  active: boolean;
+  testID: string;
+  onPress: (event: GestureResponderEvent) => void;
+  children: ReactNode;
+}) {
+  const handlePressIn = useCallback((event: GestureResponderEvent) => {
+    event.stopPropagation();
+  }, []);
+  const handlePress = useCallback(
+    (event: GestureResponderEvent) => {
+      event.stopPropagation();
+      onPress(event);
+    },
+    [onPress],
+  );
+  const style = useCallback(
+    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.workspaceStatusSummaryToggle,
+      active && styles.workspaceStatusSummaryToggleActive,
+      (hovered || pressed) && styles.workspaceStatusSummaryToggleHovered,
+    ],
+    [active],
+  );
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={
+        active ? "Show workspaces grouped by workspace" : "Show workspaces grouped by status"
+      }
+      hitSlop={4}
+      onPressIn={handlePressIn}
+      onPress={handlePress}
+      style={style}
+      testID={testID}
+    >
+      {children}
+    </Pressable>
   );
 }
 
@@ -2777,6 +2889,8 @@ function WorkspaceRowInner({
   expanded = false,
   onToggleExpanded,
   archiveShortcutKeys,
+  statusSummaryToggleActive = false,
+  onStatusSummaryPress,
 }: WorkspaceRowInnerProps) {
   const embeddedTabsEnabled = expandable;
   const isCompact = useIsCompactFormFactor();
@@ -2877,7 +2991,7 @@ function WorkspaceRowInner({
             style={styles.workspaceRowContainer}
             {...hoverHandlers}
           >
-            <Pressable
+            <ContextMenuTrigger
               disabled={isArchiving}
               aria-selected={accessibilitySelected}
               accessibilityRole="button"
@@ -2930,9 +3044,13 @@ function WorkspaceRowInner({
                   expanded={expanded}
                   visibility={workspaceRightVisibility}
                   pendingBranchActionIds={pendingBranchActionIds}
+                  statusSummaryToggleActive={statusSummaryToggleActive}
+                  onStatusSummaryPress={
+                    workspaceRightVisibility.showStatusSummary ? onStatusSummaryPress : undefined
+                  }
                 />
               </SidebarWorkspaceRowContent>
-            </Pressable>
+            </ContextMenuTrigger>
           </View>
         );
       }}
@@ -2956,6 +3074,8 @@ function WorkspaceRowWithMenu({
   canCopyBranchName,
   workspaceKeysForAutoCollapse,
   isCreating = false,
+  statusSummaryToggleActive = false,
+  onStatusSummaryPress,
 }: {
   workspace: SidebarWorkspaceEntry;
   badgeMode: SidebarBadgeMode;
@@ -2972,6 +3092,8 @@ function WorkspaceRowWithMenu({
   canCopyBranchName: boolean;
   workspaceKeysForAutoCollapse: readonly string[];
   isCreating?: boolean;
+  statusSummaryToggleActive?: boolean;
+  onStatusSummaryPress?: (event: GestureResponderEvent) => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -3284,6 +3406,8 @@ function WorkspaceRowWithMenu({
         onRename={handleOpenRename}
         onMarkAsRead={onMarkAsRead}
         archiveShortcutKeys={contextArchiveShortcutKeys}
+        statusSummaryToggleActive={statusSummaryToggleActive}
+        onStatusSummaryPress={selected ? onStatusSummaryPress : undefined}
       />
       {embeddedTabsEnabled ? (
         <EmbeddedWorkspaceTabs
@@ -3354,48 +3478,51 @@ function useMiddleClickClose(onClose: () => void): MutableRefObject<View | null>
   return ref;
 }
 
+function getEmbeddedTabMenuLeading(
+  entry: Extract<WorkspaceTabMenuEntry, { kind: "item" }>,
+): ReactElement | undefined {
+  const iconStyle = entry.iconRotation === "clockwise-90" ? styles.rotatedMenuIcon : undefined;
+  switch (entry.icon) {
+    case "copy":
+      return <ThemedCopy size={16} uniProps={foregroundMutedColorMapping} />;
+    case "rotate-cw":
+      return <ThemedRotateCw size={16} uniProps={foregroundMutedColorMapping} />;
+    case "arrow-left-to-line":
+      return (
+        <ThemedArrowLeftToLine size={16} style={iconStyle} uniProps={foregroundMutedColorMapping} />
+      );
+    case "arrow-right-to-line":
+      return (
+        <ThemedArrowRightToLine
+          size={16}
+          style={iconStyle}
+          uniProps={foregroundMutedColorMapping}
+        />
+      );
+    case "copy-x":
+      return <ThemedCopyX size={16} uniProps={foregroundMutedColorMapping} />;
+    case "pencil":
+      return <ThemedPencil size={16} uniProps={foregroundMutedColorMapping} />;
+    case "x":
+      return <ThemedX size={16} uniProps={foregroundMutedColorMapping} />;
+    default:
+      return undefined;
+  }
+}
+
+function getEmbeddedTabMenuTrailing(
+  entry: Extract<WorkspaceTabMenuEntry, { kind: "item" }>,
+): ReactElement | null {
+  return entry.hint ? <Text style={styles.embeddedTabMenuItemHint}>{entry.hint}</Text> : null;
+}
+
 function EmbeddedTabMenuItem({
   entry,
 }: {
   entry: Extract<WorkspaceTabMenuEntry, { kind: "item" }>;
 }) {
-  const iconStyle = entry.iconRotation === "clockwise-90" ? styles.rotatedMenuIcon : undefined;
-  const leading = useMemo(() => {
-    switch (entry.icon) {
-      case "copy":
-        return <ThemedCopy size={16} uniProps={foregroundMutedColorMapping} />;
-      case "rotate-cw":
-        return <ThemedRotateCw size={16} uniProps={foregroundMutedColorMapping} />;
-      case "arrow-left-to-line":
-        return (
-          <ThemedArrowLeftToLine
-            size={16}
-            style={iconStyle}
-            uniProps={foregroundMutedColorMapping}
-          />
-        );
-      case "arrow-right-to-line":
-        return (
-          <ThemedArrowRightToLine
-            size={16}
-            style={iconStyle}
-            uniProps={foregroundMutedColorMapping}
-          />
-        );
-      case "copy-x":
-        return <ThemedCopyX size={16} uniProps={foregroundMutedColorMapping} />;
-      case "pencil":
-        return <ThemedPencil size={16} uniProps={foregroundMutedColorMapping} />;
-      case "x":
-        return <ThemedX size={16} uniProps={foregroundMutedColorMapping} />;
-      default:
-        return undefined;
-    }
-  }, [entry.icon, iconStyle]);
-  const trailing = useMemo(
-    () => (entry.hint ? <Text style={styles.embeddedTabMenuItemHint}>{entry.hint}</Text> : null),
-    [entry.hint],
-  );
+  const leading = useMemo(() => getEmbeddedTabMenuLeading(entry), [entry]);
+  const trailing = useMemo(() => getEmbeddedTabMenuTrailing(entry), [entry]);
 
   return (
     <ContextMenuItem
@@ -3404,6 +3531,7 @@ function EmbeddedTabMenuItem({
       destructive={entry.destructive}
       leading={leading}
       trailing={trailing}
+      tooltip={entry.tooltip}
       onSelect={entry.onSelect}
     >
       {entry.label}
@@ -3660,6 +3788,10 @@ function EmbeddedWorkspaceTabRow({
     ],
     [active, isDragging, projectLine, row.depth],
   );
+  const wrapperStyle = useMemo(
+    () => [styles.embeddedTabWrapper, projectLine && styles.embeddedTabWrapperWithProjectLine],
+    [projectLine],
+  );
   const accessibilityState = useMemo(() => ({ selected: active }), [active]);
 
   return (
@@ -3700,12 +3832,13 @@ function EmbeddedWorkspaceTabRow({
             accessibilityLabel={label}
             testID={`sidebar-embedded-tab-hover-card-${item.tab.tabId}`}
             isDragging={isDragging}
+            triggerStyle={wrapperStyle}
           >
             <ContextMenu>
               <View
                 {...(manualSort ? (dragHandleProps?.attributes as object | undefined) : undefined)}
                 {...(manualSort ? (dragListeners as object | undefined) : undefined)}
-                style={styles.embeddedTabWrapper}
+                style={wrapperStyle}
                 onPointerDown={manualSort ? handleDragPointerDown : undefined}
                 onPointerEnter={handlePointerEnter}
                 onPointerLeave={handlePointerLeave}
@@ -3743,6 +3876,8 @@ function EmbeddedWorkspaceTabRow({
                             projectKey: projectLine.projectKey,
                             projectName: projectLine.projectName,
                             iconDataUri: projectLine.iconDataUri,
+                            kind: projectLine.kind,
+                            workspaceKind: projectLine.workspaceKind,
                           })
                         : null
                     }
@@ -3866,15 +4001,7 @@ function EmbeddedTabKebabMenu({
           entry.kind === "separator" ? (
             <DropdownMenuSeparator key={entry.key} />
           ) : (
-            <DropdownMenuItem
-              key={entry.key}
-              testID={entry.testID}
-              disabled={entry.disabled}
-              destructive={entry.destructive}
-              onSelect={entry.onSelect}
-            >
-              {entry.label}
-            </DropdownMenuItem>
+            <EmbeddedTabDropdownMenuItem key={entry.key} entry={entry} />
           ),
         )}
       </DropdownMenuContent>
@@ -3882,15 +4009,45 @@ function EmbeddedTabKebabMenu({
   );
 }
 
+function EmbeddedTabDropdownMenuItem({
+  entry,
+}: {
+  entry: Extract<WorkspaceTabMenuEntry, { kind: "item" }>;
+}) {
+  const leading = useMemo(() => getEmbeddedTabMenuLeading(entry), [entry]);
+  const trailing = useMemo(() => getEmbeddedTabMenuTrailing(entry), [entry]);
+
+  return (
+    <DropdownMenuItem
+      testID={entry.testID}
+      disabled={entry.disabled}
+      destructive={entry.destructive}
+      leading={leading}
+      trailing={trailing}
+      tooltip={entry.tooltip}
+      onSelect={entry.onSelect}
+    >
+      {entry.label}
+    </DropdownMenuItem>
+  );
+}
+
 function ProjectLineIcon({
   projectKey,
   projectName,
   iconDataUri,
+  kind = "project",
+  workspaceKind,
 }: {
   projectKey: string;
   projectName: string;
   iconDataUri: string | null;
+  kind?: "project" | "workspace";
+  workspaceKind?: SidebarWorkspaceEntry["workspaceKind"];
 }) {
+  if (kind === "workspace") {
+    return <WorkspaceLineIcon workspaceKind={workspaceKind ?? "directory"} />;
+  }
   const placeholderLabel = projectIconPlaceholderLabelFromDisplayName(projectName);
   const placeholderInitial = placeholderLabel.charAt(0).toUpperCase();
   return (
@@ -3902,6 +4059,23 @@ function ProjectLineIcon({
       fallbackStyle={styles.projectLineIconFallback}
       textStyle={styles.projectLineIconFallbackText}
     />
+  );
+}
+
+function WorkspaceLineIcon({
+  workspaceKind,
+}: {
+  workspaceKind: SidebarWorkspaceEntry["workspaceKind"];
+}) {
+  let KindIcon: typeof ThemedMonitor;
+  if (workspaceKind === "local_checkout") KindIcon = ThemedMonitor;
+  else if (workspaceKind === "worktree") KindIcon = ThemedFolderGit2;
+  else KindIcon = ThemedFolder;
+
+  return (
+    <View style={styles.workspaceLineIcon} testID={`sidebar-workspace-line-icon-${workspaceKind}`}>
+      <KindIcon size={10} uniProps={foregroundMutedColorMapping} />
+    </View>
   );
 }
 
@@ -4090,6 +4264,24 @@ function EmbeddedWorkspaceTabs({
       }),
     [agentMap, allItems, statusSummariesByTabId, tabSortMode],
   );
+  const sortedPaneTabsByPaneId = useMemo(() => {
+    const tabById = new Map(uiTabs.map((tab) => [tab.tabId, tab]));
+    const map = new Map<string, WorkspaceTabDescriptor[]>();
+    for (const [paneId, paneTabs] of paneTabsByPaneId) {
+      const sortItems = paneTabs.flatMap((descriptor) => {
+        const tab = tabById.get(descriptor.tabId);
+        return tab ? [{ descriptor, tab }] : [];
+      });
+      const sortedPaneTabs = sortSidebarTabItems({
+        items: sortItems,
+        sortMode: tabSortMode,
+        agents: agentMap,
+        statusSummariesByTabId,
+      }).map((item) => item.descriptor);
+      map.set(paneId, sortedPaneTabs);
+    }
+    return map;
+  }, [agentMap, paneTabsByPaneId, statusSummariesByTabId, tabSortMode, uiTabs]);
   const treeRows = useMemo(
     () =>
       buildSidebarEmbeddedTabTreeRows({
@@ -4126,6 +4318,13 @@ function EmbeddedWorkspaceTabs({
     showAllTabs,
     limitRecentTabs,
   });
+  const embeddedTabsContainerStyle = useMemo(
+    () => [
+      styles.embeddedTabsContainer,
+      projectLine && styles.embeddedTabsContainerWithProjectLine,
+    ],
+    [projectLine],
+  );
   const totalTabCount = sortedItems.length;
   const handleToggleShowAllTabs = useCallback(
     (event: GestureResponderEvent) => {
@@ -4379,7 +4578,7 @@ function EmbeddedWorkspaceTabs({
   );
   const buildMenuEntries = useCallback(
     (item: EmbeddedSidebarTabItem) => {
-      const paneTabs = paneTabsByPaneId.get(item.paneId) ?? [item.descriptor];
+      const paneTabs = sortedPaneTabsByPaneId.get(item.paneId) ?? [item.descriptor];
       const index = Math.max(
         0,
         paneTabs.findIndex((tab) => tab.tabId === item.tab.tabId),
@@ -4431,7 +4630,7 @@ function EmbeddedWorkspaceTabs({
       handleCopyResumeCommand,
       handleReloadAgent,
       handleRenameTab,
-      paneTabsByPaneId,
+      sortedPaneTabsByPaneId,
       t,
       tabMenuLabels,
     ],
@@ -4510,12 +4709,12 @@ function EmbeddedWorkspaceTabs({
           onDragEnd={handleManualDragEnd}
           scrollEnabled={false}
           useDragHandle
-          containerStyle={styles.embeddedTabsContainer}
+          containerStyle={embeddedTabsContainerStyle}
           ListFooterComponent={visibilityToggleFooter}
         />
       ) : (
         <View
-          style={styles.embeddedTabsContainer}
+          style={embeddedTabsContainerStyle}
           testID={`sidebar-embedded-tabs-${workspace.workspaceKey}`}
         >
           {visibleRows.map((row) => (
@@ -4908,25 +5107,13 @@ function EmbeddedTabsVisibilityToggle({
   totalTabCount: number;
   onPress: (event: GestureResponderEvent) => void;
 }) {
-  const { t } = useTranslation();
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={
-        expanded
-          ? t("sidebar.workspace.embeddedTabs.showLessLabel")
-          : t("sidebar.workspace.embeddedTabs.showAllLabel")
-      }
-      onPress={onPress}
-      style={embeddedTabsVisibilityToggleStyle}
+    <SidebarShowAllToggle
+      expanded={expanded}
+      totalCount={totalTabCount}
       testID="sidebar-embedded-tabs-visibility-toggle"
-    >
-      <Text style={styles.embeddedTabsVisibilityToggleText}>
-        {expanded
-          ? t("sidebar.workspace.embeddedTabs.showLess")
-          : t("sidebar.workspace.embeddedTabs.showAll", { count: totalTabCount })}
-      </Text>
-    </Pressable>
+      onPress={onPress}
+    />
   );
 }
 
@@ -4947,6 +5134,8 @@ interface WorkspaceRowItemProps {
   isDragging?: boolean;
   dragHandleProps?: DraggableListDragHandleProps;
   workspaceKeysForAutoCollapse: readonly string[];
+  statusSummaryToggleActive?: boolean;
+  onStatusSummaryPress?: (event: GestureResponderEvent) => void;
 }
 
 function WorkspaceRowItem({
@@ -4966,6 +5155,8 @@ function WorkspaceRowItem({
   isDragging = false,
   dragHandleProps,
   workspaceKeysForAutoCollapse,
+  statusSummaryToggleActive,
+  onStatusSummaryPress,
 }: WorkspaceRowItemProps) {
   const handlePress = useCallback(() => {
     if (!serverId) {
@@ -4997,6 +5188,8 @@ function WorkspaceRowItem({
       isDragging={isDragging}
       dragHandleProps={dragHandleProps}
       workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
+      statusSummaryToggleActive={statusSummaryToggleActive}
+      onStatusSummaryPress={onStatusSummaryPress}
     />
   );
 }
@@ -5032,6 +5225,8 @@ function areWorkspaceRowItemPropsEqual(
     previous.isDragging === next.isDragging &&
     previous.dragHandleProps === next.dragHandleProps &&
     previous.workspaceKeysForAutoCollapse === next.workspaceKeysForAutoCollapse &&
+    previous.statusSummaryToggleActive === next.statusSummaryToggleActive &&
+    previous.onStatusSummaryPress === next.onStatusSummaryPress &&
     previousSelected === nextSelected
   );
 }
@@ -5054,6 +5249,8 @@ function WorkspaceRow({
   isCreating = false,
   selected,
   workspaceKeysForAutoCollapse,
+  statusSummaryToggleActive = false,
+  onStatusSummaryPress,
 }: {
   workspace: SidebarWorkspaceEntry;
   badgeMode: SidebarBadgeMode;
@@ -5070,6 +5267,8 @@ function WorkspaceRow({
   isCreating?: boolean;
   selected: boolean;
   workspaceKeysForAutoCollapse: readonly string[];
+  statusSummaryToggleActive?: boolean;
+  onStatusSummaryPress?: (event: GestureResponderEvent) => void;
 }) {
   const hydratedWorkspace = useSidebarWorkspaceEntry(workspace.serverId, workspace.workspaceId);
 
@@ -5094,6 +5293,8 @@ function WorkspaceRow({
       canCopyBranchName={canCopyBranchName}
       workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
       isCreating={isCreating}
+      statusSummaryToggleActive={statusSummaryToggleActive}
+      onStatusSummaryPress={onStatusSummaryPress}
     />
   );
 }
@@ -5125,6 +5326,11 @@ function ProjectBlock({
   workspaceKeysForAutoCollapse,
   workspaceSortMode,
   showExpandedProjectStatusSummary,
+  workspaceShowLastCount,
+  groupMode,
+  tabLayoutMode,
+  onEnterStatusMode,
+  onExitStatusMode,
 }: {
   project: SidebarProjectEntry;
   collapsed: boolean;
@@ -5152,6 +5358,11 @@ function ProjectBlock({
   workspaceKeysForAutoCollapse: readonly string[];
   workspaceSortMode: SidebarWorkspaceSortMode;
   showExpandedProjectStatusSummary: boolean;
+  workspaceShowLastCount: SidebarWorkspaceShowLastCount;
+  groupMode: "project" | "status";
+  tabLayoutMode: AppTabLayoutMode;
+  onEnterStatusMode: () => void;
+  onExitStatusMode: () => void;
 }) {
   const rowModel = useMemo(
     () =>
@@ -5168,6 +5379,12 @@ function ProjectBlock({
     project,
     enabled: selectionEnabled,
   });
+  const projectStatusModeActive = groupMode === "status" && active;
+  const showScopedStatusContent = projectStatusModeActive && project.workspaces.length > 0;
+  const [showAllWorkspaces, setShowAllWorkspaces] = useState(false);
+  useEffect(() => {
+    setShowAllWorkspaces(false);
+  }, [project.projectKey, workspaceShowLastCount]);
   const projectWorkspaceIds = useMemo(
     () => new Set(project.workspaces.map((workspace) => workspace.workspaceId)),
     [project.workspaces],
@@ -5215,6 +5432,16 @@ function ProjectBlock({
       : getPrimarySidebarEntryStatusKind(projectStatusSummary, {
           excludeKinds: WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS,
         });
+  const selectedWorkspaceKey = useMemo(
+    () =>
+      getSelectedWorkspaceKey({
+        project,
+        selection: activeWorkspaceSelection,
+        serverId,
+        selectionEnabled,
+      }),
+    [activeWorkspaceSelection, project, selectionEnabled, serverId],
+  );
 
   const renderWorkspaceRow = useCallback(
     (
@@ -5243,6 +5470,10 @@ function ProjectBlock({
           isDragging={input?.isDragging}
           dragHandleProps={input?.dragHandleProps}
           workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
+          statusSummaryToggleActive={groupMode === "status"}
+          onStatusSummaryPress={
+            selectedWorkspaceKey === item.workspaceKey ? onEnterStatusMode : undefined
+          }
         />
       );
     },
@@ -5252,13 +5483,16 @@ function ProjectBlock({
       badgeMode,
       creatingWorkspaceIds,
       onWorkspacePress,
+      onEnterStatusMode,
       serverId,
       selectionEnabled,
+      selectedWorkspaceKey,
       shortcutIndexByWorkspaceKey,
       messageStatusCountsByWorkspaceKey,
       showShortcutBadges,
       tabStatusSummaries,
       workspaceKeysForAutoCollapse,
+      groupMode,
     ],
   );
 
@@ -5287,6 +5521,20 @@ function ProjectBlock({
   const setWorkspacesCollapsed = useSidebarCollapsedSectionsStore(
     (state) => state.setWorkspacesCollapsed,
   );
+  const visibleWorkspaceResult = useMemo(
+    () =>
+      applySidebarShowLastCount({
+        items: project.workspaces,
+        showLastCount: workspaceShowLastCount,
+        showAll: showAllWorkspaces,
+        forceIncludeKey: selectedWorkspaceKey,
+        getKey: workspaceKeyExtractor,
+      }),
+    [project.workspaces, selectedWorkspaceKey, showAllWorkspaces, workspaceShowLastCount],
+  );
+  const handleToggleShowAllWorkspaces = useCallback(() => {
+    setShowAllWorkspaces((current) => !current);
+  }, []);
 
   const toast = useToast();
   const { t } = useTranslation();
@@ -5335,6 +5583,10 @@ function ProjectBlock({
 
   const handleToggleCollapsed = useCallback(
     (event: GestureResponderEvent) => {
+      if (projectStatusModeActive) {
+        onExitStatusMode();
+        return;
+      }
       if (isShiftPressed(event)) {
         setWorkspacesCollapsed(
           project.workspaces.map((workspace) => workspace.workspaceKey),
@@ -5343,34 +5595,71 @@ function ProjectBlock({
       }
       onToggleCollapsed(project);
     },
-    [collapsed, onToggleCollapsed, project, setWorkspacesCollapsed],
+    [
+      collapsed,
+      onExitStatusMode,
+      onToggleCollapsed,
+      project,
+      projectStatusModeActive,
+      setWorkspacesCollapsed,
+    ],
   );
 
   let workspaceRows: ReactNode = null;
-  if (!collapsed && project.workspaces.length > 0) {
+  if (showScopedStatusContent) {
+    workspaceRows = (
+      <ProjectScopedStatusContent
+        project={project}
+        serverId={serverId}
+        tabLayoutMode={tabLayoutMode}
+        badgeMode={badgeMode}
+        workspaceSortMode={workspaceSortMode}
+        workspaceShowLastCount={workspaceShowLastCount}
+        shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+        messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
+        showShortcutBadges={showShortcutBadges}
+        tabStatusSummaries={tabStatusSummaries}
+        selectedWorkspaceKey={selectedWorkspaceKey}
+        onWorkspacePress={onWorkspacePress}
+        onExitStatusMode={onExitStatusMode}
+      />
+    );
+  } else if (groupMode === "project" && !collapsed && project.workspaces.length > 0) {
+    const workspaceVisibilityToggle = visibleWorkspaceResult.shouldShowVisibilityToggle ? (
+      <SidebarShowAllToggle
+        expanded={showAllWorkspaces}
+        totalCount={project.workspaces.length}
+        testID={`sidebar-workspaces-visibility-toggle-${project.projectKey}`}
+        onPress={handleToggleShowAllWorkspaces}
+      />
+    ) : null;
     workspaceRows =
       workspaceSortMode === "manual" ? (
-        <DraggableList
-          testID={`sidebar-workspace-list-${project.projectKey}`}
-          data={project.workspaces}
-          keyExtractor={workspaceKeyExtractor}
-          renderItem={renderWorkspace}
-          onDragEnd={handleWorkspaceDragEnd}
-          extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
-          scrollEnabled={false}
-          useDragHandle
-          nestable={useNestable}
-          simultaneousGestureRef={parentGestureRef}
-          containerStyle={styles.workspaceListContainer}
-        />
+        <>
+          <DraggableList
+            testID={`sidebar-workspace-list-${project.projectKey}`}
+            data={visibleWorkspaceResult.visibleItems}
+            keyExtractor={workspaceKeyExtractor}
+            renderItem={renderWorkspace}
+            onDragEnd={handleWorkspaceDragEnd}
+            extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+            scrollEnabled={false}
+            useDragHandle
+            nestable={useNestable}
+            simultaneousGestureRef={parentGestureRef}
+            containerStyle={styles.workspaceListContainer}
+          />
+          {workspaceVisibilityToggle}
+        </>
       ) : (
         <View
           style={styles.workspaceListContainer}
           testID={`sidebar-workspace-list-${project.projectKey}`}
         >
-          {project.workspaces.map((workspace) => (
+          {visibleWorkspaceResult.visibleItems.map((workspace) => (
             <View key={workspace.workspaceKey}>{renderWorkspaceRow(workspace)}</View>
           ))}
+          {workspaceVisibilityToggle}
         </View>
       );
   }
@@ -5410,6 +5699,90 @@ function ProjectBlock({
   );
 }
 
+function ProjectScopedStatusContent({
+  project,
+  serverId,
+  tabLayoutMode,
+  badgeMode,
+  workspaceSortMode,
+  workspaceShowLastCount,
+  shortcutIndexByWorkspaceKey,
+  messageStatusCountsByWorkspaceKey,
+  showShortcutBadges,
+  tabStatusSummaries,
+  selectedWorkspaceKey,
+  onWorkspacePress,
+  onExitStatusMode,
+}: {
+  project: SidebarProjectEntry;
+  serverId: string | null;
+  tabLayoutMode: AppTabLayoutMode;
+  badgeMode: SidebarBadgeMode;
+  workspaceSortMode: SidebarWorkspaceSortMode;
+  workspaceShowLastCount: SidebarWorkspaceShowLastCount;
+  shortcutIndexByWorkspaceKey: Map<string, number>;
+  messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>;
+  showShortcutBadges: boolean;
+  tabStatusSummaries: Map<string, SidebarTabStatusSummary>;
+  selectedWorkspaceKey: string | null;
+  onWorkspacePress?: () => void;
+  onExitStatusMode: () => void;
+}) {
+  const scopedStatusWorkspaces = useStatusModeWorkspaceEntries({
+    serverId,
+    projects: [project],
+  });
+  const scopedStatusTabGroups = useSidebarStatusTabWorkspaceGroups({
+    projects: tabLayoutMode === "sidebar" ? [project] : [],
+    serverId: tabLayoutMode === "sidebar" ? serverId : null,
+  });
+  const collapsedStatusGroupKeys = useSidebarCollapsedSectionsStore(
+    (state) => state.collapsedStatusGroupKeys,
+  );
+  const projectNamesByKey = useMemo(
+    () => new Map([[project.projectKey, project.projectName]]),
+    [project.projectKey, project.projectName],
+  );
+  const projectIconByProjectKey = useMemo(() => new Map<string, string | null>(), []);
+
+  if (tabLayoutMode === "sidebar") {
+    return (
+      <View
+        style={styles.workspaceListContainer}
+        testID={`sidebar-status-tabs-${project.projectKey}`}
+      >
+        <SidebarStatusTabGroups
+          groups={scopedStatusTabGroups}
+          collapsedStatusGroupKeys={collapsedStatusGroupKeys}
+          badgeMode={badgeMode}
+          projectIconByProjectKey={projectIconByProjectKey}
+          lineKind="workspace"
+          onWorkspacePress={onWorkspacePress}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <SidebarStatusWorkspaceList
+      workspaces={scopedStatusWorkspaces}
+      projectNamesByKey={projectNamesByKey}
+      serverId={serverId}
+      shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+      messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
+      showShortcutBadges={showShortcutBadges}
+      badgeMode={badgeMode}
+      workspaceSortMode={workspaceSortMode}
+      workspaceShowLastCount={workspaceShowLastCount}
+      tabStatusSummaries={tabStatusSummaries}
+      onWorkspacePress={onWorkspacePress}
+      statusSummaryToggleActiveWorkspaceKey={selectedWorkspaceKey}
+      onStatusSummaryTogglePress={onExitStatusMode}
+      embedded
+    />
+  );
+}
+
 type ProjectBlockProps = Parameters<typeof ProjectBlock>[0];
 
 function areProjectBlockPropsEqual(previous: ProjectBlockProps, next: ProjectBlockProps): boolean {
@@ -5444,7 +5817,10 @@ function areProjectBlockDataPropsEqual(
     previous.canRemoveProject === next.canRemoveProject &&
     previous.selectionEnabled === next.selectionEnabled &&
     previous.badgeMode === next.badgeMode &&
+    previous.groupMode === next.groupMode &&
+    previous.tabLayoutMode === next.tabLayoutMode &&
     previous.workspaceSortMode === next.workspaceSortMode &&
+    previous.workspaceShowLastCount === next.workspaceShowLastCount &&
     previous.showShortcutBadges === next.showShortcutBadges &&
     previous.shortcutIndexByWorkspaceKey === next.shortcutIndexByWorkspaceKey &&
     previous.messageStatusCountsByWorkspaceKey === next.messageStatusCountsByWorkspaceKey &&
@@ -5463,7 +5839,9 @@ function areProjectBlockActionPropsEqual(
     previous.onToggleCollapsed === next.onToggleCollapsed &&
     previous.onWorkspacePress === next.onWorkspacePress &&
     previous.onWorkspaceReorder === next.onWorkspaceReorder &&
-    previous.onWorktreeCreated === next.onWorktreeCreated
+    previous.onWorktreeCreated === next.onWorktreeCreated &&
+    previous.onEnterStatusMode === next.onEnterStatusMode &&
+    previous.onExitStatusMode === next.onExitStatusMode
   );
 }
 
@@ -5608,12 +5986,13 @@ export function SidebarWorkspaceList({
         listFooterComponent={listFooterComponent}
         parentGestureRef={parentGestureRef}
         pathname={pathname}
+        groupMode={groupMode}
       />
     </View>
   );
 }
 
-function SidebarStatusModeWrapper({
+export function SidebarStatusModeWrapper({
   serverId,
   projects,
   shortcutIndexByWorkspaceKey: _projectShortcutIndex,
@@ -5638,6 +6017,9 @@ function SidebarStatusModeWrapper({
   );
   const workspaceSortMode = useSidebarViewStore((state) =>
     serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
+  const workspaceShowLastCount = useSidebarViewStore((state) =>
+    serverId ? state.getWorkspaceShowLastCount(serverId) : "all",
   );
   const tabStatusSummaries = useSidebarTabStatusSummaries({
     workspaces: hydratedWorkspaces,
@@ -5676,6 +6058,7 @@ function SidebarStatusModeWrapper({
       showShortcutBadges={showShortcutBadges}
       badgeMode={badgeMode}
       workspaceSortMode={workspaceSortMode}
+      workspaceShowLastCount={workspaceShowLastCount}
       tabStatusSummaries={tabStatusSummaries}
       onWorkspacePress={onWorkspacePress}
     />
@@ -5742,12 +6125,14 @@ function SidebarStatusTabGroups({
   collapsedStatusGroupKeys,
   badgeMode,
   projectIconByProjectKey,
+  lineKind = "project",
   onWorkspacePress,
 }: {
   groups: readonly StatusTabWorkspaceGroup[];
   collapsedStatusGroupKeys: ReadonlySet<string>;
   badgeMode: SidebarBadgeMode;
   projectIconByProjectKey: Map<string, string | null>;
+  lineKind?: "project" | "workspace";
   onWorkspacePress?: () => void;
 }) {
   return (
@@ -5771,6 +6156,7 @@ function SidebarStatusTabGroups({
                   workspace={workspace}
                   badgeMode={badgeMode}
                   iconDataUri={projectIconByProjectKey.get(project.projectKey) ?? null}
+                  lineKind={lineKind}
                   onWorkspacePress={onWorkspacePress}
                 />
               ))}
@@ -5788,6 +6174,7 @@ function SidebarStatusProjectWorkspaceTabs({
   workspace,
   badgeMode,
   iconDataUri,
+  lineKind,
   onWorkspacePress,
 }: {
   bucket: StatusBucket;
@@ -5795,15 +6182,20 @@ function SidebarStatusProjectWorkspaceTabs({
   workspace: SidebarWorkspaceEntry;
   badgeMode: SidebarBadgeMode;
   iconDataUri: string | null;
+  lineKind: "project" | "workspace";
   onWorkspacePress?: () => void;
 }) {
+  const { settings: appSettings } = useAppSettings();
   const projectLine = useMemo(
-    () => ({
-      projectKey: project.projectKey,
-      projectName: project.projectName,
-      iconDataUri,
-    }),
-    [iconDataUri, project.projectKey, project.projectName],
+    () =>
+      buildStatusTabLine({
+        lineKind,
+        project,
+        workspace,
+        iconDataUri,
+        workspaceTitleSource: appSettings.workspaceTitleSource,
+      }),
+    [appSettings.workspaceTitleSource, iconDataUri, lineKind, project, workspace],
   );
   return (
     <SidebarVerticalWorkspaceTabs
@@ -5909,11 +6301,13 @@ function ProjectModeList({
   listFooterComponent,
   parentGestureRef,
   pathname,
-}: Omit<SidebarWorkspaceListProps, "groupMode" | "isRefreshing" | "onRefresh"> & {
+  groupMode,
+}: Omit<SidebarWorkspaceListProps, "isRefreshing" | "onRefresh"> & {
   pathname: string;
   projectSelectorRowActive?: boolean;
 }) {
   const { t } = useTranslation();
+  const { settings: appSettings } = useAppSettings();
   const [creatingWorkspaceIds, setCreatingWorkspaceIds] = useState<Set<string>>(() => new Set());
   const creatingWorkspaceTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
@@ -5930,8 +6324,18 @@ function ProjectModeList({
   const workspaceSortMode = useSidebarViewStore((state) =>
     serverId ? state.getWorkspaceSortMode(serverId) : "manual",
   );
+  const projectSortMode = useSidebarViewStore((state) =>
+    serverId ? state.getProjectSortMode(serverId) : "manual",
+  );
+  const projectShowLastCount = useSidebarViewStore((state) =>
+    serverId ? state.getProjectShowLastCount(serverId) : "all",
+  );
+  const workspaceShowLastCount = useSidebarViewStore((state) =>
+    serverId ? state.getWorkspaceShowLastCount(serverId) : "all",
+  );
   const autoCollapseProjects = useSidebarViewStore((state) => state.autoCollapseProjects);
   const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
+  const setGroupMode = useSidebarViewStore((state) => state.setGroupMode);
   const collapsedWorkspaceKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedWorkspaceKeys,
   );
@@ -5963,6 +6367,7 @@ function ProjectModeList({
   );
   const selectionEnabled = isWorkspaceRoute;
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const [showAllProjects, setShowAllProjects] = useState(false);
   const lastRevealedWorkspaceKeyRef = useRef<string | null>(null);
   const collapsedProjectKeysRef = useRef(collapsedProjectKeys);
   const collapsedWorkspaceKeysRef = useRef(collapsedWorkspaceKeys);
@@ -6001,6 +6406,10 @@ function ProjectModeList({
     [projects],
   );
   const projectIconByProjectKey = useProjectIconDataByProjectKey({ projects: projectIconTargets });
+
+  useEffect(() => {
+    setShowAllProjects(false);
+  }, [projectShowLastCount, serverId]);
 
   useEffect(() => {
     const timeouts = creatingWorkspaceTimeoutsRef.current;
@@ -6226,6 +6635,39 @@ function ProjectModeList({
     );
   }, []);
 
+  const selectedProjectKey = useMemo(
+    () =>
+      getSelectedProjectKey({
+        projects,
+        selection: activeWorkspaceSelection,
+        serverId,
+        selectionEnabled,
+      }),
+    [activeWorkspaceSelection, projects, selectionEnabled, serverId],
+  );
+  const visibleProjectResult = useMemo(
+    () =>
+      applySidebarShowLastCount({
+        items: projects,
+        showLastCount: projectShowLastCount,
+        showAll: showAllProjects,
+        forceIncludeKey: selectedProjectKey,
+        getKey: projectKeyExtractor,
+      }),
+    [projectShowLastCount, projects, selectedProjectKey, showAllProjects],
+  );
+  const handleToggleShowAllProjects = useCallback(() => {
+    setShowAllProjects((current) => !current);
+  }, []);
+  const handleEnterStatusMode = useCallback(() => {
+    if (!serverId) return;
+    setGroupMode(serverId, "status");
+  }, [serverId, setGroupMode]);
+  const handleExitStatusMode = useCallback(() => {
+    if (!serverId) return;
+    setGroupMode(serverId, "project");
+  }, [serverId, setGroupMode]);
+
   const renderProject = useCallback(
     ({ item, drag, isActive, dragHandleProps }: DraggableRenderItemInfo<SidebarProjectEntry>) => {
       return (
@@ -6256,14 +6698,24 @@ function ProjectModeList({
           workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
           workspaceSortMode={workspaceSortMode}
           showExpandedProjectStatusSummary={autoCollapseProjects}
+          workspaceShowLastCount={workspaceShowLastCount}
+          groupMode={groupMode}
+          tabLayoutMode={appSettings.tabLayoutMode}
+          onEnterStatusMode={handleEnterStatusMode}
+          onExitStatusMode={handleExitStatusMode}
         />
       );
     },
     [
       collapsedProjectKeys,
       activeWorkspaceSelection,
+      appSettings.tabLayoutMode,
+      workspaceShowLastCount,
       workspaceSortMode,
       autoCollapseProjects,
+      groupMode,
+      handleEnterStatusMode,
+      handleExitStatusMode,
       handleWorktreeCreated,
       handleWorkspaceReorder,
       handleToggleProjectCollapsed,
@@ -6283,20 +6735,33 @@ function ProjectModeList({
     ],
   );
 
-  const content = (
-    <>
-      {projects.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyTitle}>{t("sidebar.project.empty.title")}</Text>
-          <Text style={styles.emptyText}>{t("sidebar.project.empty.description")}</Text>
-          <Button variant="ghost" size="sm" leftIcon={Plus} onPress={onAddProject}>
-            {t("sidebar.actions.addProject")}
-          </Button>
-        </View>
-      ) : (
+  const projectVisibilityToggle = visibleProjectResult.shouldShowVisibilityToggle ? (
+    <SidebarShowAllToggle
+      expanded={showAllProjects}
+      totalCount={projects.length}
+      indent="none"
+      testID="sidebar-projects-visibility-toggle"
+      onPress={handleToggleShowAllProjects}
+    />
+  ) : null;
+
+  let projectListContent: ReactNode;
+  if (projects.length === 0) {
+    projectListContent = (
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyTitle}>{t("sidebar.project.empty.title")}</Text>
+        <Text style={styles.emptyText}>{t("sidebar.project.empty.description")}</Text>
+        <Button variant="ghost" size="sm" leftIcon={Plus} onPress={onAddProject}>
+          {t("sidebar.actions.addProject")}
+        </Button>
+      </View>
+    );
+  } else if (projectSortMode === "manual") {
+    projectListContent = (
+      <>
         <DraggableList
           testID="sidebar-project-list"
-          data={projects}
+          data={visibleProjectResult.visibleItems}
           keyExtractor={projectKeyExtractor}
           renderItem={renderProject}
           onDragEnd={handleProjectDragEnd}
@@ -6307,7 +6772,30 @@ function ProjectModeList({
           simultaneousGestureRef={parentGestureRef}
           containerStyle={styles.projectListContainer}
         />
-      )}
+        {projectVisibilityToggle}
+      </>
+    );
+  } else {
+    projectListContent = (
+      <View style={styles.projectListContainer} testID="sidebar-project-list">
+        {visibleProjectResult.visibleItems.map((project) => (
+          <View key={project.projectKey}>
+            {renderProject({
+              item: project,
+              index: 0,
+              drag: noop,
+              isActive: false,
+            })}
+          </View>
+        ))}
+        {projectVisibilityToggle}
+      </View>
+    );
+  }
+
+  const content = (
+    <>
+      {projectListContent}
       {listFooterComponent}
     </>
   );
@@ -6967,7 +7455,9 @@ const styles = StyleSheet.create((theme) => ({
   statusGroupBlock: {
     marginBottom: theme.spacing[1],
   },
-  statusWorkspaceListContainer: {},
+  statusWorkspaceListContainer: {
+    gap: theme.spacing[1],
+  },
   statusGroupRow: {
     minHeight: 36,
     paddingVertical: theme.spacing[2],
@@ -7103,6 +7593,14 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: 8,
     fontWeight: theme.fontWeight.medium,
   },
+  workspaceLineIcon: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 2,
+    backgroundColor: theme.colors.surface1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   projectLeadingVisualSlot: {
     position: "relative",
     width: theme.iconSize.md,
@@ -7214,6 +7712,19 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
+  },
+  workspaceStatusSummaryToggle: {
+    minHeight: 24,
+    paddingHorizontal: theme.spacing[1],
+    borderRadius: theme.borderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  workspaceStatusSummaryToggleActive: {
+    backgroundColor: theme.colors.surface2,
+  },
+  workspaceStatusSummaryToggleHovered: {
+    backgroundColor: theme.colors.surface2,
   },
   workspacePrMetaGroup: {
     flexDirection: "row",
@@ -7332,8 +7843,16 @@ const styles = StyleSheet.create((theme) => ({
     width: "100%",
     minHeight: 0,
   },
+  embeddedTabsContainerWithProjectLine: {
+    gap: theme.spacing[1],
+  },
   embeddedTabWrapper: {
     width: "100%",
+  },
+  embeddedTabWrapperWithProjectLine: {
+    height: EMBEDDED_TAB_PROJECT_LINE_ROW_HEIGHT,
+    minHeight: EMBEDDED_TAB_PROJECT_LINE_ROW_HEIGHT,
+    maxHeight: EMBEDDED_TAB_PROJECT_LINE_ROW_HEIGHT,
   },
   embeddedTabHoverHeader: {
     gap: 2,
@@ -7364,25 +7883,6 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
   },
-  embeddedTabsVisibilityToggle: {
-    minHeight: 30,
-    paddingVertical: theme.spacing[1],
-    paddingLeft: theme.spacing[3] + theme.spacing[3],
-    paddingRight: theme.spacing[3],
-    borderRadius: theme.borderRadius.lg,
-    alignItems: "flex-start",
-    justifyContent: "center",
-    width: "100%",
-    userSelect: "none",
-  },
-  embeddedTabsVisibilityToggleHovered: {
-    backgroundColor: theme.colors.surfaceSidebarHover,
-  },
-  embeddedTabsVisibilityToggleText: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.normal,
-  },
   embeddedTabMenuItemHint: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
@@ -7393,9 +7893,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   embeddedTabRow: {
     position: "relative",
-    height: 36,
-    minHeight: 36,
-    maxHeight: 36,
+    height: EMBEDDED_TAB_ROW_HEIGHT,
+    minHeight: EMBEDDED_TAB_ROW_HEIGHT,
+    maxHeight: EMBEDDED_TAB_ROW_HEIGHT,
     paddingVertical: 0,
     paddingLeft: theme.spacing[3] + theme.spacing[3],
     paddingRight: theme.spacing[3],
@@ -7407,9 +7907,9 @@ const styles = StyleSheet.create((theme) => ({
     userSelect: "none",
   },
   embeddedTabRowWithProjectLine: {
-    height: 46,
-    minHeight: 46,
-    maxHeight: 46,
+    height: EMBEDDED_TAB_PROJECT_LINE_ROW_HEIGHT,
+    minHeight: EMBEDDED_TAB_PROJECT_LINE_ROW_HEIGHT,
+    maxHeight: EMBEDDED_TAB_PROJECT_LINE_ROW_HEIGHT,
   },
   embeddedTabRowHovered: {
     backgroundColor: theme.colors.surfaceSidebarHover,

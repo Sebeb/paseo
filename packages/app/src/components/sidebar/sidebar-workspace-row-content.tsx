@@ -140,8 +140,9 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
     workspaceTitleSource,
   });
   const shouldRenderTrailingContent = hasTrailingContent ?? children != null;
-  const shouldRenderScriptIcon = scriptIconKind != null && !shouldRenderTrailingContent;
-  const shouldRenderRightContext = shouldRenderTrailingContent || shouldRenderScriptIcon;
+  const trailingContent = shouldRenderTrailingContent ? children : null;
+  const shouldRenderScriptIcon = scriptIconKind != null;
+  const shouldRenderRightContext = trailingContent != null || shouldRenderScriptIcon;
 
   return (
     <SidebarEntryRowContent
@@ -163,10 +164,10 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
           ? createElement(
               View,
               { style: styles.workspaceRowRight, testID: "workspace-row-right" },
+              trailingContent,
               shouldRenderScriptIcon
                 ? createElement(WorkspaceScriptIcon, { kind: scriptIconKind })
                 : null,
-              children,
             )
           : null
       }

@@ -3,6 +3,7 @@ import type { WorkspaceDescriptor } from "@/stores/session-store";
 import type { WorkspaceStructureProject } from "@/projects/workspace-structure";
 import {
   appendMissingOrderKeys,
+  applySidebarShowLastCount,
   applyStoredOrdering,
   buildSidebarStatusWorkspacePlacements,
   buildSidebarWorkspacePlacementModel,
@@ -10,6 +11,7 @@ import {
   computeSidebarOrderUpdates,
   deriveSidebarLoadingState,
   resolveProjectActivationWorkspace,
+  sortSidebarProjects,
   sortSidebarWorkspaceProjects,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
@@ -523,6 +525,167 @@ describe("sortSidebarWorkspaceProjects", () => {
       "needs-input",
       "running",
     ]);
+  });
+});
+
+describe("sortSidebarProjects", () => {
+  it("preserves manual order and project identity", () => {
+    const projects = [
+      {
+        ...sidebarProject({ projectKey: "project-a", workspaceKeys: [] }),
+        workspaces: [workspace({ key: "a", name: "a" })],
+      },
+      {
+        ...sidebarProject({ projectKey: "project-b", workspaceKeys: [] }),
+        workspaces: [workspace({ key: "b", name: "b" })],
+      },
+    ];
+
+    expect(sortSidebarProjects({ projects, sortMode: "manual" })).toBe(projects);
+  });
+
+  it("sorts projects by earliest child workspace creation time", () => {
+    const sortedProjects = sortSidebarProjects({
+      projects: [
+        {
+          ...sidebarProject({ projectKey: "old-project", workspaceKeys: [] }),
+          projectName: "Old project",
+          workspaces: [
+            workspace({ key: "old-a", name: "old", createdAt: "2026-01-01T00:00:00.000Z" }),
+            workspace({ key: "old-b", name: "old", createdAt: "2026-02-01T00:00:00.000Z" }),
+          ],
+        },
+        {
+          ...sidebarProject({ projectKey: "new-project", workspaceKeys: [] }),
+          projectName: "New project",
+          workspaces: [
+            workspace({ key: "new-a", name: "new", createdAt: "2026-03-01T00:00:00.000Z" }),
+          ],
+        },
+      ],
+      sortMode: "created",
+    });
+
+    expect(sortedProjects.map((entry) => entry.projectKey)).toEqual(["new-project", "old-project"]);
+  });
+
+  it("sorts projects by latest child workspace activity", () => {
+    const sortedProjects = sortSidebarProjects({
+      projects: [
+        {
+          ...sidebarProject({ projectKey: "quiet-project", workspaceKeys: [] }),
+          projectName: "Quiet project",
+          workspaces: [
+            workspace({
+              key: "quiet",
+              name: "quiet",
+              activityAt: "2026-01-01T00:00:00.000Z",
+            }),
+          ],
+        },
+        {
+          ...sidebarProject({ projectKey: "active-project", workspaceKeys: [] }),
+          projectName: "Active project",
+          workspaces: [
+            workspace({
+              key: "active",
+              name: "active",
+              activityAt: "2026-02-01T00:00:00.000Z",
+            }),
+          ],
+        },
+      ],
+      sortMode: "lastUpdated",
+    });
+
+    expect(sortedProjects.map((entry) => entry.projectKey)).toEqual([
+      "active-project",
+      "quiet-project",
+    ]);
+  });
+
+  it("sorts projects by aggregate status rank before activity", () => {
+    const sortedProjects = sortSidebarProjects({
+      projects: [
+        {
+          ...sidebarProject({ projectKey: "running-project", workspaceKeys: [] }),
+          projectName: "Running project",
+          workspaces: [
+            workspace({
+              key: "running",
+              name: "running",
+              statusBucket: "running",
+              activityAt: "2026-03-01T00:00:00.000Z",
+            }),
+          ],
+        },
+        {
+          ...sidebarProject({ projectKey: "attention-project", workspaceKeys: [] }),
+          projectName: "Attention project",
+          workspaces: [
+            workspace({
+              key: "attention",
+              name: "attention",
+              statusBucket: "needs_input",
+              activityAt: "2026-01-01T00:00:00.000Z",
+            }),
+          ],
+        },
+      ],
+      sortMode: "status",
+    });
+
+    expect(sortedProjects.map((entry) => entry.projectKey)).toEqual([
+      "attention-project",
+      "running-project",
+    ]);
+  });
+});
+
+describe("applySidebarShowLastCount", () => {
+  it("limits visible items after sorting", () => {
+    const result = applySidebarShowLastCount({
+      items: [item("a"), item("b"), item("c"), item("d")],
+      showLastCount: 3,
+      showAll: false,
+      forceIncludeKey: null,
+      getKey: (entry) => entry.key,
+    });
+
+    expect(result).toEqual({
+      visibleItems: [item("a"), item("b"), item("c")],
+      shouldShowVisibilityToggle: true,
+    });
+  });
+
+  it("force-shows an active item outside the visible count", () => {
+    const result = applySidebarShowLastCount({
+      items: [item("a"), item("b"), item("c"), item("d")],
+      showLastCount: 3,
+      showAll: false,
+      forceIncludeKey: "d",
+      getKey: (entry) => entry.key,
+    });
+
+    expect(result).toEqual({
+      visibleItems: [item("a"), item("b"), item("c"), item("d")],
+      shouldShowVisibilityToggle: true,
+    });
+  });
+
+  it("shows all items without a visibility toggle when expanded", () => {
+    const result = applySidebarShowLastCount({
+      items: [item("a"), item("b"), item("c")],
+      showLastCount: 3,
+      showAll: true,
+      forceIncludeKey: null,
+      getKey: (entry) => entry.key,
+    });
+
+    expect(result).toEqual({
+      visibleItems: [item("a"), item("b"), item("c")],
+      shouldShowVisibilityToggle: false,
+    });
   });
 });
 

@@ -18,6 +18,7 @@ import {
   createSidebarWorkspaceEntry,
   deriveSidebarLoadingState,
   resolveProjectActivationWorkspace,
+  sortSidebarProjects,
   sortSidebarWorkspaceProjects,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
@@ -128,11 +129,18 @@ export function useSidebarWorkspacesList(options?: {
   const workspaceSortMode = useSidebarViewStore((state) =>
     sortServerId ? state.getWorkspaceSortMode(sortServerId) : "manual",
   );
+  const projectSortMode = useSidebarViewStore((state) =>
+    sortServerId ? state.getProjectSortMode(sortServerId) : "manual",
+  );
+  const needsHydratedWorkspaceEntries =
+    workspaceSortMode !== "manual" || projectSortMode !== "manual";
   const sortSessions = useSessionStore((state) =>
-    workspaceSortMode === "manual" ? undefined : state.sessions,
+    needsHydratedWorkspaceEntries ? state.sessions : undefined,
   );
   const pendingCreateAttempts = useCreateFlowStore((state) =>
-    workspaceSortMode === "status" ? state.pendingByDraftId : undefined,
+    workspaceSortMode === "status" || projectSortMode === "status"
+      ? state.pendingByDraftId
+      : undefined,
   );
 
   const persistedProjectOrder = useSidebarOrderStore((state) => state.projectOrder ?? EMPTY_ORDER);
@@ -155,35 +163,57 @@ export function useSidebarWorkspacesList(options?: {
 
   const baseProjects = sidebarModel.projects.length > 0 ? sidebarModel.projects : EMPTY_PROJECTS;
   const projects = useMemo(() => {
-    if (workspaceSortMode === "manual" || baseProjects.length === 0) {
+    if (
+      (workspaceSortMode === "manual" && projectSortMode === "manual") ||
+      baseProjects.length === 0
+    ) {
       return baseProjects;
     }
 
-    return sortSidebarWorkspaceProjects({
-      projects: baseProjects.map((project) => ({
-        ...project,
-        workspaces: project.workspaces.map((placedWorkspace) => {
-          const session = sortSessions?.[placedWorkspace.serverId];
-          const workspaceMapKey = session
-            ? resolveWorkspaceMapKeyByIdentity({
-                workspaces: session.workspaces,
-                workspaceId: placedWorkspace.workspaceId,
-              })
-            : null;
-          const workspace = workspaceMapKey ? session?.workspaces.get(workspaceMapKey) : null;
-          return workspace
-            ? createSidebarWorkspaceEntry({
-                serverId: placedWorkspace.serverId,
-                workspace,
-                pendingCreateAttempts,
-                agents: workspaceSortMode === "status" ? session?.agents : undefined,
-              })
-            : placedWorkspace;
-        }),
-      })),
+    const hydratedProjects = needsHydratedWorkspaceEntries
+      ? baseProjects.map((project) => ({
+          ...project,
+          workspaces: project.workspaces.map((placedWorkspace) => {
+            const session = sortSessions?.[placedWorkspace.serverId];
+            const workspaceMapKey = session
+              ? resolveWorkspaceMapKeyByIdentity({
+                  workspaces: session.workspaces,
+                  workspaceId: placedWorkspace.workspaceId,
+                })
+              : null;
+            const workspace = workspaceMapKey ? session?.workspaces.get(workspaceMapKey) : null;
+            return workspace
+              ? createSidebarWorkspaceEntry({
+                  serverId: placedWorkspace.serverId,
+                  workspace,
+                  pendingCreateAttempts,
+                  agents:
+                    workspaceSortMode === "status" || projectSortMode === "status"
+                      ? session?.agents
+                      : undefined,
+                })
+              : placedWorkspace;
+          }),
+        }))
+      : baseProjects;
+
+    const workspaceSortedProjects = sortSidebarWorkspaceProjects({
+      projects: hydratedProjects,
       sortMode: workspaceSortMode,
     });
-  }, [baseProjects, pendingCreateAttempts, sortSessions, workspaceSortMode]);
+
+    return sortSidebarProjects({
+      projects: workspaceSortedProjects,
+      sortMode: projectSortMode,
+    });
+  }, [
+    baseProjects,
+    needsHydratedWorkspaceEntries,
+    pendingCreateAttempts,
+    projectSortMode,
+    sortSessions,
+    workspaceSortMode,
+  ]);
 
   const workspacePlacements =
     sidebarModel.workspaces.length > 0 ? sidebarModel.workspaces : EMPTY_WORKSPACES;
