@@ -4,7 +4,7 @@ Branch: `feat/collapse-thinking`
 
 Base: `origin/main`
 
-Anchor commit: aa751e1632a2606b5991a89c89b973eef09033fc — feat(collapse-thinking): preserve active expansion state
+Anchor commit: 6942686e54d2ec63a44264d9777872aabe2ef83a — fix(collapse-thinking): keep response-presented assistant text visible during running turn
 
 ## Purpose
 
@@ -25,7 +25,7 @@ It also updates bottom anchoring so expanding/collapsing thinking groups does no
 - Shows previews for collapsed active thinking groups when there are visible thinking messages.
 - Lets users expand a collapsed thinking group by pressing the lower half of its preview area.
 - Balances vertical spacing around a collapsed completed thinking group when it sits between the user prompt and final assistant response.
-- Keeps final assistant responses and plan cards outside collapsed thinking groups while allowing assistant progress messages to stay with the hidden work they describe.
+- Keeps final assistant responses and plan cards outside collapsed thinking groups while allowing assistant progress messages to stay with the hidden work they describe. This includes response-presented assistant text that arrives while a turn is still running.
 - Preserves normal access to tool calls and thinking content through expand/collapse controls.
 
 ## Restored Main Polish
@@ -119,7 +119,7 @@ Implementation details:
 7. Keeps assistant progress messages inside the current thinking group when more non-user-facing collapsible work follows, so progress narration between tool calls collapses with those tool calls.
 8. Leaves assistant progress text visible before a `request_user_input` tool call by completing the previous group with that progress message as `finalAssistantItemId`, then grouping the user-facing tool separately.
 9. Leaves a final assistant progress message visible after completion when it is the last item in a completed turn by using it as the completed group's `finalAssistantItemId` instead of hiding it.
-10. In the current running turn only, keeps a trailing assistant message inside the active group when there is no later collapsible work. This preserves live assistant text in the active thinking preview until the turn completes.
+10. In the current running turn only, keeps a trailing assistant message inside the active group when there is no later collapsible work and the message is not explicitly marked `presentation: "response"`. This preserves unclassified live assistant text in the active thinking preview until the turn completes, while response-presented text still closes the group and remains visible.
 11. Starts a new group after visible assistant output when later collapsible work appears, so a single turn can produce multiple completed thinking groups separated by visible assistant messages.
 12. Flushes accumulated work as completed when a non-collapsible, non-assistant item interrupts the group.
 13. Flushes any remaining accumulated work at the end of the turn as `"active"` for the current running turn or `"completed"` otherwise.
@@ -375,6 +375,7 @@ Adds coverage for:
 - Splitting completed and running-turn groups around visible assistant output.
 - Excluding agent plan cards from collapsed thinking groups.
 - Keeping trailing live assistant text inside the active running group until completion.
+- Keeping response-presented assistant text visible while a turn is still running.
 - Handling active running turns.
 - Default-expanded behavior for active groups under `"completed"`.
 - Resolving expansion state for `"completed-and-active"` groups by copying active/final peer state and carrying the previous group's resolved state into later active groups.
