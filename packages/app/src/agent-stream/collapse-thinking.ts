@@ -173,7 +173,7 @@ function buildTurnGroups(input: BuildTurnGroupsInput): ThinkingGroup[] {
         groupItems.push(item);
         continue;
       }
-      if (input.isCurrentRunningTurn && !hasLaterWork) {
+      if (input.isCurrentRunningTurn && !hasLaterWork && item.presentation !== "response") {
         groupItems.push(item);
         continue;
       }
