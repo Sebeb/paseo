@@ -17,6 +17,7 @@ import ReanimatedAnimated, {
   LinearTransition,
   useAnimatedStyle as useReanimatedAnimatedStyle,
   useSharedValue as useReanimatedSharedValue,
+  withSequence as withReanimatedSequence,
   withTiming as withReanimatedTiming,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
@@ -291,6 +292,8 @@ const PROJECT_SELECTOR_IDLE_PADDING_HORIZONTAL = 4;
 const PROJECT_SELECTOR_SELECTED_PADDING_HORIZONTAL = 6;
 const PROJECT_SELECTOR_IDLE_MARGIN_BOTTOM = 4;
 const PROJECT_SELECTOR_SELECTED_MARGIN_BOTTOM = 0;
+const PROJECT_SELECTOR_GLOW_SPREAD = 20;
+const PROJECT_SELECTOR_GLOW_PULSE_MS = 920;
 const PROJECT_SELECTOR_LAYOUT_TRANSITION = LinearTransition.duration(
   PROJECT_SELECTOR_TRANSITION_MS,
 ).easing(ReanimatedEasing.out(ReanimatedEasing.cubic));
@@ -5753,6 +5756,9 @@ function ProjectSelectorCapsule({
   onSelectProject?: (projectKey: string) => void;
 }) {
   const selectedProgress = useReanimatedSharedValue(selected ? 1 : 0);
+  const glowProgress = useReanimatedSharedValue(0);
+  const previousStatusCountsRef = useRef(statusCounts);
+  const [glowBucket, setGlowBucket] = useState<"failed" | "needsInput" | "attention" | null>(null);
 
   useEffect(() => {
     selectedProgress.value = withReanimatedTiming(selected ? 1 : 0, {
@@ -5760,6 +5766,39 @@ function ProjectSelectorCapsule({
       easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
     });
   }, [reduceMotionEnabled, selected, selectedProgress]);
+
+  useEffect(() => {
+    const previousCounts = previousStatusCountsRef.current;
+    previousStatusCountsRef.current = statusCounts;
+    if (reduceMotionEnabled) {
+      glowProgress.value = 0;
+      return;
+    }
+
+    const nextGlowBucket = getProjectSelectorGlowBucket(statusCounts, previousCounts);
+    if (!nextGlowBucket) return;
+
+    setGlowBucket(nextGlowBucket);
+    glowProgress.value = 0;
+    glowProgress.value = withReanimatedSequence(
+      withReanimatedTiming(1, {
+        duration: PROJECT_SELECTOR_GLOW_PULSE_MS,
+        easing: ReanimatedEasing.inOut(ReanimatedEasing.cubic),
+      }),
+      withReanimatedTiming(0.42, {
+        duration: PROJECT_SELECTOR_GLOW_PULSE_MS,
+        easing: ReanimatedEasing.inOut(ReanimatedEasing.cubic),
+      }),
+      withReanimatedTiming(0.88, {
+        duration: PROJECT_SELECTOR_GLOW_PULSE_MS,
+        easing: ReanimatedEasing.inOut(ReanimatedEasing.cubic),
+      }),
+      withReanimatedTiming(0, {
+        duration: PROJECT_SELECTOR_GLOW_PULSE_MS * 1.35,
+        easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+      }),
+    );
+  }, [glowProgress, reduceMotionEnabled, statusCounts]);
 
   const capsuleAnimatedStyle = useReanimatedAnimatedStyle(() => {
     const progress = selectedProgress.value;
@@ -5777,6 +5816,20 @@ function ProjectSelectorCapsule({
       marginBottom:
         PROJECT_SELECTOR_IDLE_MARGIN_BOTTOM +
         (PROJECT_SELECTOR_SELECTED_MARGIN_BOTTOM - PROJECT_SELECTOR_IDLE_MARGIN_BOTTOM) * progress,
+    };
+  });
+  const glowOuterAnimatedStyle = useReanimatedAnimatedStyle(() => {
+    const progress = glowProgress.value;
+    return {
+      opacity: progress * 0.68,
+      transform: [{ scale: 0.92 + progress * 0.18 }],
+    };
+  });
+  const glowCoreAnimatedStyle = useReanimatedAnimatedStyle(() => {
+    const progress = glowProgress.value;
+    return {
+      opacity: progress * 0.46,
+      transform: [{ scale: 0.84 + progress * 0.12 }],
     };
   });
 
@@ -5807,6 +5860,29 @@ function ProjectSelectorCapsule({
     () => [...capsuleStyle, styles.projectSelectorCapsulePressed],
     [capsuleStyle],
   );
+  const glowStyle = useMemo(
+    () =>
+      glowBucket
+        ? [
+            styles.projectSelectorCapsuleGlow,
+            getProjectSelectorGlowStyle(glowBucket),
+            glowOuterAnimatedStyle,
+          ]
+        : null,
+    [glowBucket, glowOuterAnimatedStyle],
+  );
+  const glowCoreStyle = useMemo(
+    () =>
+      glowBucket
+        ? [
+            styles.projectSelectorCapsuleGlow,
+            styles.projectSelectorCapsuleGlowCore,
+            getProjectSelectorGlowStyle(glowBucket),
+            glowCoreAnimatedStyle,
+          ]
+        : null,
+    [glowBucket, glowCoreAnimatedStyle],
+  );
   const hoverCardContent = useMemo(
     () => createElement(ProjectSelectorHoverCardContent, { project }),
     [project],
@@ -5824,11 +5900,16 @@ function ProjectSelectorCapsule({
         layout={layoutTransition}
         style={styles.projectSelectorCapsuleLayoutItem}
       >
+        {glowStyle ? <ReanimatedAnimated.View pointerEvents="none" style={glowStyle} /> : null}
+        {glowCoreStyle ? (
+          <ReanimatedAnimated.View pointerEvents="none" style={glowCoreStyle} />
+        ) : null}
         <Pressable
           accessibilityRole={platformIsWeb ? undefined : "button"}
           accessibilityLabel={project.projectName}
           accessibilityState={accessibilityState}
           onPress={handlePress}
+          style={styles.projectSelectorCapsulePressable}
           testID={`sidebar-project-selector-${project.projectKey}`}
         >
           {({ pressed }) => (
@@ -5909,6 +5990,33 @@ function ProjectSelectorStatusBadge({
       <Text style={styles.projectSelectorStatusBadgeText}>{count > 9 ? "9+" : count}</Text>
     </View>
   );
+}
+
+function getProjectSelectorGlowBucket(
+  counts: SidebarProjectStatusCounts,
+  previousCounts: SidebarProjectStatusCounts,
+): "failed" | "needsInput" | "attention" | null {
+  if (counts.failed > previousCounts.failed) {
+    return "failed";
+  }
+  if (counts.needsInput > previousCounts.needsInput) {
+    return "needsInput";
+  }
+  if (counts.attention > previousCounts.attention) {
+    return "attention";
+  }
+  return null;
+}
+
+function getProjectSelectorGlowStyle(bucket: "failed" | "needsInput" | "attention") {
+  switch (bucket) {
+    case "failed":
+      return styles.projectSelectorGlowRed;
+    case "needsInput":
+      return styles.projectSelectorGlowAmber;
+    case "attention":
+      return styles.projectSelectorGlowGreen;
+  }
 }
 
 function useReduceMotionEnabled(): boolean {
@@ -6880,6 +6988,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   projectSelectorCapsuleLayoutItem: {
     justifyContent: "flex-end",
+    position: "relative",
+    alignItems: "center",
+    overflow: "visible",
   },
   projectSelectorCapsule: {
     position: "relative",
@@ -6889,6 +7000,42 @@ const styles = StyleSheet.create((theme) => ({
     borderWidth: 1,
     borderColor: theme.colors.border,
     overflow: "visible",
+  },
+  projectSelectorCapsulePressable: {
+    position: "relative",
+    zIndex: 2,
+  },
+  projectSelectorCapsuleGlow: {
+    position: "absolute",
+    left: -PROJECT_SELECTOR_GLOW_SPREAD,
+    right: -PROJECT_SELECTOR_GLOW_SPREAD,
+    top: -PROJECT_SELECTOR_GLOW_SPREAD,
+    bottom: -PROJECT_SELECTOR_GLOW_SPREAD,
+    borderRadius: 999,
+    zIndex: 0,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.95,
+    shadowRadius: PROJECT_SELECTOR_GLOW_SPREAD,
+    elevation: 8,
+  },
+  projectSelectorCapsuleGlowCore: {
+    left: -10,
+    right: -10,
+    top: -10,
+    bottom: -10,
+    shadowRadius: 12,
+  },
+  projectSelectorGlowRed: {
+    backgroundColor: theme.colors.palette.red[500],
+    shadowColor: theme.colors.palette.red[500],
+  },
+  projectSelectorGlowAmber: {
+    backgroundColor: theme.colors.palette.amber[500],
+    shadowColor: theme.colors.palette.amber[500],
+  },
+  projectSelectorGlowGreen: {
+    backgroundColor: theme.colors.palette.green[500],
+    shadowColor: theme.colors.palette.green[500],
   },
   projectSelectorCapsuleFallback: {
     backgroundColor: theme.colors.surface1,
