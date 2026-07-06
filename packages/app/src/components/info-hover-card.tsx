@@ -36,6 +36,8 @@ interface InfoHoverCardSnapshot {
 
 const HOVER_CARD_WINDOW_PADDING = 8;
 const HOVER_CARD_FADE_MS = 80;
+const HOVER_GRACE_MS = 100;
+const HOVER_CARD_WIDTH = 260;
 
 let nextHoverCardId = 0;
 let hoverCardSnapshot: InfoHoverCardSnapshot = {
@@ -133,8 +135,6 @@ function computeHoverCardPosition({
 
   return { x, y };
 }
-
-const HOVER_GRACE_MS = 100;
 
 interface InfoHoverCardProps {
   content: ReactNode;
@@ -389,8 +389,6 @@ function InfoHoverCardContent({
     </Portal>
   );
 }
-
-const HOVER_CARD_WIDTH = 260;
 
 const styles = StyleSheet.create((theme) => ({
   portalOverlay: {

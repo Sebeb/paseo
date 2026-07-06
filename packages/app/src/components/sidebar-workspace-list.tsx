@@ -163,6 +163,7 @@ import { decideLongPressMove } from "@/utils/sidebar-gesture-arbitration";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { projectIconPlaceholderLabelFromDisplayName } from "@/utils/project-display-name";
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
+import { shortenPath } from "@/utils/shorten-path";
 import { isEmphasizedStatusDotBucket } from "@/utils/status-dot-color";
 import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import { SidebarStatusWorkspaceList } from "@/components/sidebar/sidebar-status-list";
@@ -1056,7 +1057,6 @@ interface SidebarWorkspaceListProps {
   singleProjectViewEnabled?: boolean;
   singleProjectViewProject?: SidebarProjectEntry | null;
   onSingleProjectSelected?: (projectKey: string) => void;
-  onSingleProjectHover?: (projectName: string | null) => void;
   /** Gesture ref for coordinating with parent gestures (e.g., sidebar close) */
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
 }
@@ -5675,7 +5675,6 @@ function SidebarProjectSelectorBar({
   manualSortEnabled,
   onProjectReorder,
   onSelectProject,
-  onHoverProject,
 }: {
   projects: SidebarProjectEntry[];
   selectedProjectKey: string | null;
@@ -5685,7 +5684,6 @@ function SidebarProjectSelectorBar({
   manualSortEnabled: boolean;
   onProjectReorder: (projects: SidebarProjectEntry[]) => void;
   onSelectProject?: (projectKey: string) => void;
-  onHoverProject?: (projectName: string | null) => void;
 }) {
   const renderProject = useCallback(
     ({ item, isActive }: DraggableRenderItemInfo<SidebarProjectEntry>) => {
@@ -5704,13 +5702,11 @@ function SidebarProjectSelectorBar({
           reduceMotionEnabled={reduceMotionEnabled}
           isDragging={isActive}
           onSelectProject={onSelectProject}
-          onHoverProject={onHoverProject}
         />
       );
     },
     [
       iconPresentationByProjectKey,
-      onHoverProject,
       onSelectProject,
       reduceMotionEnabled,
       selectedProjectKey,
@@ -5747,7 +5743,6 @@ function ProjectSelectorCapsule({
   reduceMotionEnabled,
   isDragging,
   onSelectProject,
-  onHoverProject,
 }: {
   project: SidebarProjectEntry;
   selected: boolean;
@@ -5756,7 +5751,6 @@ function ProjectSelectorCapsule({
   reduceMotionEnabled: boolean;
   isDragging: boolean;
   onSelectProject?: (projectKey: string) => void;
-  onHoverProject?: (projectName: string | null) => void;
 }) {
   const selectedProgress = useReanimatedSharedValue(selected ? 1 : 0);
 
@@ -5789,12 +5783,6 @@ function ProjectSelectorCapsule({
   const handlePress = useCallback(() => {
     onSelectProject?.(project.projectKey);
   }, [onSelectProject, project.projectKey]);
-  const handleHoverIn = useCallback(() => {
-    onHoverProject?.(project.projectName);
-  }, [onHoverProject, project.projectName]);
-  const handleHoverOut = useCallback(() => {
-    onHoverProject?.(null);
-  }, [onHoverProject]);
 
   const layoutTransition = reduceMotionEnabled ? undefined : PROJECT_SELECTOR_LAYOUT_TRANSITION;
   const backgroundStyle = useMemo(
@@ -5819,36 +5807,66 @@ function ProjectSelectorCapsule({
     () => [...capsuleStyle, styles.projectSelectorCapsulePressed],
     [capsuleStyle],
   );
+  const hoverCardContent = useMemo(
+    () => createElement(ProjectSelectorHoverCardContent, { project }),
+    [project],
+  );
 
   return (
-    <ReanimatedAnimated.View
-      layout={layoutTransition}
-      style={styles.projectSelectorCapsuleLayoutItem}
+    <InfoHoverCard
+      content={hoverCardContent}
+      accessibilityLabel={project.projectName}
+      testID={`sidebar-project-selector-hover-card-${project.projectKey}`}
+      isDragging={isDragging}
+      placement="bottom"
     >
-      <Pressable
-        accessibilityRole={platformIsWeb ? undefined : "button"}
-        accessibilityLabel={project.projectName}
-        accessibilityState={accessibilityState}
-        onPress={handlePress}
-        onHoverIn={handleHoverIn}
-        onHoverOut={handleHoverOut}
-        testID={`sidebar-project-selector-${project.projectKey}`}
+      <ReanimatedAnimated.View
+        layout={layoutTransition}
+        style={styles.projectSelectorCapsuleLayoutItem}
       >
-        {({ pressed }) => (
-          <ReanimatedAnimated.View style={pressed ? pressedCapsuleStyle : capsuleStyle}>
-            <ProjectIconView
-              iconDataUri={iconPresentation.dataUri}
-              initial={projectIconPlaceholderLabelFromDisplayName(project.projectName)}
-              projectKey={project.projectKey}
-              imageStyle={styles.projectSelectorIcon}
-              fallbackStyle={styles.projectSelectorIconFallback}
-              textStyle={styles.projectSelectorIconFallbackText}
-            />
-            <ProjectSelectorStatusBadges counts={statusCounts} />
-          </ReanimatedAnimated.View>
-        )}
-      </Pressable>
-    </ReanimatedAnimated.View>
+        <Pressable
+          accessibilityRole={platformIsWeb ? undefined : "button"}
+          accessibilityLabel={project.projectName}
+          accessibilityState={accessibilityState}
+          onPress={handlePress}
+          testID={`sidebar-project-selector-${project.projectKey}`}
+        >
+          {({ pressed }) => (
+            <ReanimatedAnimated.View style={pressed ? pressedCapsuleStyle : capsuleStyle}>
+              <ProjectIconView
+                iconDataUri={iconPresentation.dataUri}
+                initial={projectIconPlaceholderLabelFromDisplayName(project.projectName)}
+                projectKey={project.projectKey}
+                imageStyle={styles.projectSelectorIcon}
+                fallbackStyle={styles.projectSelectorIconFallback}
+                textStyle={styles.projectSelectorIconFallbackText}
+              />
+              <ProjectSelectorStatusBadges counts={statusCounts} />
+            </ReanimatedAnimated.View>
+          )}
+        </Pressable>
+      </ReanimatedAnimated.View>
+    </InfoHoverCard>
+  );
+}
+
+function ProjectSelectorHoverCardContent({ project }: { project: SidebarProjectEntry }) {
+  const pathDisplay = shortenPath(project.iconWorkingDir);
+  return (
+    <>
+      <View style={styles.embeddedTabHoverHeader}>
+        <Text style={styles.embeddedTabHoverTitle} numberOfLines={2}>
+          {project.projectName}
+        </Text>
+      </View>
+      {pathDisplay ? (
+        <SidebarHoverInfoRow
+          icon={ThemedFolder}
+          label={pathDisplay}
+          testID={`sidebar-project-selector-path-${project.projectKey}`}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -5929,7 +5947,6 @@ export function SidebarWorkspaceList({
   singleProjectViewEnabled = false,
   singleProjectViewProject = null,
   onSingleProjectSelected,
-  onSingleProjectHover,
   parentGestureRef,
 }: SidebarWorkspaceListProps) {
   const pathname = usePathname();
@@ -5947,7 +5964,6 @@ export function SidebarWorkspaceList({
       singleProjectViewEnabled={singleProjectViewEnabled}
       singleProjectViewProject={singleProjectViewProject}
       onSingleProjectSelected={onSingleProjectSelected}
-      onSingleProjectHover={onSingleProjectHover}
       parentGestureRef={parentGestureRef}
       pathname={pathname}
       groupMode={groupMode}
@@ -6257,7 +6273,6 @@ function ProjectModeList({
   singleProjectViewEnabled = false,
   singleProjectViewProject = null,
   onSingleProjectSelected,
-  onSingleProjectHover,
   parentGestureRef,
   pathname,
   groupMode,
@@ -6798,7 +6813,6 @@ function ProjectModeList({
           manualSortEnabled={manualProjectSortEnabled}
           onProjectReorder={handleProjectDragEnd}
           onSelectProject={onSingleProjectSelected}
-          onHoverProject={onSingleProjectHover}
         />
       ) : null}
       {projectListContent}

@@ -115,7 +115,6 @@ interface SidebarSharedProps {
   shortcutIndexByWorkspaceKey: SidebarShortcutModel["shortcutIndexByWorkspaceKey"];
   toggleProjectCollapsed: SidebarShortcutModel["toggleProjectCollapsed"];
   handleSingleProjectSelect: (projectKey: string) => void;
-  handleSingleProjectHover: (projectName: string | null) => void;
   handleRefresh: () => void;
   handleHostSelect: (nextServerId: string) => void;
   handleOpenProject: () => void;
@@ -244,7 +243,6 @@ export const LeftSidebar = memo(function LeftSidebar({
     (state) => state.setSingleProjectViewProjectKey,
   );
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
-  const [hoveredSingleProjectName, setHoveredSingleProjectName] = useState<string | null>(null);
   const singleProjectViewEnabled = groupMode === "project" && singleProjectViewSettingEnabled;
   const activeSingleProject = useMemo(
     () =>
@@ -289,7 +287,7 @@ export const LeftSidebar = memo(function LeftSidebar({
     [activeWorkspaceSelection, projects, singleProjectViewEnabled, singleProjectViewProjectKey],
   );
   const headerProjectName = singleProjectViewEnabled
-    ? (hoveredSingleProjectName ?? selectedSingleProject?.projectName ?? null)
+    ? (selectedSingleProject?.projectName ?? null)
     : null;
   const handleSingleProjectSelect = useCallback(
     (projectKey: string) => {
@@ -297,9 +295,6 @@ export const LeftSidebar = memo(function LeftSidebar({
     },
     [setSingleProjectViewProjectKey],
   );
-  const handleSingleProjectHover = useCallback((projectName: string | null) => {
-    setHoveredSingleProjectName(projectName);
-  }, []);
 
   const [isManualRefresh, setIsManualRefresh] = useState(false);
 
@@ -398,7 +393,6 @@ export const LeftSidebar = memo(function LeftSidebar({
     shortcutIndexByWorkspaceKey,
     toggleProjectCollapsed,
     handleSingleProjectSelect,
-    handleSingleProjectHover,
     handleRefresh,
     handleHostSelect,
     renderHostOption,
@@ -696,7 +690,6 @@ function MobileSidebar({
   shortcutIndexByWorkspaceKey,
   toggleProjectCollapsed,
   handleSingleProjectSelect,
-  handleSingleProjectHover,
   handleRefresh,
   handleHostSelect,
   renderHostOption,
@@ -932,7 +925,6 @@ function MobileSidebar({
                 singleProjectViewEnabled={singleProjectViewEnabled}
                 singleProjectViewProject={selectedSingleProject}
                 onSingleProjectSelected={handleSingleProjectSelect}
-                onSingleProjectHover={handleSingleProjectHover}
                 isRefreshing={isManualRefresh && isRevalidating}
                 onRefresh={handleRefresh}
                 onWorkspacePress={handleWorkspacePress}
@@ -987,7 +979,6 @@ function DesktopSidebar({
   shortcutIndexByWorkspaceKey,
   toggleProjectCollapsed,
   handleSingleProjectSelect,
-  handleSingleProjectHover,
   handleRefresh,
   handleHostSelect,
   renderHostOption,
@@ -1159,7 +1150,6 @@ function DesktopSidebar({
                 singleProjectViewEnabled={singleProjectViewEnabled}
                 singleProjectViewProject={selectedSingleProject}
                 onSingleProjectSelected={handleSingleProjectSelect}
-                onSingleProjectHover={handleSingleProjectHover}
                 isRefreshing={isManualRefresh && isRevalidating}
                 onRefresh={handleRefresh}
                 onAddProject={handleOpenProject}
