@@ -104,6 +104,7 @@ export const ar: TranslationResources = {
       dropImagesHere: "إسقاط الصور هنا",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "تحرير الرسالة في قائمة الانتظار",
+      editScheduledMessage: "تحرير الرسالة المجدولة",
       sendQueuedMessageNow: "إرسال رسالة في قائمة الانتظار الآن",
       openImage: "فتح مرفق الصورة",
       removeImage: "إزالة مرفق الصورة",

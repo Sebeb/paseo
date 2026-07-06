@@ -81,7 +81,7 @@ import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
 import {
   buildAgentWorkspaceLookupKey,
-  countScheduledComposerMessagesByWorkspace,
+  mergeScheduledComposerMessageCountsByWorkspace,
 } from "@/composer/scheduled-messages";
 
 const MIN_CHAT_WIDTH = 400;
@@ -203,14 +203,11 @@ function useMessageStatusCountsByWorkspace(
   );
 
   return useMemo(() => {
-    const counts = new Map(queueState.queuedCounts);
-    for (const entry of countScheduledComposerMessagesByWorkspace({
+    return mergeScheduledComposerMessageCountsByWorkspace({
+      queuedCounts: queueState.queuedCounts,
       schedules,
       agentWorkspaceKeys: queueState.agentWorkspaceKeys,
-    })) {
-      counts.set(entry.workspaceKey, (counts.get(entry.workspaceKey) ?? 0) + entry.count);
-    }
-    return counts;
+    });
   }, [queueState.agentWorkspaceKeys, queueState.queuedCounts, schedules]);
 }
 

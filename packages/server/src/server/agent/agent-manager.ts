@@ -62,6 +62,7 @@ import { ForegroundRunState, type ForegroundTurnWaiter } from "./foreground-run-
 import { getAgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
 import { invokeRewindCapability, type RewindMode } from "./rewind/rewind.js";
 import { isSystemInjectedEnvelope } from "./agent-prompt.js";
+import { isOutOfCreditMessage } from "./out-of-credit.js";
 import { stripInternalPaseoMcpServer, withRuntimePaseoMcpServer } from "./runtime-mcp-config.js";
 import { resolveCreateAgentTitles } from "./create-agent-title.js";
 import type { PaseoToolCatalogFactory } from "./tools/types.js";
@@ -256,6 +257,11 @@ interface StreamEventFlags {
 
 interface HandleStreamEventOptions {
   fromHistory?: boolean;
+}
+
+interface HandleStreamEventResult {
+  event: AgentStreamEvent;
+  shouldNotifyWaiters: boolean;
 }
 
 interface ManagedAgentBase {
@@ -524,6 +530,7 @@ export class AgentManager {
   private readonly registry?: AgentStorage;
   private readonly durableTimelineStore?: AgentTimelineStore;
   private readonly previousStatuses = new Map<string, AgentLifecycleStatus>();
+  private readonly lastLiveAssistantMessageByAgent = new Map<string, string>();
   private readonly backgroundTasks = new Set<Promise<void>>();
   private readonly agentStreamCoalescer: AgentStreamCoalescer;
   private mcpBaseUrl: string | null;
@@ -2732,24 +2739,24 @@ export class AgentManager {
       "agent.manager.dispatch_session_event",
     );
 
-    const shouldNotifyWaiters = await this.handleStreamEvent(agent, event);
+    const result = await this.handleStreamEvent(agent, event);
 
-    if (!shouldNotifyWaiters) {
+    if (!result.shouldNotifyWaiters) {
       return;
     }
 
-    this.foregroundRuns.notifyWaiters(matchingWaiters, event, {
-      terminal: isTurnTerminalEvent(event),
+    this.foregroundRuns.notifyWaiters(matchingWaiters, result.event, {
+      terminal: isTurnTerminalEvent(result.event),
     });
     this.logger.trace(
       {
         agentId: agent.id,
         provider: event.provider,
         sessionId: agent.persistence?.sessionId ?? undefined,
-        turnId,
+        turnId: getAgentStreamEventTurnId(result.event),
         notifiedWaiterCount: matchingWaiters.length,
-        terminal: isTurnTerminalEvent(event),
-        event,
+        terminal: isTurnTerminalEvent(result.event),
+        event: result.event,
       },
       "agent.manager.notify_waiters",
     );
@@ -2939,7 +2946,7 @@ export class AgentManager {
     agent: ActiveManagedAgent,
     event: AgentStreamEvent,
     options?: HandleStreamEventOptions,
-  ): Promise<boolean> {
+  ): Promise<HandleStreamEventResult> {
     const eventTurnId = getAgentStreamEventTurnId(event);
     const isForegroundEvent = Boolean(eventTurnId && agent.activeForegroundTurnId === eventTurnId);
     this.traceHandleStreamEventStart(agent, event, eventTurnId, isForegroundEvent);
@@ -2948,44 +2955,88 @@ export class AgentManager {
       isTurnTerminalEvent(event) &&
       this.foregroundRuns.hasFinalizedTurn(agent, eventTurnId)
     ) {
-      return false;
+      return { event, shouldNotifyWaiters: false };
     }
 
     // Only update timestamp for live events, not history replay
     if (!options?.fromHistory) {
+      this.trackLiveAssistantMessage(agent.id, event);
       this.touchUpdatedAt(agent);
       if (this.agentStreamCoalescer.handle(agent.id, event)) {
         this.traceCoalescerBuffered(agent, event, eventTurnId);
-        return false;
+        return { event, shouldNotifyWaiters: false };
       }
       this.agentStreamCoalescer.flushFor(agent.id);
     }
 
+    const effectiveEvent = this.maybeConvertOutOfCreditCompletion(agent, event, eventTurnId);
+    const effectiveEventTurnId = getAgentStreamEventTurnId(effectiveEvent);
+    const effectiveIsForegroundEvent = Boolean(
+      effectiveEventTurnId && agent.activeForegroundTurnId === effectiveEventTurnId,
+    );
     const flags: StreamEventFlags = { shouldDispatchEvent: true, shouldNotifyWaiters: true };
 
     const dispatchPromise = this.dispatchStreamEventByType({
       agent,
-      event,
+      event: effectiveEvent,
       options,
-      isForegroundEvent,
-      eventTurnId,
+      isForegroundEvent: effectiveIsForegroundEvent,
+      eventTurnId: effectiveEventTurnId,
       flags,
     });
     if (dispatchPromise) {
       await dispatchPromise;
     }
 
-    if (!options?.fromHistory && isForegroundEvent && isTurnTerminalEvent(event)) {
-      this.finalizeForegroundTurn(agent, eventTurnId);
+    if (
+      !options?.fromHistory &&
+      effectiveIsForegroundEvent &&
+      isTurnTerminalEvent(effectiveEvent)
+    ) {
+      this.finalizeForegroundTurn(agent, effectiveEventTurnId);
     }
 
     if (!options?.fromHistory && flags.shouldDispatchEvent) {
-      this.dispatchStream(agent.id, event, { timestamp: new Date().toISOString() });
+      this.dispatchStream(agent.id, effectiveEvent, { timestamp: new Date().toISOString() });
     }
 
-    this.traceHandleStreamEventEnd(agent, event, eventTurnId, flags);
+    this.traceHandleStreamEventEnd(agent, effectiveEvent, effectiveEventTurnId, flags);
 
-    return flags.shouldNotifyWaiters;
+    return { event: effectiveEvent, shouldNotifyWaiters: flags.shouldNotifyWaiters };
+  }
+
+  private maybeConvertOutOfCreditCompletion(
+    agent: ActiveManagedAgent,
+    event: AgentStreamEvent,
+    eventTurnId: string | undefined,
+  ): AgentStreamEvent {
+    if (event.type !== "turn_completed") {
+      return event;
+    }
+    const message =
+      this.lastLiveAssistantMessageByAgent.get(agent.id) ??
+      this.getLastAssistantMessageFromTimeline(this.timelineStore.getItems(agent.id));
+    if (!message || !isOutOfCreditMessage(message)) {
+      return event;
+    }
+    return {
+      type: "turn_failed",
+      provider: event.provider,
+      error: message,
+      code: "out_of_credit",
+      ...(eventTurnId ? { turnId: eventTurnId } : {}),
+    };
+  }
+
+  private trackLiveAssistantMessage(agentId: string, event: AgentStreamEvent): void {
+    if (event.type === "turn_started") {
+      this.lastLiveAssistantMessageByAgent.delete(agentId);
+      return;
+    }
+    if (event.type !== "timeline" || event.item.type !== "assistant_message") {
+      return;
+    }
+    this.lastLiveAssistantMessageByAgent.set(agentId, event.item.text);
   }
 
   private traceHandleStreamEventStart(

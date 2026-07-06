@@ -104,6 +104,7 @@ export const es: TranslationResources = {
       dropImagesHere: "Suelta imágenes aquí",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "Editar mensaje en cola",
+      editScheduledMessage: "Editar mensaje programado",
       sendQueuedMessageNow: "Enviar mensaje en cola ahora",
       openImage: "Abrir imagen adjunta",
       removeImage: "Quitar imagen adjunta",

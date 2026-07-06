@@ -6,6 +6,7 @@ import {
   type AgentStreamEvent,
   type AgentTimelineItem,
 } from "../agent-sdk-types.js";
+import { isOutOfCreditMessage } from "../out-of-credit.js";
 
 export type ProviderFinalTextReducer = (params: {
   current: string;
@@ -55,6 +56,11 @@ export async function runProviderTurn({
       return;
     }
     if (event.type === "turn_completed") {
+      if (isOutOfCreditMessage(finalText)) {
+        settled = true;
+        rejectCompletion(new Error(finalText));
+        return;
+      }
       usage = event.usage;
       settled = true;
       resolveCompletion();

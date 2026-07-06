@@ -104,6 +104,7 @@ export const ru: TranslationResources = {
       dropImagesHere: "Скиньте изображения сюда",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "Изменить сообщение в очереди",
+      editScheduledMessage: "Изменить запланированное сообщение",
       sendQueuedMessageNow: "Отправить сообщение в очереди сейчас",
       openImage: "Открыть прикрепленное изображение",
       removeImage: "Удалить прикрепленное изображение",

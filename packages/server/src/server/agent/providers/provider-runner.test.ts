@@ -117,6 +117,26 @@ describe("runProviderTurn", () => {
     await expect(resultPromise).rejects.toThrow("provider failed");
   });
 
+  test("rejects completed turns that end with an out-of-credit assistant message", async () => {
+    const runner = new FakeTurnRunner("turn-1", "session-1");
+    const resultPromise = runProviderTurn({
+      prompt: "hi",
+      startTurn: (prompt, options) => runner.startTurn(prompt, options),
+      subscribe: (callback) => runner.subscribe(callback),
+      getSessionId: () => runner.getSessionId(),
+    });
+
+    runner.emit({
+      type: "timeline",
+      provider: "codex",
+      turnId: "turn-1",
+      item: { type: "assistant_message", text: "You have run out of credits. Add credits." },
+    });
+    runner.emit({ type: "turn_completed", provider: "codex", turnId: "turn-1" });
+
+    await expect(resultPromise).rejects.toThrow("run out of credits");
+  });
+
   test("supports growing assistant message reducers", async () => {
     const runner = new FakeTurnRunner("turn-1", "session-1");
     const resultPromise = runProviderTurn({
