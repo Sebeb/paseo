@@ -90,6 +90,7 @@ import {
 import {
   deleteAttachments,
   persistAttachmentFromBlob,
+  persistAttachmentFromDataUrl,
   persistAttachmentFromFileUri,
 } from "@/attachments/service";
 import { resolveAgentControlsMode } from "@/composer/agent-controls/mode";
@@ -131,6 +132,7 @@ import {
 } from "@/composer/schedule-send";
 import {
   formatScheduledCountdown,
+  restoreScheduledComposerMessageDraft,
   selectScheduledComposerMessages,
   type ScheduledComposerMessage,
 } from "@/composer/scheduled-messages";
@@ -591,8 +593,10 @@ interface RenderQueueTrackArgs {
   scheduledMessages: readonly ScheduledComposerMessage[];
   countdownNow: number;
   handleEditQueuedMessage: (id: string) => void;
+  handleEditScheduledMessage: (id: string) => void;
   handleSendQueuedNow: (id: string) => Promise<void>;
   editLabel: string;
+  editScheduledLabel: string;
   sendNowLabel: string;
 }
 
@@ -602,8 +606,10 @@ function renderQueueTrack(args: RenderQueueTrackArgs): ReactElement | null {
     scheduledMessages,
     countdownNow,
     handleEditQueuedMessage,
+    handleEditScheduledMessage,
     handleSendQueuedNow,
     editLabel,
+    editScheduledLabel,
     sendNowLabel,
   } = args;
   if (queuedMessages.length === 0 && scheduledMessages.length === 0) return null;
@@ -620,7 +626,13 @@ function renderQueueTrack(args: RenderQueueTrackArgs): ReactElement | null {
         />
       ))}
       {scheduledMessages.map((item) => (
-        <ScheduledMessageRow key={item.id} item={item} now={countdownNow} />
+        <ScheduledMessageRow
+          key={item.id}
+          item={item}
+          now={countdownNow}
+          onEdit={handleEditScheduledMessage}
+          editLabel={editScheduledLabel}
+        />
       ))}
     </View>
   );
@@ -846,16 +858,43 @@ function QueuedMessageRow({
   );
 }
 
-function ScheduledMessageRow({ item, now }: { item: ScheduledComposerMessage; now: number }) {
+function ScheduledMessageRow({
+  item,
+  now,
+  onEdit,
+  editLabel,
+}: {
+  item: ScheduledComposerMessage;
+  now: number;
+  onEdit: (id: string) => void;
+  editLabel: string;
+}) {
   const countdown = formatScheduledCountdown(item.dueAt, now);
+  const handleEdit = useCallback(() => {
+    onEdit(item.id);
+  }, [item.id, onEdit]);
   return (
-    <View style={styles.queueItem}>
+    <View
+      style={styles.queueItem}
+      accessibilityLabel={`Scheduled message sends in ${countdown}`}
+      testID="composer-scheduled-message-row"
+    >
       <Text style={styles.queueText} numberOfLines={2} ellipsizeMode="tail">
         {item.text}
       </Text>
       <Text style={styles.queueCountdown} numberOfLines={1}>
         {countdown}
       </Text>
+      <View style={styles.queueActions}>
+        <Pressable
+          onPress={handleEdit}
+          style={styles.queueActionButton}
+          accessibilityLabel={editLabel}
+          accessibilityRole="button"
+        >
+          <ThemedPencil size={ICON_SIZE.sm} uniProps={iconForegroundMapping} />
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -1849,6 +1888,51 @@ export function Composer({
     [agentId, queueWriter, setSelectedAttachments, setUserInput],
   );
 
+  const handleEditScheduledMessage = useCallback(
+    (id: string) => {
+      const message = scheduledMessages.find((item) => item.id === id);
+      if (!message) {
+        return;
+      }
+      if (!client) {
+        setSendError(t("composer.errors.daemonClientDisconnected"));
+        return;
+      }
+
+      setIsSchedulingMessage(true);
+      setSendError(null);
+      void (async () => {
+        try {
+          const draft = await restoreScheduledComposerMessageDraft({
+            message,
+            persistImage: persistAttachmentFromDataUrl,
+          });
+          await client.scheduleDelete({ id });
+          setUserInput(draft.text);
+          setSelectedAttachments(draft.attachments);
+          resetSuppression();
+          focusMessageInputForKeyboardAction();
+          await refetchSchedules();
+        } catch (error) {
+          console.error("[Composer] Failed to edit scheduled message:", error);
+          setSendError(error instanceof Error ? error.message : t("composer.errors.failedToSend"));
+        } finally {
+          setIsSchedulingMessage(false);
+        }
+      })();
+    },
+    [
+      client,
+      focusMessageInputForKeyboardAction,
+      refetchSchedules,
+      resetSuppression,
+      scheduledMessages,
+      setSelectedAttachments,
+      setUserInput,
+      t,
+    ],
+  );
+
   const handleSendQueuedNow = useCallback(
     async (id: string) => {
       if (!sendAgentMessageRef.current && !onSubmitMessageRef.current) return;
@@ -2255,13 +2339,16 @@ export function Composer({
         scheduledMessages,
         countdownNow,
         handleEditQueuedMessage,
+        handleEditScheduledMessage,
         handleSendQueuedNow,
         editLabel: t("composer.attachments.editQueuedMessage"),
+        editScheduledLabel: t("composer.attachments.editScheduledMessage"),
         sendNowLabel: t("composer.attachments.sendQueuedMessageNow"),
       }),
     [
       countdownNow,
       handleEditQueuedMessage,
+      handleEditScheduledMessage,
       handleSendQueuedNow,
       queuedMessages,
       scheduledMessages,
