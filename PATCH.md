@@ -4,11 +4,11 @@ Branch: `feat/project-icon-picker`
 
 Base: `origin/main`
 
-Anchor commit: e215add946fbdc25079375dfae8f07c55c09bd68 - feat(projects): validate project path settings
+Anchor commit: b19bd6681363f68a562b650125352acf8e312a3a - feat(projects): persist icon accent colors
 
 ## Purpose
 
-This branch is an integration branch for app UX and daemon support work around long agent streams, workspace tabs, sidebar navigation, generated titles, project configuration, and file previews. The latest feature adds an Electron-only project icon picker that writes a project-relative icon path into `paseo.json` and asks the daemon to validate/render that icon immediately.
+This branch is an integration branch for app UX and daemon support work around long agent streams, workspace tabs, sidebar navigation, generated titles, project configuration, and file previews. The latest feature adds an Electron-only project icon picker that writes a project-relative icon path into `paseo.json`, asks the daemon to validate/render that icon immediately, and persists an extracted icon edge color for project accent styling.
 
 Protocol changes stay backward-compatible: new message fields and feature flags are optional, and new client features gate on host capabilities rather than synthesizing legacy fallback behavior.
 
@@ -186,6 +186,8 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 - Embedded tab trees follow subagent parentage and persist parent expansion state.
 - Active child tabs highlight ancestor project/workspace rows with a quieter selected state while the direct selected tab keeps the stronger selected treatment.
 - The sidebar can group by project or status, sort workspaces by creation/activity/status/name, auto-collapse projects, auto-collapse workspaces, and remember the last selected workspace per project.
+- Opening a collapsed project in auto-collapse mode navigates to the remembered workspace for that project when possible, falling back to the first workspace.
+- Expanded projects can still show aggregate status badges while project auto-collapse is enabled, so the open project row keeps its attention summary.
 - Workspace, project, status-workspace, and embedded-tab rows support right-click context menus mirroring kebab menu actions.
 - Workspace rows show git operation badges while checkout-store operations are running.
 - Row trailing controls reserve stable widths so hover actions do not change row height or vertical spacing.
@@ -273,7 +275,7 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 
 ## Project Icon Picker And Project Config Editing
 
-**Purpose** - Let users choose a project icon from the desktop app, store it as a project-relative `icon` path in `paseo.json`, and make the daemon honor that configured icon before falling back to icon discovery.
+**Purpose** - Let users choose a project icon from the desktop app, store it as a project-relative `icon` path in `paseo.json`, derive an accent color from the rendered icon, and make the daemon honor that configured icon before falling back to icon discovery.
 
 **Files**
 
@@ -287,16 +289,18 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 - `package-lock.json`
 - `packages/server/package.json`
 - `packages/server/src/server/session/files/workspace-files-session.ts`
+- `packages/server/src/server/session/project-config/project-config-session.ts`
 - `packages/server/src/server/websocket-server.ts`
 - `packages/server/src/utils/project-icon.ts`
 
 **Public surface**
 
-- `PaseoConfigRawSchema` accepts optional `icon: string`.
+- `PaseoConfigRawSchema` accepts optional `icon: string` and optional `color: string`.
+- `ProjectIconResponseSchema` includes optional `color?: string` alongside `data`, `mimeType`, and `path`.
 - `PickedProjectIcon = { kind: "picked"; path: string; dataUri: string } | { kind: "cleared" }` distinguishes a selected preview from an explicit reset.
 - `ProjectConfigDraft` includes `iconPath: string` and `iconDisabled: boolean`.
 - `configToDraft(config, { defaultIconPath?: string | null })` seeds the editable icon path from `config.icon` or a daemon-discovered default and sets `iconDisabled` when `config.icon === ""`.
-- `applyDraftToConfig({ draft, base })` writes trimmed `draft.iconPath` to `config.icon`, writes `icon: ""` when `draft.iconDisabled` is true, or deletes `icon` when the empty path is not an explicit disable.
+- `applyDraftToConfig({ draft, base })` writes trimmed `draft.iconPath` to `config.icon`, writes `icon: ""` when `draft.iconDisabled` is true, or deletes `icon` when the empty path is not an explicit disable. When no explicit icon path remains, it also deletes `color`.
 - `PROJECT_ICON_FILE_EXTENSIONS = ["ico", "png", "svg", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "tif", "tiff"]`.
 - `normalizeProjectIconRelativePath(value): string | null` rejects empty, absolute, drive-rooted, UNC, and escaping `..` paths, normalizes slashes, and returns a clean project-relative path.
 - `absolutePathForProjectIcon(projectRoot, relativeIconPath): string` builds a platform-shaped absolute path for dialog defaults.
@@ -304,7 +308,9 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 - `ProjectIconRequestSchema` accepts optional `iconPath?: string`.
 - `DaemonClient.requestProjectIcon(cwd, { iconPath?, requestId? })` sends `project_icon_request` and waits for `project_icon_response`.
 - `server_info.features.projectIconOverride?: boolean` gates the picker UI with a `COMPAT(projectIconOverride)` cleanup comment.
-- `getProjectIcon(projectDir, options?: { iconPath?: string })` reads a configured or explicit project-relative icon path before auto-discovery and returns normalized 96x96 PNG data.
+- `ProjectIcon.color?: string` carries a `#rrggbb` accent derived from the normalized icon edges.
+- `deriveProjectIconEdgeColor(iconBuffer): Promise<string | null>` samples visible edge pixels from the normalized icon, buckets quantized RGB values, weights by alpha and edge distance, and returns the dominant edge color as hex.
+- `getProjectIcon(projectDir, options?: { iconPath?: string })` reads a configured or explicit project-relative icon path before auto-discovery and returns normalized 96x96 PNG data plus an optional derived edge color.
 
 **Behavior**
 
@@ -320,9 +326,11 @@ Protocol changes stay backward-compatible: new message fields and feature flags 
 - The daemon's project icon lookup first uses an explicit request `iconPath`, then `paseo.json`'s configured `icon`, then auto-discovers favicon/icon/logo files.
 - Server-side path normalization resolves configured icon paths under the project root and rejects traversal outside the root.
 - Returned icons include `path?: string`, the project-relative path chosen by either configured lookup or discovery.
+- Returned icons include `color?: string` when the normalized icon has enough visible edge pixels to compute a dominant edge color.
+- Saving project config calls `getProjectIcon(repoRoot, { iconPath })` before writing. If the configured icon resolves with a color, the server writes that `color` into `paseo.json`; if no icon path remains or no color can be derived, it removes `color`.
 - Icon reads accept ICO, PNG, SVG, JPEG, GIF, WebP, AVIF, BMP, and TIFF source files up to 10 MiB. The server uses `sharp` to render every accepted source into a transparent 96x96 PNG with `fit: "contain"` and returns `mimeType: "image/png"` regardless of source format.
 - PNG-backed ICO files are normalized by extracting the highest-scoring embedded PNG when available before passing the input to `sharp`; other ICO inputs fall through to `sharp` directly.
-- Normalized icon results are cached by absolute source path, file mtime, file size, and returned relative path. The cache keeps the most recently used 256 entries and evicts the oldest key after that.
+- Normalized icon results are cached by absolute source path, file mtime, file size, and returned relative path, including the derived color. The cache keeps the most recently used 256 entries and evicts the oldest key after that.
 - Invalid configured or explicit icon paths still return no icon rather than falling back to discovery. Unsupported extensions and source files that cannot be decoded by `sharp` return no icon.
 
 ## File Explorer, Active Host, CLI, Desktop, And Supporting Polish
