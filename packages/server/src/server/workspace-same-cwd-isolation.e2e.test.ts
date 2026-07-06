@@ -12,6 +12,7 @@ import { MockLoadTestAgentClient } from "./agent/providers/mock-load-test-agent.
 import type {
   AgentCapabilityFlags,
   AgentClient,
+  AgentLaunchContext,
   AgentMode,
   AgentModelDefinition,
   AgentPersistenceHandle,
@@ -76,6 +77,16 @@ class SnapshotStormProviderClient implements AgentClient {
 
   async isAvailable(): Promise<boolean> {
     return true;
+  }
+}
+
+class NativeTitlelessMockLoadTestAgentClient extends MockLoadTestAgentClient {
+  override async createSession(
+    config: AgentSessionConfig,
+    launchContext?: AgentLaunchContext,
+  ): Promise<AgentSession> {
+    const session = await super.createSession(config, launchContext);
+    return Object.assign(session, { getNativeTitle: async () => null });
   }
 }
 
@@ -355,6 +366,9 @@ test("workspace.create directory source with firstAgentContext generates a daemo
     await expect
       .poll(() => workspaceName(client, workspaceId), { timeout: 10_000 })
       .toBe("Fix login bug");
+    await expect
+      .poll(async () => (await client.fetchAgent(agent.id))?.agent.title, { timeout: 10_000 })
+      .toBe("Fix login bug");
   } finally {
     await client.close().catch(() => undefined);
     await daemon.close();
@@ -446,6 +460,54 @@ test("create_agent_request with initialPrompt generates a daemon-visible workspa
     await expect
       .poll(() => workspaceName(client, workspaceId), { timeout: 10_000 })
       .toBe("Fix login bug");
+    await expect
+      .poll(async () => (await client.fetchAgent(agent.id))?.agent.title, { timeout: 10_000 })
+      .toBe("Fix login bug");
+  } finally {
+    await client.close().catch(() => undefined);
+    await daemon.close();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+}, 20_000);
+
+test("create_agent_request falls back to structured title when native title is unavailable", async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "paseo-agent-native-title-fallback-"));
+  const daemon = await createTestPaseoDaemon({
+    agentClients: { mock: new NativeTitlelessMockLoadTestAgentClient() },
+  });
+  const client = new DaemonClient({
+    url: `ws://127.0.0.1:${daemon.port}/ws`,
+    appVersion: "0.1.82",
+  });
+
+  try {
+    await client.connect();
+    await client.patchDaemonConfig({
+      metadataGeneration: { providers: [{ provider: "mock", model: "ten-second-stream" }] },
+    });
+
+    const created = await client.createWorkspace({
+      source: { kind: "directory", path: cwd },
+    });
+    const workspaceId = created.workspace?.id;
+    if (!workspaceId) {
+      throw new Error(created.error ?? "Expected workspace to be created");
+    }
+
+    const agent = await client.createAgent({
+      provider: "mock",
+      cwd,
+      workspaceId,
+      model: "ten-second-stream",
+      initialPrompt: "Add profile settings",
+    });
+
+    await expect
+      .poll(async () => (await client.fetchAgent(agent.id))?.agent.title, { timeout: 10_000 })
+      .toBe("Add profile settings");
+    await expect
+      .poll(() => workspaceName(client, workspaceId), { timeout: 10_000 })
+      .toBe("Add profile settings");
   } finally {
     await client.close().catch(() => undefined);
     await daemon.close();

@@ -2448,24 +2448,14 @@ export class Session {
       }
       await this.agentUpdates.forwardLiveAgent(snapshot);
       if (trimmedPrompt || (attachments && attachments.length > 0)) {
-        if (this.agentManager.supportsNativeThreadTitle(snapshot.id)) {
-          if (isFirstAgentInWorkspace) {
-            this.scheduleNativeFirstAgentWorkspaceTitle({
-              agentId: snapshot.id,
-              workspaceId,
-              cwd: createAgentConfig.cwd,
-              firstAgentContext,
-            });
-          }
-        } else {
-          this.scheduleAutoNameAgentTitleFromContext({
-            agentId: snapshot.id,
-            workspaceId,
-            cwd: createAgentConfig.cwd,
-            firstAgentContext,
-            updateWorkspaceTitle: isFirstAgentInWorkspace,
-          });
-        }
+        this.scheduleAutoNameAgentTitleFromContext({
+          agentId: snapshot.id,
+          workspaceId,
+          cwd: createAgentConfig.cwd,
+          firstAgentContext,
+          updateWorkspaceTitle: isFirstAgentInWorkspace,
+          preferNativeTitle: this.agentManager.supportsNativeThreadTitle(snapshot.id),
+        });
       }
       this.createAgentLifecycleDispatch.registerAutoArchiveIfRequested({
         autoArchive,
@@ -2940,6 +2930,7 @@ export class Session {
     cwd: string;
     firstAgentContext: FirstAgentContext;
     updateWorkspaceTitle: boolean;
+    preferNativeTitle: boolean;
   }): void {
     this.scheduleWorkspaceNaming(() => this.maybeAutoNameAgentTitleFromContext(input), {
       cwd: input.cwd,
@@ -2953,20 +2944,23 @@ export class Session {
     cwd: string;
     firstAgentContext: FirstAgentContext;
     updateWorkspaceTitle: boolean;
+    preferNativeTitle: boolean;
   }): Promise<void> {
-    if (this.agentManager.supportsNativeThreadTitle(input.agentId)) {
-      return;
-    }
-    const title = await generateAgentTitleFromFirstAgentContext({
-      agentManager: this.agentManager,
-      cwd: input.cwd,
-      workspaceGitService: this.workspaceGitService,
-      providerSnapshotManager: this.providerSnapshotManager,
-      daemonConfig: this.readStructuredGenerationDaemonConfig(),
-      currentSelection: this.getFocusedAgentSelectionForCwd(input.cwd),
-      firstAgentContext: input.firstAgentContext,
-      logger: this.sessionLogger,
-    });
+    const nativeTitle = input.preferNativeTitle
+      ? await this.waitForNativeAgentTitle(input.agentId)
+      : null;
+    const title =
+      nativeTitle ??
+      (await generateAgentTitleFromFirstAgentContext({
+        agentManager: this.agentManager,
+        cwd: input.cwd,
+        workspaceGitService: this.workspaceGitService,
+        providerSnapshotManager: this.providerSnapshotManager,
+        daemonConfig: this.readStructuredGenerationDaemonConfig(),
+        currentSelection: this.getFocusedAgentSelectionForCwd(input.cwd),
+        firstAgentContext: input.firstAgentContext,
+        logger: this.sessionLogger,
+      }));
     if (!title) {
       return;
     }
@@ -2980,39 +2974,18 @@ export class Session {
     }
   }
 
-  private scheduleNativeFirstAgentWorkspaceTitle(input: {
-    agentId: string;
-    workspaceId: string;
-    cwd: string;
-    firstAgentContext: FirstAgentContext;
-  }): void {
-    this.scheduleWorkspaceNaming(() => this.maybeApplyNativeFirstAgentWorkspaceTitle(input), {
-      cwd: input.cwd,
-      message: "Failed to apply native first-agent title to workspace",
-    });
-  }
-
-  private async maybeApplyNativeFirstAgentWorkspaceTitle(input: {
-    agentId: string;
-    workspaceId: string;
-    firstAgentContext: FirstAgentContext;
-  }): Promise<void> {
-    const delaysMs = [0, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000];
+  private async waitForNativeAgentTitle(agentId: string): Promise<string | null> {
+    const delaysMs = [0, 500, 1_000, 2_000];
     for (const delayMs of delaysMs) {
       if (delayMs > 0) {
         await new Promise((done) => setTimeout(done, delayMs));
       }
-      const title = await this.agentManager.refreshNativeThreadTitle(input.agentId);
-      if (!title) {
-        continue;
+      const title = await this.agentManager.refreshNativeThreadTitle(agentId);
+      if (title) {
+        return title;
       }
-      await this.applyGeneratedWorkspaceTitle(input.workspaceId, {
-        title,
-        promptTitle: resolveFirstAgentPromptTitle(input.firstAgentContext),
-      });
-      await this.emitWorkspaceUpdateForWorkspaceId(input.workspaceId);
-      return;
     }
+    return null;
   }
 
   private async writeInitialWorkspaceTitleIfUntitled(
