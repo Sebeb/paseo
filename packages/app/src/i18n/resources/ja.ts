@@ -836,7 +836,29 @@ export const ja: TranslationResources = {
         "新しいワークツリーが依存関係をインストールして自動的に準備できるようにセットアップコマンドを追加してください。",
       openProjectSettings: "プロジェクト設定を開く",
     },
+    statusBadges: {
+      explainers: {
+        queuedMessages_one: "{{count}}件のメッセージがキューにあります",
+        queuedMessages_other: "{{count}}件のメッセージがキューにあります",
+        draft_one: "{{count}}件の下書きメッセージ",
+        draft_other: "{{count}}件の下書きメッセージ",
+        inputRequired_one: "{{count}}件のチャットで入力が必要です",
+        inputRequired_other: "{{count}}件のチャットで入力が必要です",
+        unread_one: "{{count}}件の新着メッセージ",
+        unread_other: "{{count}}件の新着メッセージ",
+        inProgress_one: "{{count}}件のチャットが進行中です",
+        inProgress_other: "{{count}}件のチャットが進行中です",
+        failed_one: "{{count}}件のチャットが失敗しました",
+        failed_other: "{{count}}件のチャットが失敗しました",
+      },
+    },
     project: {
+      info: {
+        workspaceCount_one: "{{count}}件のワークスペース",
+        workspaceCount_other: "{{count}}件のワークスペース",
+        agentCount_one: "{{count}}件のエージェント",
+        agentCount_other: "{{count}}件のエージェント",
+      },
       actions: {
         menu: "プロジェクトアクション",
         openSettings: "プロジェクト設定を開く",

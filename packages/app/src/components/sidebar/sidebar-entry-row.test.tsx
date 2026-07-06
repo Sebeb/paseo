@@ -6,6 +6,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SidebarEntryRowContent,
+  SidebarEntryStatusIconBadge,
   SidebarEntryStatusBadges,
 } from "@/components/sidebar/sidebar-entry-row";
 import { createEmptySidebarTabStatusSummary } from "@/utils/sidebar-tab-status-summary";
@@ -115,6 +116,20 @@ describe("SidebarEntryStatusBadges", () => {
     );
   });
 
+  it("collapses embedded label and subtitle newlines into single display lines", () => {
+    const leading = React.createElement("span", { "data-testid": "leading-icon" });
+    const { getByText } = render(
+      <SidebarEntryRowContent
+        leading={leading}
+        label={"Run command\n/Users/seb/project"}
+        subtitle={"getpaseo\npaseo"}
+      />,
+    );
+
+    expect(getByText("Run command /Users/seb/project")).not.toBeNull();
+    expect(getByText("getpaseo paseo")).not.toBeNull();
+  });
+
   it("uses custom tab-style icons for single input-required and failed statuses", () => {
     const summary = createEmptySidebarTabStatusSummary();
     summary.entryCounts.input_required = 1;
@@ -149,6 +164,39 @@ describe("SidebarEntryStatusBadges", () => {
     expect(getByTestId("sidebar-entry-status-badge-failed").getAttribute("style")).toContain(
       "width: 14px",
     );
+  });
+
+  it("renders status icon badges without count variants", () => {
+    const { getByTestId, queryByText } = render(
+      <>
+        <SidebarEntryStatusIconBadge kind="queued_messages" />
+        <SidebarEntryStatusIconBadge kind="input_required" />
+        <SidebarEntryStatusIconBadge kind="in_progress" />
+        <SidebarEntryStatusIconBadge kind="failed" />
+      </>,
+    );
+
+    expect(getByTestId("sidebar-entry-status-icon-badge-queued_messages")).not.toBeNull();
+    expect(
+      getByTestId("sidebar-entry-status-icon-badge-queued_messages").querySelector(
+        "[data-icon='MessageSquareText']",
+      ),
+    ).not.toBeNull();
+    expect(
+      getByTestId("sidebar-entry-status-icon-badge-input_required").querySelector(
+        "[data-icon='CircleAlert']",
+      ),
+    ).not.toBeNull();
+    expect(
+      getByTestId("sidebar-entry-status-icon-badge-in_progress").querySelector(
+        "[data-icon='SyncedLoader']",
+      ),
+    ).not.toBeNull();
+    expect(
+      getByTestId("sidebar-entry-status-icon-badge-failed").querySelector("[data-icon='CircleX']"),
+    ).not.toBeNull();
+    expect(queryByText("2")).toBeNull();
+    expect(queryByText("+")).toBeNull();
   });
 
   it("renders unread single status as a dot without a mail icon", () => {

@@ -842,7 +842,29 @@ export const ptBR: TranslationResources = {
         "Adicione comandos de configuração para que novos worktrees instalem dependências e se preparem automaticamente.",
       openProjectSettings: "Abrir configurações do projeto",
     },
+    statusBadges: {
+      explainers: {
+        queuedMessages_one: "{{count}} mensagem na fila",
+        queuedMessages_other: "{{count}} mensagens na fila",
+        draft_one: "{{count}} mensagem em rascunho",
+        draft_other: "{{count}} mensagens em rascunho",
+        inputRequired_one: "{{count}} chat requer entrada",
+        inputRequired_other: "{{count}} chats requerem entrada",
+        unread_one: "{{count}} nova mensagem",
+        unread_other: "{{count}} novas mensagens",
+        inProgress_one: "{{count}} chat em andamento",
+        inProgress_other: "{{count}} chats em andamento",
+        failed_one: "{{count}} chat com falha",
+        failed_other: "{{count}} chats com falha",
+      },
+    },
     project: {
+      info: {
+        workspaceCount_one: "{{count}} workspace",
+        workspaceCount_other: "{{count}} workspaces",
+        agentCount_one: "{{count}} agente",
+        agentCount_other: "{{count}} agentes",
+      },
       actions: {
         menu: "Ações do projeto",
         openSettings: "Abrir configurações do projeto",
