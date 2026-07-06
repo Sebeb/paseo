@@ -653,6 +653,14 @@ function DisplayPreferenceSection({
     ],
     [expanded],
   );
+  const sectionHeaderRailStyle = useMemo(
+    () => [styles.sectionHeaderRail, expanded && styles.sectionHeaderRailExpanded],
+    [expanded],
+  );
+  const sectionHeaderTextStyle = useMemo(
+    () => [styles.sectionHeaderText, expanded && styles.sectionHeaderTextExpanded],
+    [expanded],
+  );
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
 
   return (
@@ -664,7 +672,8 @@ function DisplayPreferenceSection({
         style={sectionHeaderStyle}
         testID={`sidebar-display-section-${id}`}
       >
-        <Text style={styles.sectionHeaderText}>{title}</Text>
+        <View style={sectionHeaderRailStyle} />
+        <Text style={sectionHeaderTextStyle}>{title}</Text>
         {expanded ? (
           <ThemedChevronDown size={14} uniProps={iconColorMapping} />
         ) : (
@@ -697,22 +706,40 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
   },
   sectionHeader: {
-    minHeight: 36,
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: theme.spacing[2],
+    marginTop: theme.spacing[1],
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: theme.colors.borderAccent,
+    backgroundColor: theme.colors.surface0,
   },
   sectionHeaderActive: {
     backgroundColor: theme.colors.surface2,
+    borderColor: theme.colors.border,
+  },
+  sectionHeaderRail: {
+    width: 3,
+    height: 18,
+    borderRadius: 2,
+    backgroundColor: theme.colors.borderAccent,
+  },
+  sectionHeaderRailExpanded: {
+    backgroundColor: theme.colors.foregroundMuted,
   },
   sectionHeaderText: {
     flex: 1,
     minWidth: 0,
-    color: theme.colors.foreground,
+    color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.normal,
+    fontWeight: theme.fontWeight.medium,
+  },
+  sectionHeaderTextExpanded: {
+    color: theme.colors.foreground,
   },
 }));

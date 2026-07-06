@@ -3346,8 +3346,7 @@ function WorkspaceRowWithMenu({
   const { t } = useTranslation();
   const toast = useToast();
   const { settings: appSettings } = useAppSettings();
-  const isCompact = useIsCompactFormFactor();
-  const embeddedTabsEnabled = appSettings.tabLayoutMode === "sidebar" && !isCompact;
+  const embeddedTabsEnabled = appSettings.tabLayoutMode === "sidebar";
   const [isHidingWorkspace, setIsHidingWorkspace] = useState(false);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const persistenceKey = useMemo(
