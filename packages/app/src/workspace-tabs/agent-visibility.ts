@@ -113,6 +113,7 @@ function recordVisibleSessionAgent(input: {
   }
   if (
     agent.parentAgentId &&
+    parentAgent &&
     !hasKnownSeparateWorkspaceParent({
       agent,
       agentsById: input.agentsById,
