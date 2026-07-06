@@ -4,6 +4,7 @@ import {
   buildCollapseThinkingGroups,
   getThinkingGroupCounts,
   getThinkingGroupPreviewMessages,
+  resolveExpandedThinkingGroupIds,
   shouldShowThinkingGroupPreview,
 } from "./collapse-thinking";
 import { orderHeadForStreamRenderStrategy, orderTailForStreamRenderStrategy } from "./strategy";
@@ -15,6 +16,14 @@ function buildCompletedThinkingGroups(items: readonly StreamItem[]) {
 
 function buildRunningThinkingGroups(items: readonly StreamItem[]) {
   return buildCollapseThinkingGroups({ items, behavior: "completed", agentStatus: "running" });
+}
+
+function buildRunningCompletedAndActiveThinkingGroups(items: readonly StreamItem[]) {
+  return buildCollapseThinkingGroups({
+    items,
+    behavior: "completed-and-active",
+    agentStatus: "running",
+  });
 }
 
 function timestamp(seed: number): Date {
@@ -310,6 +319,60 @@ describe("buildCollapseThinkingGroups", () => {
     expect(index.groups[0]).toMatchObject({
       itemIds: ["t1", "tool-1"],
       defaultExpanded: false,
+      status: "active",
+    });
+  });
+
+  it("starts a later completed-and-active thinking group with the previous group's expansion state", () => {
+    const index = buildRunningCompletedAndActiveThinkingGroups([
+      userMessage("u1", 1),
+      thought("t1", 2),
+      assistantMessage("visible-output", 3),
+      toolCall("tool-1", 4),
+    ]);
+
+    expect(index.groups).toHaveLength(2);
+    const [firstGroup, secondGroup] = index.groups;
+    if (!firstGroup || !secondGroup) {
+      throw new Error("Expected two thinking groups");
+    }
+
+    const expandedByGroupId = new Map([[firstGroup.id, true]]);
+    const resolved = resolveExpandedThinkingGroupIds({
+      groups: index.groups,
+      expandedByGroupId,
+      behavior: "completed-and-active",
+    });
+
+    expect(resolved.get(firstGroup.id)).toBe(true);
+    expect(resolved.get(secondGroup.id)).toBe(true);
+  });
+
+  it("does not copy previous expansion state when only completed thinking collapses", () => {
+    const index = buildRunningThinkingGroups([
+      userMessage("u1", 1),
+      thought("t1", 2),
+      assistantMessage("visible-output", 3),
+      toolCall("tool-1", 4),
+    ]);
+
+    expect(index.groups).toHaveLength(2);
+    const [firstGroup, secondGroup] = index.groups;
+    if (!firstGroup || !secondGroup) {
+      throw new Error("Expected two thinking groups");
+    }
+
+    const expandedByGroupId = new Map([[firstGroup.id, true]]);
+    const resolved = resolveExpandedThinkingGroupIds({
+      groups: index.groups,
+      expandedByGroupId,
+      behavior: "completed",
+    });
+
+    expect(resolved).toBe(expandedByGroupId);
+    expect(resolved.has(secondGroup.id)).toBe(false);
+    expect(secondGroup).toMatchObject({
+      defaultExpanded: true,
       status: "active",
     });
   });

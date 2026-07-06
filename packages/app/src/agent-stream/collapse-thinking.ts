@@ -28,6 +28,53 @@ export interface ThinkingGroupPreviewMessage {
   text: string;
 }
 
+export function resolveExpandedThinkingGroupIds(input: {
+  groups: readonly ThinkingGroup[];
+  expandedByGroupId: Map<string, boolean>;
+  behavior: CollapseThinkingBehavior;
+}): Map<string, boolean> {
+  if (input.behavior !== "completed-and-active") {
+    return input.expandedByGroupId;
+  }
+
+  let next: Map<string, boolean> | null = null;
+  let previousExpanded: boolean | null = null;
+
+  const getState = (): Map<string, boolean> => next ?? input.expandedByGroupId;
+  const getNext = (): Map<string, boolean> => {
+    next ??= new Map(input.expandedByGroupId);
+    return next;
+  };
+
+  for (const group of input.groups) {
+    const state = getState();
+    if (state.has(group.id)) {
+      previousExpanded = state.get(group.id) ?? false;
+      continue;
+    }
+
+    const statusPeerId = getThinkingGroupStatusPeerId(group);
+    if (state.has(statusPeerId)) {
+      const peerExpanded = state.get(statusPeerId) ?? false;
+      getNext().set(group.id, peerExpanded);
+      previousExpanded = peerExpanded;
+      continue;
+    }
+
+    const initialExpanded: boolean = previousExpanded ?? group.defaultExpanded;
+    getNext().set(group.id, initialExpanded);
+    previousExpanded = initialExpanded;
+  }
+
+  return next ?? input.expandedByGroupId;
+}
+
+function getThinkingGroupStatusPeerId(group: ThinkingGroup): string {
+  const suffix = group.status === "active" ? ":active" : ":final";
+  const peerSuffix = group.status === "active" ? ":final" : ":active";
+  return `${group.id.slice(0, -suffix.length)}${peerSuffix}`;
+}
+
 interface BuildTurnGroupsInput {
   userMessageId: string;
   turnItems: readonly StreamItem[];

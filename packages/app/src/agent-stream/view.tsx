@@ -83,6 +83,7 @@ import {
   buildCollapseThinkingGroups,
   getThinkingGroupCounts,
   getThinkingGroupPreviewMessages,
+  resolveExpandedThinkingGroupIds,
   shouldShowThinkingGroupPreview,
   type ThinkingGroup,
   type ThinkingGroupIndex,
@@ -436,6 +437,25 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         agentStatus: agent.status,
       });
     }, [agent.status, chronologicalStreamItems, collapseThinkingBehavior]);
+    const resolvedExpandedThinkingGroupIds = useMemo(
+      () =>
+        resolveExpandedThinkingGroupIds({
+          groups: thinkingGroupIndex.groups,
+          expandedByGroupId: expandedThinkingGroupIds,
+          behavior: collapseThinkingBehavior,
+        }),
+      [collapseThinkingBehavior, expandedThinkingGroupIds, thinkingGroupIndex.groups],
+    );
+
+    useEffect(() => {
+      setExpandedThinkingGroupIds((previous) =>
+        resolveExpandedThinkingGroupIds({
+          groups: thinkingGroupIndex.groups,
+          expandedByGroupId: previous,
+          behavior: collapseThinkingBehavior,
+        }),
+      );
+    }, [collapseThinkingBehavior, thinkingGroupIndex.groups]);
 
     const baseRenderModel = useMemo(() => {
       return buildAgentStreamRenderModel({
@@ -685,7 +705,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             <ThinkingGroupRow
               group={thinkingGroup}
               layoutItemById={layoutItemById}
-              expanded={expandedThinkingGroupIds.get(thinkingGroup.id)}
+              expanded={resolvedExpandedThinkingGroupIds.get(thinkingGroup.id)}
               onExpandedChange={setExpandedThinkingGroupIds}
               onExpandStart={pauseBottomAnchoringForNextLayoutChange}
               renderStreamItemContent={renderStreamItemContent}
@@ -701,10 +721,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         });
       },
       [
-        expandedThinkingGroupIds,
         layoutItemById,
         pauseBottomAnchoringForNextLayoutChange,
         renderStreamItemContent,
+        resolvedExpandedThinkingGroupIds,
         streamRenderStrategy,
         thinkingGroupIndex,
       ],
