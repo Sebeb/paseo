@@ -4,7 +4,7 @@ Branch: `feat/collapse-thinking`
 
 Base: `origin/main`
 
-Anchor commit: 1ecb7da67c8c6e2ca32cc36d28d67aa0d6425ef3 — feat(stream): mark assistant progress messages
+Anchor commit: 3a77cec9cd5a257ccc154900fa32de473b347e71 — feat(collapse-thinking): preserve thinking progress metadata
 
 ## Purpose
 
@@ -88,6 +88,8 @@ Represents one collapsible thinking group:
 - `id`: stable group id based on user message id, anchor item id, and active/completed state.
 - `anchorItemId`: first item in the group; the view uses this item position to render the group header.
 - `itemIds`: ids of all stream items in the group.
+- `startedAt`: timestamp from the group's anchor item.
+- `lastActivityAt`: timestamp from the group's final grouped item, falling back to `startedAt`.
 - `defaultExpanded`: whether the group starts expanded.
 - `status`: `"active"` or `"completed"`.
 - `finalAssistantItemId`: id of the assistant message that closed a completed group, when present.
@@ -121,9 +123,10 @@ Implementation details:
 11. Starts a new group after visible assistant output when later collapsible work appears, so a single turn can produce multiple completed thinking groups separated by visible assistant messages.
 12. Flushes accumulated work as completed when a non-collapsible, non-assistant item interrupts the group.
 13. Flushes any remaining accumulated work at the end of the turn as `"active"` for the current running turn or `"completed"` otherwise.
-14. Uses the first grouped item as the anchor and builds a stable group id of `thinking:<userMessageId>:<anchorItemId>:active` or `thinking:<userMessageId>:<anchorItemId>:final`.
-15. Sets `defaultExpanded` to true only for active groups when behavior is `"completed"`.
-16. Populates both lookup maps after the group list is built.
+14. Copies the anchor timestamp into `startedAt` and the last grouped item's timestamp into `lastActivityAt`.
+15. Uses the first grouped item as the anchor and builds a stable group id of `thinking:<userMessageId>:<anchorItemId>:active` or `thinking:<userMessageId>:<anchorItemId>:final`.
+16. Sets `defaultExpanded` to true only for active groups when behavior is `"completed"`.
+17. Populates both lookup maps after the group list is built.
 
 The behavior parameter excludes `"never"` because callers skip grouping entirely for that mode.
 
@@ -322,6 +325,12 @@ The provider also marks Codex assistant messages that represent progress narrati
 - `emitAssistantSuffix` preserves the presentation marker when it emits a suffix for a pending assistant message.
 
 Out-of-band status/error assistant messages and ordinary final response messages remain unmarked, so the app treats them as normal visible assistant output.
+
+## Claude Progress Presentation
+
+`packages/server/src/server/agent/providers/claude/agent.ts` now marks live assistant text emitted before a final response as `presentation: "progress"`. This includes transcript timeline deltas, text content blocks emitted through `contentBlockToTimelineItems`, and assistant text suffixes created by `flushAssistantText`. The marker lets the app collapse Claude progress narration with surrounding thinking/tool activity while keeping final answer text visible.
+
+Tests in `packages/server/src/server/agent/providers/claude/agent.test.ts` cover progress presentation on incremental assistant messages.
 
 ## Appearance Settings
 
