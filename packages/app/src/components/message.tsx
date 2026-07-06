@@ -3343,6 +3343,7 @@ export const ToolCall = memo(function ToolCall({
         displayName: presentation.displayName,
         summary: presentation.summary,
         detail: effectiveDetail,
+        metadata,
         errorText: presentation.errorText,
         icon: presentation.icon,
         showLoadingSkeleton: presentation.isLoadingDetails,
@@ -3359,6 +3360,7 @@ export const ToolCall = memo(function ToolCall({
     presentation.icon,
     presentation.isLoadingDetails,
     effectiveDetail,
+    metadata,
   ]);
 
   useEffect(() => {
@@ -3394,12 +3396,13 @@ export const ToolCall = memo(function ToolCall({
     return (
       <ToolCallDetailsContent
         detail={effectiveDetail}
+        metadata={metadata}
         errorText={presentation.errorText}
         maxHeight={400}
         showLoadingSkeleton={presentation.isLoadingDetails}
       />
     );
-  }, [isMobile, effectiveDetail, presentation.errorText, presentation.isLoadingDetails]);
+  }, [isMobile, effectiveDetail, metadata, presentation.errorText, presentation.isLoadingDetails]);
 
   if (presentation.isPlan && effectiveDetail?.type === "plan") {
     return (

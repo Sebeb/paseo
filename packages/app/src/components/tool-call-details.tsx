@@ -23,6 +23,8 @@ import { HighlightedLines } from "./highlighted-content";
 import { DiffViewer } from "./diff-viewer";
 import { getCodeInsets } from "./code-insets";
 import { isWeb } from "@/constants/platform";
+import { QuestionAnswerLog } from "./question-answer-log";
+import { buildQuestionAnswerLogModel } from "./question-form-card-core";
 
 const ScrollView = isWeb ? RNScrollView : GHScrollView;
 
@@ -30,6 +32,7 @@ const ScrollView = isWeb ? RNScrollView : GHScrollView;
 
 interface ToolCallDetailsContentProps {
   detail?: ToolCallDetail;
+  metadata?: Record<string, unknown>;
   errorText?: string;
   maxHeight?: number;
   fillAvailableHeight?: boolean;
@@ -777,6 +780,7 @@ export function ToolCallDetailsContent({ ...props }: ToolCallDetailsContentProps
 
 function ToolCallDetailsContentInner({
   detail,
+  metadata,
   errorText,
   maxHeight,
   fillAvailableHeight = false,
@@ -786,8 +790,15 @@ function ToolCallDetailsContentInner({
   const resolvedMaxHeight = fillAvailableHeight ? undefined : (maxHeight ?? 300);
   const ds = useDetailStyles(detail, resolvedMaxHeight, fillAvailableHeight);
   const diffLines = useDiffLines(detail);
+  const questionAnswerModel = buildQuestionAnswerLogModel({
+    metadata,
+    input: detail?.type === "unknown" ? detail.input : undefined,
+    output: detail?.type === "unknown" ? detail.output : undefined,
+  });
 
-  const sections: ReactNode[] = buildDetailSections(detail, diffLines, ds, t);
+  const sections: ReactNode[] = questionAnswerModel
+    ? [<QuestionAnswerLog key="question-answer-log" model={questionAnswerModel} />]
+    : buildDetailSections(detail, diffLines, ds, t);
 
   if (errorText) {
     sections.push(<ErrorSection key="error" errorText={errorText} ds={ds} />);
