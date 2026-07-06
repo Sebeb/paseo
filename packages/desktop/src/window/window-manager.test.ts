@@ -5,6 +5,7 @@ import {
   createWindowControlsOverlayState,
   DEFAULT_WINDOW_HEIGHT,
   DEFAULT_WINDOW_WIDTH,
+  getMainWindowBackgroundColor,
   getMainWindowChromeOptions,
   getTitleBarOverlayOptions,
   readBadgeCount,
@@ -61,6 +62,20 @@ describe("window-manager", () => {
         symbolColor: "#e4e4e7",
         height: 29,
       });
+    });
+  });
+
+  describe("getMainWindowBackgroundColor", () => {
+    it("uses a transparent background on macOS so native vibrancy can show through", () => {
+      expect(getMainWindowBackgroundColor({ platform: "darwin", theme: "dark" })).toBe("#00000000");
+      expect(getMainWindowBackgroundColor({ platform: "darwin", theme: "light" })).toBe(
+        "#00000000",
+      );
+    });
+
+    it("keeps theme-matched opaque backgrounds on non-mac platforms", () => {
+      expect(getMainWindowBackgroundColor({ platform: "win32", theme: "dark" })).toBe("#181B1A");
+      expect(getMainWindowBackgroundColor({ platform: "linux", theme: "light" })).toBe("#ffffff");
     });
   });
 
@@ -186,6 +201,8 @@ describe("window-manager", () => {
         titleBarStyle: "hidden",
         titleBarOverlay: true,
         trafficLightPosition: { x: 16, y: 14 },
+        vibrancy: "sidebar",
+        visualEffectState: "active",
       });
     });
   });
