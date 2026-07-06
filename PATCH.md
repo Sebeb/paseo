@@ -4,7 +4,7 @@ Branch: `feat/conversation-branching`
 
 Base: `origin/main`
 
-Anchor commit: d75d31885f5f79dafdc14be58b3fc60dca823083 — fix(server): fork conversation branches on the source agent
+Anchor commit: d76d9b2848ba0f73df038c674d0cad4ff52f2b4e — feat: add Duplicate chat to the agent tab context menu
 
 ## Conversation Branching Protocol
 
