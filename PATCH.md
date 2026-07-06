@@ -4,7 +4,7 @@ Branch: `feat/message-schedule-popup`
 
 Base: `origin/main`
 
-Anchor commit: 128015ea29f5bc6c4f9e4b9a45d548d52fe0255b - feat(schedules): support composer schedule popup
+Anchor commit: de1ec3c039a5ebbf58d6a4e48d5df889b79bd654 — feat(message-schedule): show scheduled message status in sidebar
 
 ## Composer Schedule Send UI
 
@@ -56,6 +56,33 @@ Anchor commit: 128015ea29f5bc6c4f9e4b9a45d548d52fe0255b - feat(schedules): suppo
   - `runOnCreate: false`
 - `dateToOneShotCron` intentionally includes the target date's day-of-week as well as day-of-month/month, matching the server's existing cron shape for one-shot schedule creation.
 - Tests cover choosing the latest future exhausted credit reset, creating a one-shot `agent-message` schedule with encoded images and uploaded-file attachments, and cron expression formatting.
+
+## Scheduled Message Sidebar Status
+
+**Purpose** - Surfaces scheduled composer messages in the sidebar so users can see which workspaces have pending scheduled sends without opening each agent.
+
+**Files**
+
+- `packages/app/src/components/left-sidebar.tsx`
+- `packages/app/src/components/sidebar-workspace-list.tsx`
+- `packages/app/src/components/sidebar/sidebar-status-list.tsx`
+- `packages/app/src/components/sidebar/sidebar-workspace-row-content.tsx`
+- `packages/app/src/composer/index.tsx`
+- `packages/app/src/composer/scheduled-messages.ts`
+- `packages/app/src/composer/scheduled-messages.test.ts`
+
+**Public surface**
+
+- `getScheduledMessageCountsByWorkspace({ schedules, agentWorkspaceKeyById })` returns a `ReadonlyMap<string, number>` keyed by workspace key.
+- `SidebarWorkspaceList` now receives `messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>`.
+- `SidebarWorkspaceRowContent` receives `messageStatusCount` so row content can render the scheduled-message status affordance.
+
+**Behavior**
+
+- `Composer` refreshes schedule data after a scheduled message is created so sidebar state reflects the new pending send immediately.
+- `left-sidebar.tsx` derives agent-to-workspace ownership from active session state, counts active scheduled `agent-message` schedules per workspace, and passes the map into both project and status sidebar modes.
+- Workspace rows render the scheduled-message count alongside existing status metadata, and status grouping includes the scheduled-message signal when deciding row presentation.
+- `scheduled-messages.test.ts` covers counting only active agent-message schedules and ignoring notification-style or completed schedules.
 
 ## Schedule Protocol and Client Payloads
 
