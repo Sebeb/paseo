@@ -434,6 +434,10 @@ export const es: TranslationResources = {
       hostDisconnected: "Hostno está conectado",
       unableToSubscribe: "No se puede suscribir al terminal",
     },
+    navigation: {
+      back: "Back",
+      forward: "Forward",
+    },
     tabs: {
       loading: "Cargando...",
       loadingAgentTitle: "Título del agente de carga",
@@ -1628,6 +1632,8 @@ export const es: TranslationResources = {
         closeCurrentTab: "Cerrar pestaña actual",
         jumpToWorkspace: "Saltar al espacio de trabajo",
         jumpToTab: "Saltar a la pestaña",
+        historyBack: "Back",
+        historyForward: "Forward",
         previousWorkspace: "Espacio de trabajo anterior",
         nextWorkspace: "Siguiente espacio de trabajo",
         previousTab: "Pestaña anterior",

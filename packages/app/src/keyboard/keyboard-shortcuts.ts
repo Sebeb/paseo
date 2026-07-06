@@ -127,6 +127,8 @@ const SHORTCUT_HELP_LABEL_KEYS: Record<string, string> = {
   "workspace-tab-close-current": "settings.shortcuts.help.closeCurrentTab",
   "workspace-jump-index": "settings.shortcuts.help.jumpToWorkspace",
   "workspace-tab-jump-index": "settings.shortcuts.help.jumpToTab",
+  "workspace-history-back": "settings.shortcuts.help.historyBack",
+  "workspace-history-forward": "settings.shortcuts.help.historyForward",
   "workspace-prev": "settings.shortcuts.help.previousWorkspace",
   "workspace-next": "settings.shortcuts.help.nextWorkspace",
   "workspace-tab-prev": "settings.shortcuts.help.previousTab",
@@ -410,6 +412,56 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
       section: "navigation",
       label: "Jump to tab",
       keys: ["alt", "shift", "1-9"],
+    },
+  },
+
+  // --- Workspace history navigation ---
+  {
+    id: "workspace-history-back-cmd-left-mac",
+    action: "workspace.navigation.back",
+    combo: "Cmd+ArrowLeft",
+    when: { mac: true, desktop: true, commandCenter: false },
+    help: {
+      id: "workspace-history-back",
+      section: "navigation",
+      label: "Back",
+      keys: ["mod", "Left"],
+    },
+  },
+  {
+    id: "workspace-history-forward-cmd-right-mac",
+    action: "workspace.navigation.forward",
+    combo: "Cmd+ArrowRight",
+    when: { mac: true, desktop: true, commandCenter: false },
+    help: {
+      id: "workspace-history-forward",
+      section: "navigation",
+      label: "Forward",
+      keys: ["mod", "Right"],
+    },
+  },
+  {
+    id: "workspace-history-back-ctrl-left-non-mac",
+    action: "workspace.navigation.back",
+    combo: "Ctrl+ArrowLeft",
+    when: { mac: false, desktop: true, commandCenter: false, terminal: false },
+    help: {
+      id: "workspace-history-back",
+      section: "navigation",
+      label: "Back",
+      keys: ["mod", "Left"],
+    },
+  },
+  {
+    id: "workspace-history-forward-ctrl-right-non-mac",
+    action: "workspace.navigation.forward",
+    combo: "Ctrl+ArrowRight",
+    when: { mac: false, desktop: true, commandCenter: false, terminal: false },
+    help: {
+      id: "workspace-history-forward",
+      section: "navigation",
+      label: "Forward",
+      keys: ["mod", "Right"],
     },
   },
 

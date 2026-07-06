@@ -69,6 +69,12 @@ Same-workspace subagents also open as nested tabs in the sidebar tab list. The c
 
 Closing a parent tab closes child tabs first, deepest child before direct child. Each child uses its normal close behavior and confirmation. If any child close is canceled, the parent tab stays open. After all child tabs close, the parent tab follows its normal root/subagent close policy.
 
+## Workspace navigation history
+
+Back/forward navigation is client-local layout state, not agent lifecycle state. The app records the user-visible workspace tab/pane selections the user visits and replays them by focusing the recorded pane/tab with `openAttentionAgent: false`. History entries are skipped when the workspace or tab no longer exists, so closing a tab or archiving a workspace does not revive it through history.
+
+The history stack is global per client but resolves differently depending on sidebar grouping: project grouping searches back/forward within the active project key, while status grouping searches across projects on the active host. This mirrors the sidebar mental model without changing archive behavior.
+
 ## Workspace activity
 
 Agent lifecycle status stays literal: a parent agent is `idle` when its own turn is idle, even if a child is running.

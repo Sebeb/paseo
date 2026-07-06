@@ -434,6 +434,10 @@ export const ru: TranslationResources = {
       hostDisconnected: "Host не подключен",
       unableToSubscribe: "Невозможно подписаться на терминал",
     },
+    navigation: {
+      back: "Back",
+      forward: "Forward",
+    },
     tabs: {
       loading: "Загрузка...",
       loadingAgentTitle: "Название агента загрузки",
@@ -1620,6 +1624,8 @@ export const ru: TranslationResources = {
         closeCurrentTab: "Закрыть текущую вкладку",
         jumpToWorkspace: "Перейти в рабочую область",
         jumpToTab: "Перейти на вкладку",
+        historyBack: "Back",
+        historyForward: "Forward",
         previousWorkspace: "Предыдущая рабочая область",
         nextWorkspace: "Следующая рабочая область",
         previousTab: "Предыдущая вкладка",

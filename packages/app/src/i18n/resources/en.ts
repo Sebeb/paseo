@@ -430,6 +430,10 @@ export const en = {
       hostDisconnected: "Host is not connected",
       unableToSubscribe: "Unable to subscribe to terminal",
     },
+    navigation: {
+      back: "Back",
+      forward: "Forward",
+    },
     tabs: {
       loading: "Loading...",
       loadingAgentTitle: "Loading agent title",
@@ -1596,6 +1600,8 @@ export const en = {
         closeCurrentTab: "Close current tab",
         jumpToWorkspace: "Jump to workspace",
         jumpToTab: "Jump to tab",
+        historyBack: "Back",
+        historyForward: "Forward",
         previousWorkspace: "Previous workspace",
         nextWorkspace: "Next workspace",
         previousTab: "Previous tab",

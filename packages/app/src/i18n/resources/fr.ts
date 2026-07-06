@@ -434,6 +434,10 @@ export const fr: TranslationResources = {
       hostDisconnected: "Hostn'est pas connecté",
       unableToSubscribe: "Impossible de s'abonner au terminal",
     },
+    navigation: {
+      back: "Back",
+      forward: "Forward",
+    },
     tabs: {
       loading: "Chargement...",
       loadingAgentTitle: "Titre d'agent de chargement",
@@ -1632,6 +1636,8 @@ export const fr: TranslationResources = {
         closeCurrentTab: "Fermer l'onglet actuel",
         jumpToWorkspace: "Accéder à l'espace de travail",
         jumpToTab: "Aller à l'onglet",
+        historyBack: "Back",
+        historyForward: "Forward",
         previousWorkspace: "Espace de travail précédent",
         nextWorkspace: "Espace de travail suivant",
         previousTab: "Onglet précédent",

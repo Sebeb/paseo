@@ -38,6 +38,10 @@ import {
   useActiveWorkspaceSelection,
   type ActiveWorkspaceSelection,
 } from "@/stores/navigation-active-workspace-store";
+import {
+  useWorkspaceNavigationHistoryStore,
+  type WorkspaceNavigationHistoryEntry,
+} from "@/stores/workspace-navigation-history-store";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import { type GestureType } from "react-native-gesture-handler";
@@ -105,6 +109,7 @@ import {
   buildWorkspaceTabPersistenceKey,
   collectAllPanes,
   collectAllTabs,
+  findPaneById,
   findMainPane,
   type SplitPane,
   useWorkspaceLayoutStore,
@@ -3833,6 +3838,133 @@ function EmbeddedWorkspaceTabRow({
   );
 }
 
+export function WorkspaceNavigationHistoryTabRow({
+  tab,
+  serverId,
+  workspaceId,
+  badgeMode,
+  statusSummary,
+  active = false,
+  onPress,
+  testID,
+}: {
+  tab: WorkspaceTabDescriptor;
+  serverId: string;
+  workspaceId: string;
+  badgeMode: SidebarBadgeMode;
+  statusSummary: SidebarTabStatusSummary;
+  active?: boolean;
+  onPress: () => void;
+  testID?: string;
+}) {
+  const { t } = useTranslation();
+  const rowStyle = useCallback(
+    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.embeddedTabRow,
+      active && styles.sidebarRowSelected,
+      (hovered || pressed) && styles.embeddedTabRowHovered,
+    ],
+    [active],
+  );
+  const accessibilityState = useMemo(() => ({ selected: active }), [active]);
+
+  return (
+    <WorkspaceTabPresentationResolver tab={tab} serverId={serverId} workspaceId={workspaceId}>
+      {(presentation) => {
+        const label =
+          presentation.titleState === "loading" ? t("workspace.tabs.loading") : presentation.label;
+        const leadingStatus =
+          badgeMode === "status" ? null : getPrimarySidebarEntryStatusKind(statusSummary);
+        const rightContext =
+          badgeMode === "status"
+            ? createElement(SidebarEntryStatusBadges, { summary: statusSummary })
+            : null;
+
+        return (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityState={accessibilityState}
+            onPress={onPress}
+            style={rowStyle}
+            testID={testID}
+          >
+            <SidebarEntryRowContent
+              leading={createElement(WorkspaceTabIcon, {
+                presentation,
+                active,
+                size: 14,
+                showStatusBadge: false,
+              })}
+              leadingStatus={leadingStatus}
+              label={label}
+              subtitle={null}
+              rightContext={rightContext}
+            />
+          </Pressable>
+        );
+      }}
+    </WorkspaceTabPresentationResolver>
+  );
+}
+
+function buildFocusedWorkspaceNavigationEntry(
+  selection: ActiveWorkspaceSelection | null,
+  fallbackProjectId?: string | null,
+): WorkspaceNavigationHistoryEntry | null {
+  if (!selection) {
+    return null;
+  }
+  const target = getFocusedWorkspaceNavigationTarget(selection);
+  const projectId = resolveWorkspaceNavigationProjectId(selection, fallbackProjectId);
+  if (!target || !projectId) {
+    return null;
+  }
+  return {
+    serverId: selection.serverId,
+    workspaceId: selection.workspaceId,
+    projectId,
+    paneId: target.paneId,
+    tabId: target.tabId,
+    timestamp: Date.now(),
+  };
+}
+
+function getFocusedWorkspaceNavigationTarget(
+  selection: ActiveWorkspaceSelection,
+): { paneId: string; tabId: string } | null {
+  const workspaceKey = buildWorkspaceTabPersistenceKey({
+    serverId: selection.serverId,
+    workspaceId: selection.workspaceId,
+  });
+  if (!workspaceKey) {
+    return null;
+  }
+  const layout = useWorkspaceLayoutStore.getState().layoutByWorkspace[workspaceKey] ?? null;
+  const pane = layout?.focusedPaneId ? findPaneById(layout.root, layout.focusedPaneId) : null;
+  const tabId = pane?.focusedTabId ?? null;
+  if (!pane || !tabId || !pane.tabIds.includes(tabId)) {
+    return null;
+  }
+  return { paneId: pane.id, tabId };
+}
+
+function resolveWorkspaceNavigationProjectId(
+  selection: ActiveWorkspaceSelection,
+  fallbackProjectId?: string | null,
+): string | null {
+  const workspaceDescriptor =
+    useSessionStore
+      .getState()
+      .sessions[selection.serverId]?.workspaces?.get(selection.workspaceId) ?? null;
+  return (
+    workspaceDescriptor?.project?.projectKey ??
+    workspaceDescriptor?.projectId ??
+    fallbackProjectId ??
+    null
+  );
+}
+
 function EmbeddedTabBranchCountBadge({ tabId, count }: { tabId: string; count: number }) {
   return (
     <View style={styles.embeddedTabBranchCountBadge} testID={`sidebar-embedded-tab-count-${tabId}`}>
@@ -4034,6 +4166,9 @@ function EmbeddedWorkspaceTabs({
   const focusWorkspaceTab = useWorkspaceLayoutStore((state) => state.focusTab);
   const focusWorkspacePane = useWorkspaceLayoutStore((state) => state.focusPane);
   const reorderTabsInPane = useWorkspaceLayoutStore((state) => state.reorderTabsInPane);
+  const recordNavigationHistoryEntry = useWorkspaceNavigationHistoryStore(
+    (state) => state.recordEntry,
+  );
   const workspaceAgents = useSessionStore(
     (state) => state.sessions[workspace.serverId]?.agents ?? null,
   );
@@ -4125,6 +4260,15 @@ function EmbeddedWorkspaceTabs({
     workspaceId: workspace.workspaceId,
     enabled: true,
   });
+  const recordFocusedWorkspaceNavigation = useCallback(
+    (selection: ActiveWorkspaceSelection | null, fallbackProjectId?: string | null) => {
+      const entry = buildFocusedWorkspaceNavigationEntry(selection, fallbackProjectId);
+      if (entry) {
+        recordNavigationHistoryEntry(entry);
+      }
+    },
+    [recordNavigationHistoryEntry],
+  );
   const allItems = useMemo<EmbeddedSidebarTabItem[]>(() => {
     return buildEmbeddedSidebarTabItems({
       mainPane,
@@ -4236,6 +4380,7 @@ function EmbeddedWorkspaceTabs({
 
   const handlePressTab = useCallback(
     (item: EmbeddedSidebarTabItem) => {
+      recordFocusedWorkspaceNavigation(activeWorkspaceSelection);
       if (persistenceKey) {
         if (item.mainPane) {
           focusWorkspaceTab(persistenceKey, item.tab.tabId);
@@ -4247,12 +4392,19 @@ function EmbeddedWorkspaceTabs({
       navigateToWorkspace(workspace.serverId, workspace.workspaceId, {
         openAttentionAgent: false,
       });
+      recordFocusedWorkspaceNavigation(
+        { serverId: workspace.serverId, workspaceId: workspace.workspaceId },
+        workspace.projectKey,
+      );
     },
     [
+      activeWorkspaceSelection,
       focusWorkspacePane,
       focusWorkspaceTab,
       onWorkspacePress,
       persistenceKey,
+      recordFocusedWorkspaceNavigation,
+      workspace.projectKey,
       workspace.serverId,
       workspace.workspaceId,
     ],
