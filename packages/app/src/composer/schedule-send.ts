@@ -1,4 +1,4 @@
-import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import type { CreateScheduleOptions, DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { AgentAttachment } from "@getpaseo/protocol/agent-attachments";
 import type { ComposerAttachment } from "@/attachments/types";
 import { splitComposerAttachmentsForSubmit } from "@/composer/attachments/submit";
@@ -9,6 +9,7 @@ export type ScheduleSendMode =
   | { type: "at"; date: Date }
   | { type: "in-hours"; hours: number }
   | { type: "credit-refresh"; providerId: string | null };
+export type ScheduleSendTarget = CreateScheduleOptions["target"];
 
 export interface ScheduleCreditRefreshResolution {
   runAt: Date | null;
@@ -71,7 +72,7 @@ export function dateToOneShotCron(date: Date): { expression: string; timezone: s
 
 export async function createScheduledComposerMessage(input: {
   client: Pick<DaemonClient, "scheduleCreate">;
-  agentId: string;
+  target: ScheduleSendTarget;
   text: string;
   attachments: ComposerAttachment[];
   mode: ScheduleSendMode;
@@ -105,10 +106,7 @@ export async function createScheduledComposerMessage(input: {
       expression: cron.expression,
       timezone: cron.timezone,
     },
-    target: {
-      type: "self",
-      agentId: input.agentId,
-    },
+    target: input.target,
     maxRuns: 1,
     runOnCreate: false,
   });

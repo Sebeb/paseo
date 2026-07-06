@@ -2025,6 +2025,76 @@ function addMissingEntityTabs(input: {
   return nextLayout;
 }
 
+function buildAutoOpenAgentTabRank(input: {
+  autoOpenAgentIds: Set<string>;
+  parentAgentIdByAgentId: Map<string, string>;
+}): Map<string, number> {
+  const orderedAgentIds: string[] = [];
+  const visited = new Set<string>();
+
+  function visit(agentId: string): void {
+    if (visited.has(agentId)) {
+      return;
+    }
+    visited.add(agentId);
+    const parentAgentId = input.parentAgentIdByAgentId.get(agentId) ?? null;
+    if (parentAgentId && input.autoOpenAgentIds.has(parentAgentId)) {
+      visit(parentAgentId);
+    }
+    orderedAgentIds.push(agentId);
+  }
+
+  for (const agentId of [...input.autoOpenAgentIds].sort()) {
+    visit(agentId);
+  }
+
+  return new Map(
+    orderedAgentIds.map((agentId, index) => [
+      buildDeterministicWorkspaceTabId({ kind: "agent", agentId }),
+      index,
+    ]),
+  );
+}
+
+function orderAutoOpenedAgentTabs(input: {
+  layout: WorkspaceLayout;
+  autoOpenAgentIds: Set<string>;
+  parentAgentIdByAgentId: Map<string, string>;
+}): WorkspaceLayout {
+  let nextLayout = input.layout;
+  const tabRank = buildAutoOpenAgentTabRank({
+    autoOpenAgentIds: input.autoOpenAgentIds,
+    parentAgentIdByAgentId: input.parentAgentIdByAgentId,
+  });
+
+  if (tabRank.size < 2) {
+    return nextLayout;
+  }
+
+  for (const pane of collectAllPanes(nextLayout.root)) {
+    const orderedAutoOpenTabIds = pane.tabIds
+      .filter((tabId) => tabRank.has(tabId))
+      .sort((a, b) => (tabRank.get(a) ?? 0) - (tabRank.get(b) ?? 0));
+    let autoOpenIndex = 0;
+    const nextTabIds = pane.tabIds.map((tabId) =>
+      tabRank.has(tabId) ? (orderedAutoOpenTabIds[autoOpenIndex++] ?? tabId) : tabId,
+    );
+
+    if (nextTabIds.every((tabId, index) => tabId === pane.tabIds[index])) {
+      continue;
+    }
+
+    nextLayout =
+      reorderPaneTabsInLayout({
+        layout: nextLayout,
+        paneId: pane.id,
+        tabIds: nextTabIds,
+      }) ?? nextLayout;
+  }
+
+  return nextLayout;
+}
+
 export function reconcileWorkspaceTabs(
   state: WorkspaceTabReconcileState,
   snapshot: WorkspaceTabSnapshot,
@@ -2114,6 +2184,11 @@ export function reconcileWorkspaceTabs(
     parentAgentIdByAgentId,
     standaloneTerminalIds,
     hasActivePendingDraftCreate: snapshot.hasActivePendingDraftCreate ?? false,
+  });
+  nextLayout = orderAutoOpenedAgentTabs({
+    layout: nextLayout,
+    autoOpenAgentIds: autoOpenSet,
+    parentAgentIdByAgentId,
   });
 
   if (reconciledFocusedTabId) {

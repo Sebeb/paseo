@@ -19,6 +19,8 @@ export type KeyboardActionId =
   | "workspace.tab.restore-last-closed"
   | "workspace.tab.navigate-index"
   | "workspace.tab.navigate-relative"
+  | "workspace.navigation.back"
+  | "workspace.navigation.forward"
   | "workspace.pane.split.right"
   | "workspace.pane.split.down"
   | "workspace.pane.focus.left"
@@ -55,6 +57,8 @@ export type KeyboardActionDefinition =
   | { id: "workspace.tab.restore-last-closed"; scope: KeyboardActionScope }
   | { id: "workspace.tab.navigate-index"; scope: KeyboardActionScope; index: number }
   | { id: "workspace.tab.navigate-relative"; scope: KeyboardActionScope; delta: 1 | -1 }
+  | { id: "workspace.navigation.back"; scope: KeyboardActionScope }
+  | { id: "workspace.navigation.forward"; scope: KeyboardActionScope }
   | { id: "workspace.pane.split.right"; scope: KeyboardActionScope }
   | { id: "workspace.pane.split.down"; scope: KeyboardActionScope }
   | { id: "workspace.pane.focus.left"; scope: KeyboardActionScope }

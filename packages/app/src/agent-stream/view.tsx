@@ -219,10 +219,18 @@ function useAgentBranchGroupsQuery(input: {
   agentId: string;
   supportsAgentBranching: boolean;
   membershipCount: number;
+  branchingFingerprint: string;
 }) {
-  const { agentId, client, membershipCount, resolvedServerId, supportsAgentBranching } = input;
+  const {
+    agentId,
+    branchingFingerprint,
+    client,
+    membershipCount,
+    resolvedServerId,
+    supportsAgentBranching,
+  } = input;
   return useQuery({
-    queryKey: agentBranchGroupsQueryKey(resolvedServerId, agentId),
+    queryKey: [...agentBranchGroupsQueryKey(resolvedServerId, agentId), branchingFingerprint],
     queryFn: async () => {
       if (!client) {
         return [];
@@ -833,8 +841,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       (state) => state.consumePending,
     );
     const setPendingBranchNavigation = useBranchNavigationStore((state) => state.setPending);
+    // The fingerprint keys the query to the snapshot's branching metadata, so
+    // groups refetch when the daemon resolves a pending branch message.
+    const branchingFingerprint = useMemo(
+      () => JSON.stringify(agent.branching ?? null),
+      [agent.branching],
+    );
     const branchGroupsQuery = useAgentBranchGroupsQuery({
       agentId,
+      branchingFingerprint,
       client,
       membershipCount: agent.branching?.memberships.length ?? 0,
       resolvedServerId,

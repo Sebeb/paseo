@@ -8,7 +8,11 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { measureElement as measureVirtualElement, useVirtualizer } from "@tanstack/react-virtual";
+import {
+  measureElement as measureVirtualElement,
+  useVirtualizer,
+  type VirtualItem,
+} from "@tanstack/react-virtual";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useWebElementScrollbar } from "@/components/use-web-scrollbar";
 import { useAppSettings } from "@/hooks/use-settings";
@@ -121,6 +125,23 @@ interface VirtualStreamItemElementProps extends StreamItemElementProps {
   index: number;
   measureElement: (node: HTMLDivElement | null) => void;
   style: CSSProperties;
+}
+
+interface MountedStreamItemGeometryInput {
+  item: PinnedUserInputGeometry["item"];
+  element: HTMLElement;
+  contentElement: HTMLElement | null;
+  fallbackTop: number;
+  fallbackHeight: number;
+}
+
+interface VirtualizedStreamItemGeometryInput {
+  item: PinnedUserInputGeometry["item"];
+  element: HTMLElement | undefined;
+  contentElement: HTMLElement | null;
+  measurement: VirtualItem | undefined;
+  virtualContainerTop: number;
+  estimatedTop: number;
 }
 
 function VirtualStreamItemElement({
@@ -304,6 +325,69 @@ function getMarkerRailPresentation(mode: MarkerRailMode): MarkerRailPresentation
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function hasUsableRect(rect: DOMRect): boolean {
+  return Number.isFinite(rect.top) && Number.isFinite(rect.bottom) && rect.bottom > rect.top;
+}
+
+function measureMountedStreamItemGeometry(
+  input: MountedStreamItemGeometryInput,
+): PinnedUserInputGeometry | null {
+  if (input.contentElement) {
+    const contentRect = input.contentElement.getBoundingClientRect();
+    const elementRect = input.element.getBoundingClientRect();
+    if (Number.isFinite(contentRect.top) && hasUsableRect(elementRect)) {
+      const top = elementRect.top - contentRect.top;
+      const bottom = elementRect.bottom - contentRect.top;
+      return {
+        item: input.item,
+        top,
+        bottom,
+      };
+    }
+  }
+
+  const fallbackHeight =
+    input.element.offsetHeight > 0 ? input.element.offsetHeight : input.fallbackHeight;
+  if (!Number.isFinite(input.fallbackTop) || !Number.isFinite(fallbackHeight)) {
+    return null;
+  }
+
+  return {
+    item: input.item,
+    top: input.fallbackTop,
+    bottom: input.fallbackTop + Math.max(0, fallbackHeight),
+  };
+}
+
+function getVirtualizedStreamItemGeometry(
+  input: VirtualizedStreamItemGeometryInput,
+): PinnedUserInputGeometry | null {
+  const fallbackTop = input.measurement
+    ? input.virtualContainerTop + input.measurement.start
+    : input.estimatedTop;
+  const fallbackHeight = input.measurement?.size ?? estimateStreamItemHeight(input.item);
+
+  if (input.element) {
+    return measureMountedStreamItemGeometry({
+      item: input.item,
+      element: input.element,
+      contentElement: input.contentElement,
+      fallbackTop,
+      fallbackHeight,
+    });
+  }
+
+  if (!Number.isFinite(fallbackTop) || !Number.isFinite(fallbackHeight)) {
+    return null;
+  }
+
+  return {
+    item: input.item,
+    top: fallbackTop,
+    bottom: fallbackTop + Math.max(0, fallbackHeight),
+  };
 }
 
 function isScrollContainerNearBottom(
@@ -1152,16 +1236,28 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
 
   const collectPinnedUserInputCandidates = useCallback((): PinnedUserInputCandidate[] => {
     const geometries: PinnedUserInputGeometry[] = [];
+    const contentElement = contentRef.current;
     const virtualContainerTop = virtualRowsContainerRef.current?.offsetTop ?? 0;
-    let virtualTop = virtualContainerTop;
-    for (const item of segments.historyVirtualized) {
-      const height = estimateStreamItemHeight(item);
-      geometries.push({
+    let estimatedVirtualTop = virtualContainerTop;
+    for (let index = 0; index < segments.historyVirtualized.length; index += 1) {
+      const item = segments.historyVirtualized[index];
+      if (!item) {
+        continue;
+      }
+      const geometry = getVirtualizedStreamItemGeometry({
         item,
-        top: virtualTop,
-        bottom: virtualTop + height,
+        element: streamItemElementByIdRef.current.get(item.id),
+        contentElement,
+        measurement: rowVirtualizer.measurementsCache[index],
+        virtualContainerTop,
+        estimatedTop: estimatedVirtualTop,
       });
-      virtualTop += height;
+      if (geometry) {
+        geometries.push(geometry);
+        estimatedVirtualTop = geometry.bottom;
+      } else {
+        estimatedVirtualTop += estimateStreamItemHeight(item);
+      }
     }
 
     const mountedItems = [...segments.historyMounted, ...segments.liveHead];
@@ -1170,15 +1266,20 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       if (!element) {
         continue;
       }
-      geometries.push({
+      const geometry = measureMountedStreamItemGeometry({
         item,
-        top: element.offsetTop,
-        bottom: element.offsetTop + element.offsetHeight,
+        element,
+        contentElement,
+        fallbackTop: element.offsetTop,
+        fallbackHeight: element.offsetHeight,
       });
+      if (geometry) {
+        geometries.push(geometry);
+      }
     }
     const orderedGeometries = geometries.toSorted((left, right) => left.top - right.top);
     return collectPinnedUserInputCandidatesFromGeometries(orderedGeometries);
-  }, [segments.historyMounted, segments.historyVirtualized, segments.liveHead]);
+  }, [rowVirtualizer, segments.historyMounted, segments.historyVirtualized, segments.liveHead]);
 
   const updatePinnedUserInput = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -1541,6 +1642,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       display: "flex",
       flex: 1,
       minHeight: 0,
+      width: "100%",
     }),
     [],
   );

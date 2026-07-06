@@ -75,6 +75,7 @@ import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspac
 import { resolveActiveHost } from "@/utils/active-host";
 import { formatConnectionStatus } from "@/utils/daemons";
 import { useWindowControlsPadding } from "@/utils/desktop-window";
+import { getIsSidebarGlassEnabled } from "@/utils/sidebar-glass";
 import { canCloseLeftSidebarGesture } from "@/utils/sidebar-animation-state";
 import {
   buildHostOpenProjectRoute,
@@ -94,7 +95,7 @@ import {
 } from "./sidebar-workspace-list";
 import {
   buildAgentWorkspaceLookupKey,
-  countScheduledComposerMessagesByWorkspace,
+  mergeScheduledComposerMessageCountsByWorkspace,
 } from "@/composer/scheduled-messages";
 
 const MIN_CHAT_WIDTH = 400;
@@ -239,14 +240,11 @@ function useMessageStatusCountsByWorkspace(
   );
 
   return useMemo(() => {
-    const counts = new Map(queueState.queuedCounts);
-    for (const entry of countScheduledComposerMessagesByWorkspace({
+    return mergeScheduledComposerMessageCountsByWorkspace({
+      queuedCounts: queueState.queuedCounts,
       schedules,
       agentWorkspaceKeys: queueState.agentWorkspaceKeys,
-    })) {
-      counts.set(entry.workspaceKey, (counts.get(entry.workspaceKey) ?? 0) + entry.count);
-    }
-    return counts;
+    });
   }, [queueState.agentWorkspaceKeys, queueState.queuedCounts, schedules]);
 }
 
@@ -1152,6 +1150,7 @@ function DesktopSidebar({
   const hasActiveWorkspaceSelection =
     activeServerId !== null && activeWorkspaceSelection?.serverId === activeServerId;
   const showVerticalTabsSidebar = showVerticalTabs && hasActiveWorkspaceSelection;
+  const isSidebarGlassEnabled = getIsSidebarGlassEnabled();
 
   const startWidthRef = useRef(sidebarWidth);
   const resizeWidth = useSharedValue(sidebarWidth);
@@ -1246,8 +1245,12 @@ function DesktopSidebar({
     [resizeAnimatedStyle],
   );
   const desktopSidebarBorderStyle = useMemo(
-    () => [styles.desktopSidebarBorder, { flex: 1, paddingTop: insetsTop }],
-    [insetsTop],
+    () => [
+      styles.desktopSidebarBorder,
+      isSidebarGlassEnabled && styles.desktopSidebarBorderGlass,
+      { flex: 1, paddingTop: insetsTop },
+    ],
+    [insetsTop, isSidebarGlassEnabled],
   );
   const resizeHandleStyle = useMemo(
     () => [styles.resizeHandle, isWeb && ({ cursor: "col-resize" } as object)],
@@ -1655,6 +1658,10 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
+  },
+  desktopSidebarBorderGlass: {
+    borderRightColor: `${theme.colors.border}99`,
+    backgroundColor: `${theme.colors.surfaceSidebar}cc`,
   },
   resizeHandle: {
     position: "absolute",

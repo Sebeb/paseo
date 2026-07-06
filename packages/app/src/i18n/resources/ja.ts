@@ -104,6 +104,7 @@ export const ja: TranslationResources = {
       dropImagesHere: "ここに画像をドロップ",
       dropFilesHere: "ここにファイルをドロップ",
       editQueuedMessage: "キューに入れたメッセージを編集",
+      editScheduledMessage: "予約メッセージを編集",
       sendQueuedMessageNow: "キューに入れたメッセージを今すぐ送信",
       openImage: "画像添付ファイルを開く",
       removeImage: "画像添付ファイルを削除",
@@ -471,6 +472,10 @@ export const ja: TranslationResources = {
     terminal: {
       hostDisconnected: "ホストが接続されていません",
       unableToSubscribe: "ターミナルに接続できません",
+    },
+    navigation: {
+      back: "戻る",
+      forward: "進む",
     },
     tabs: {
       loading: "読み込み中...",
@@ -1706,6 +1711,8 @@ export const ja: TranslationResources = {
         restoreLastClosedTab: "最後に閉じたタブを復元",
         jumpToWorkspace: "ワークスペースにジャンプ",
         jumpToTab: "タブにジャンプ",
+        historyBack: "戻る",
+        historyForward: "進む",
         previousWorkspace: "前のワークスペース",
         nextWorkspace: "次のワークスペース",
         previousTab: "前のタブ",

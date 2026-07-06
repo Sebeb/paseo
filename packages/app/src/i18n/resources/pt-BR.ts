@@ -104,6 +104,7 @@ export const ptBR: TranslationResources = {
       dropImagesHere: "Solte imagens aqui",
       dropFilesHere: "Solte arquivos aqui",
       editQueuedMessage: "Editar mensagem na fila",
+      editScheduledMessage: "Editar mensagem agendada",
       sendQueuedMessageNow: "Enviar mensagem da fila agora",
       openImage: "Abrir anexo de imagem",
       removeImage: "Remover anexo de imagem",
@@ -471,6 +472,10 @@ export const ptBR: TranslationResources = {
     terminal: {
       hostDisconnected: "Host não está conectado",
       unableToSubscribe: "Não foi possível assinar o terminal",
+    },
+    navigation: {
+      back: "Voltar",
+      forward: "Avançar",
     },
     tabs: {
       loading: "Carregando...",
@@ -1715,6 +1720,8 @@ export const ptBR: TranslationResources = {
         restoreLastClosedTab: "Restaurar última aba fechada",
         jumpToWorkspace: "Ir para workspace",
         jumpToTab: "Ir para aba",
+        historyBack: "Voltar",
+        historyForward: "Avançar",
         previousWorkspace: "Workspace anterior",
         nextWorkspace: "Próximo workspace",
         previousTab: "Aba anterior",

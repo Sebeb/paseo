@@ -51,6 +51,17 @@ export function getWindowBackgroundColor(theme: WindowTheme): string {
   return theme === "dark" ? "#181B1A" : "#ffffff";
 }
 
+export function getMainWindowBackgroundColor(input: {
+  platform: NodeJS.Platform;
+  theme: WindowTheme;
+}): string {
+  if (input.platform === "darwin") {
+    return "#00000000";
+  }
+
+  return getWindowBackgroundColor(input.theme);
+}
+
 export function createWindowControlsOverlayState(theme: WindowTheme): WindowControlsOverlayState {
   const overlay = getTitleBarOverlayOptions(theme);
   return {
@@ -73,13 +84,21 @@ export function getMainWindowChromeOptions(input: {
   theme: WindowTheme;
 }): Pick<
   Electron.BrowserWindowConstructorOptions,
-  "titleBarStyle" | "trafficLightPosition" | "frame" | "titleBarOverlay" | "autoHideMenuBar"
+  | "titleBarStyle"
+  | "trafficLightPosition"
+  | "frame"
+  | "titleBarOverlay"
+  | "autoHideMenuBar"
+  | "vibrancy"
+  | "visualEffectState"
 > {
   if (input.platform === "darwin") {
     return {
       titleBarStyle: "hidden",
       titleBarOverlay: true,
       trafficLightPosition: { x: 16, y: 14 },
+      vibrancy: "sidebar",
+      visualEffectState: "active",
     };
   }
 

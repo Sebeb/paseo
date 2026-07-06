@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -15,12 +16,14 @@ import {
 interface SidebarEntryStatusExplainerRowsProps {
   summary: SidebarTabStatusSummary | null | undefined;
   excludeKinds?: readonly SidebarEntryStatusKind[];
+  iconSlotSize?: number;
   testIDPrefix?: string;
 }
 
 export function SidebarEntryStatusExplainerRows({
   summary,
   excludeKinds,
+  iconSlotSize = 13,
   testIDPrefix = "sidebar-entry-status-explainer",
 }: SidebarEntryStatusExplainerRowsProps) {
   const { t } = useTranslation();
@@ -38,9 +41,11 @@ export function SidebarEntryStatusExplainerRows({
         const count = getSidebarEntryStatusCount(summary, kind);
         return (
           <View key={kind} style={styles.row} testID={`${testIDPrefix}-${kind}`}>
-            <View style={styles.iconSlot}>
-              <SidebarEntryStatusIconBadge kind={kind} testID={`${testIDPrefix}-icon-${kind}`} />
-            </View>
+            <StatusExplainerIcon
+              kind={kind}
+              iconSlotSize={iconSlotSize}
+              testID={`${testIDPrefix}-icon-${kind}`}
+            />
             <Text style={styles.text} numberOfLines={1}>
               {getStatusExplainerLabel(t, kind, count)}
             </Text>
@@ -48,6 +53,29 @@ export function SidebarEntryStatusExplainerRows({
         );
       })}
     </>
+  );
+}
+
+function StatusExplainerIcon({
+  kind,
+  iconSlotSize,
+  testID,
+}: {
+  kind: SidebarEntryStatusKind;
+  iconSlotSize: number;
+  testID: string;
+}) {
+  const slotStyle = useMemo(
+    () => [styles.iconSlot, { width: iconSlotSize, height: iconSlotSize }],
+    [iconSlotSize],
+  );
+  const badgeStyle = useMemo(() => [{ transform: [{ scale: iconSlotSize / 16 }] }], [iconSlotSize]);
+  return (
+    <View style={slotStyle}>
+      <View style={badgeStyle}>
+        <SidebarEntryStatusIconBadge kind={kind} testID={testID} />
+      </View>
+    </View>
   );
 }
 
@@ -81,8 +109,6 @@ const styles = StyleSheet.create((theme) => ({
     paddingBottom: theme.spacing[2],
   },
   iconSlot: {
-    width: 16,
-    height: 16,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,

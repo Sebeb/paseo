@@ -68,12 +68,13 @@ interface InfoHoverCardProps {
   accessibilityLabel: string;
   testID: string;
   isDragging?: boolean;
+  triggerStyle?: StyleProp<ViewStyle>;
   surfaceStyle?: StyleProp<ViewStyle>;
 }
 
 type InfoHoverCardDesktopProps = PropsWithChildren<
   Required<Pick<InfoHoverCardProps, "accessibilityLabel" | "testID">> &
-    Pick<InfoHoverCardProps, "content" | "isDragging" | "surfaceStyle">
+    Pick<InfoHoverCardProps, "content" | "isDragging" | "triggerStyle" | "surfaceStyle">
 >;
 
 export function InfoHoverCard({
@@ -81,6 +82,7 @@ export function InfoHoverCard({
   accessibilityLabel,
   testID,
   isDragging = false,
+  triggerStyle,
   surfaceStyle,
   children,
 }: PropsWithChildren<InfoHoverCardProps>): ReactNode {
@@ -96,6 +98,7 @@ export function InfoHoverCard({
       accessibilityLabel={accessibilityLabel}
       testID={testID}
       isDragging={isDragging}
+      triggerStyle={triggerStyle}
       surfaceStyle={surfaceStyle}
     >
       {children}
@@ -108,6 +111,7 @@ function InfoHoverCardDesktop({
   accessibilityLabel,
   testID,
   isDragging,
+  triggerStyle,
   surfaceStyle,
   children,
 }: InfoHoverCardDesktopProps): ReactElement {
@@ -167,6 +171,7 @@ function InfoHoverCardDesktop({
     <View
       ref={triggerRef}
       collapsable={false}
+      style={triggerStyle}
       onPointerEnter={handleTriggerEnter}
       onPointerLeave={handleTriggerLeave}
     >

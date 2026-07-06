@@ -73,6 +73,37 @@ function isCandidateResponseZoneRelevant(input: {
   return false;
 }
 
+function canCandidatePinWithinTopHalf(input: {
+  candidate: PinnedUserInputCandidate;
+  candidates: PinnedUserInputCandidate[];
+  viewportTop: number;
+  viewportBottom: number;
+}): boolean {
+  const viewportMidpoint = input.viewportTop + (input.viewportBottom - input.viewportTop) / 2;
+  let visibleUserInputCount = 0;
+  let candidateInputVisible = false;
+
+  for (const candidate of input.candidates) {
+    if (
+      !isVisible({
+        top: candidate.input.top,
+        bottom: candidate.input.bottom,
+        viewportTop: input.viewportTop,
+        viewportBottom: viewportMidpoint,
+      })
+    ) {
+      continue;
+    }
+
+    visibleUserInputCount += 1;
+    if (candidate.input.item.id === input.candidate.input.item.id) {
+      candidateInputVisible = true;
+    }
+  }
+
+  return visibleUserInputCount === 0 || (visibleUserInputCount === 1 && candidateInputVisible);
+}
+
 export function collectEstimatedPinnedUserInputCandidates(
   input: CollectEstimatedPinnedUserInputCandidatesInput,
 ): PinnedUserInputCandidate[] {
@@ -176,6 +207,17 @@ export function selectPinnedUserInput(
   }
 
   if (active.input.item.kind !== "user_message") {
+    return null;
+  }
+
+  if (
+    !canCandidatePinWithinTopHalf({
+      candidate: active,
+      candidates: input.candidates,
+      viewportTop: input.viewportTop,
+      viewportBottom: input.viewportBottom,
+    })
+  ) {
     return null;
   }
 

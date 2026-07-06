@@ -3,7 +3,11 @@ import { selectPrHintFromStatus } from "@/git/pr-hint";
 import { type HostProjectListItem } from "@/projects/host-project-model";
 import type { PendingCreateAttempt } from "@/stores/create-flow-store";
 import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
-import type { SidebarWorkspaceSortMode } from "@/stores/sidebar-view-store";
+import type {
+  SidebarProjectSortMode,
+  SidebarShowLastCount,
+  SidebarWorkspaceSortMode,
+} from "@/stores/sidebar-view-store";
 import type {
   WorkspaceStructureHostPlacement,
   WorkspaceStructureProject,
@@ -413,6 +417,19 @@ function compareWorkspaceName(left: SidebarWorkspaceEntry, right: SidebarWorkspa
   });
 }
 
+function compareProjectName(left: SidebarProjectEntry, right: SidebarProjectEntry): number {
+  const nameDelta = left.projectName.localeCompare(right.projectName, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+  if (nameDelta !== 0) {
+    return nameDelta;
+  }
+  return left.projectKey.localeCompare(right.projectKey, undefined, {
+    sensitivity: "base",
+  });
+}
+
 function compareSidebarWorkspaces(input: {
   left: SidebarWorkspaceEntry;
   right: SidebarWorkspaceEntry;
@@ -471,6 +488,83 @@ export function sortSidebarWorkspaceProjects(input: {
   });
 }
 
+function getProjectCreatedAt(project: SidebarProjectEntry): number {
+  let createdAt: number | null = null;
+  for (const workspace of project.workspaces) {
+    const value = workspace.createdAt?.getTime() ?? null;
+    if (value === null) {
+      continue;
+    }
+    createdAt = createdAt === null ? value : Math.min(createdAt, value);
+  }
+  return createdAt ?? 0;
+}
+
+function getProjectLastUpdatedAt(project: SidebarProjectEntry): number {
+  let updatedAt = 0;
+  for (const workspace of project.workspaces) {
+    updatedAt = Math.max(updatedAt, getWorkspaceLastUpdatedAt(workspace));
+  }
+  return updatedAt;
+}
+
+function getProjectStatusRank(project: SidebarProjectEntry): number {
+  if (project.workspaces.length === 0) {
+    return WORKSPACE_STATUS_SORT_RANK.done;
+  }
+  let rank = WORKSPACE_STATUS_SORT_RANK.done;
+  for (const workspace of project.workspaces) {
+    rank = Math.min(rank, WORKSPACE_STATUS_SORT_RANK[workspace.statusBucket]);
+  }
+  return rank;
+}
+
+function compareSidebarProjects(input: {
+  left: SidebarProjectEntry;
+  right: SidebarProjectEntry;
+  sortMode: Exclude<SidebarProjectSortMode, "manual">;
+}): number {
+  if (input.sortMode === "status") {
+    const leftRank = getProjectStatusRank(input.left);
+    const rightRank = getProjectStatusRank(input.right);
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
+    }
+    const updatedDelta = getProjectLastUpdatedAt(input.right) - getProjectLastUpdatedAt(input.left);
+    if (updatedDelta !== 0) {
+      return updatedDelta;
+    }
+    return compareProjectName(input.left, input.right);
+  }
+
+  const leftValue =
+    input.sortMode === "created"
+      ? getProjectCreatedAt(input.left)
+      : getProjectLastUpdatedAt(input.left);
+  const rightValue =
+    input.sortMode === "created"
+      ? getProjectCreatedAt(input.right)
+      : getProjectLastUpdatedAt(input.right);
+  const timeDelta = rightValue - leftValue;
+  if (timeDelta !== 0) {
+    return timeDelta;
+  }
+  return compareProjectName(input.left, input.right);
+}
+
+export function sortSidebarProjects(input: {
+  projects: SidebarProjectEntry[];
+  sortMode: SidebarProjectSortMode;
+}): SidebarProjectEntry[] {
+  if (input.sortMode === "manual") {
+    return input.projects;
+  }
+  const sortMode = input.sortMode;
+  return input.projects
+    .slice()
+    .sort((left, right) => compareSidebarProjects({ left, right, sortMode }));
+}
+
 export function sortSidebarWorkspaces(input: {
   workspaces: readonly SidebarWorkspaceEntry[];
   sortMode: SidebarWorkspaceSortMode;
@@ -482,6 +576,42 @@ export function sortSidebarWorkspaces(input: {
   return input.workspaces
     .slice()
     .sort((left, right) => compareSidebarWorkspaces({ left, right, sortMode }));
+}
+
+export interface SidebarVisibleCountResult<T> {
+  visibleItems: T[];
+  shouldShowVisibilityToggle: boolean;
+}
+
+export function applySidebarShowLastCount<T>(input: {
+  items: readonly T[];
+  showLastCount: SidebarShowLastCount;
+  showAll: boolean;
+  forceIncludeKey: string | null;
+  getKey: (item: T) => string;
+}): SidebarVisibleCountResult<T> {
+  if (input.showLastCount === "all" || input.showAll) {
+    return {
+      visibleItems: input.items.slice(),
+      shouldShowVisibilityToggle: false,
+    };
+  }
+
+  const visibleItems = input.items.slice(0, input.showLastCount);
+  const hiddenItemCount = Math.max(0, input.items.length - visibleItems.length);
+  const visibleKeys = new Set(visibleItems.map((item) => input.getKey(item)));
+
+  if (input.forceIncludeKey && !visibleKeys.has(input.forceIncludeKey)) {
+    const forcedItem = input.items.find((item) => input.getKey(item) === input.forceIncludeKey);
+    if (forcedItem) {
+      visibleItems.push(forcedItem);
+    }
+  }
+
+  return {
+    visibleItems,
+    shouldShowVisibilityToggle: hiddenItemCount > 0,
+  };
 }
 
 export function applyStoredOrdering<T>(input: {

@@ -104,6 +104,7 @@ export const zhCN: TranslationResources = {
       dropImagesHere: "将图片拖放到这里",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "编辑排队消息",
+      editScheduledMessage: "编辑定时消息",
       sendQueuedMessageNow: "立即发送排队消息",
       openImage: "打开图片附件",
       removeImage: "移除图片附件",
@@ -467,6 +468,10 @@ export const zhCN: TranslationResources = {
     terminal: {
       hostDisconnected: "Host 未连接",
       unableToSubscribe: "无法订阅 Terminal",
+    },
+    navigation: {
+      back: "Back",
+      forward: "Forward",
     },
     tabs: {
       loading: "正在加载...",
@@ -1668,6 +1673,8 @@ export const zhCN: TranslationResources = {
         closeCurrentTab: "关闭当前标签",
         jumpToWorkspace: "跳转到 workspace",
         jumpToTab: "跳转到标签",
+        historyBack: "Back",
+        historyForward: "Forward",
         previousWorkspace: "上一个 workspace",
         nextWorkspace: "下一个 workspace",
         previousTab: "上一个标签",

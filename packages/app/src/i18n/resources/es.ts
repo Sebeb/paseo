@@ -104,6 +104,7 @@ export const es: TranslationResources = {
       dropImagesHere: "Suelta imágenes aquí",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "Editar mensaje en cola",
+      editScheduledMessage: "Editar mensaje programado",
       sendQueuedMessageNow: "Enviar mensaje en cola ahora",
       openImage: "Abrir imagen adjunta",
       removeImage: "Quitar imagen adjunta",
@@ -471,6 +472,10 @@ export const es: TranslationResources = {
     terminal: {
       hostDisconnected: "Hostno está conectado",
       unableToSubscribe: "No se puede suscribir al terminal",
+    },
+    navigation: {
+      back: "Back",
+      forward: "Forward",
     },
     tabs: {
       loading: "Cargando...",
@@ -1732,6 +1737,8 @@ export const es: TranslationResources = {
         restoreLastClosedTab: "Restaurar la última pestaña cerrada",
         jumpToWorkspace: "Saltar al espacio de trabajo",
         jumpToTab: "Saltar a la pestaña",
+        historyBack: "Back",
+        historyForward: "Forward",
         previousWorkspace: "Espacio de trabajo anterior",
         nextWorkspace: "Siguiente espacio de trabajo",
         previousTab: "Pestaña anterior",

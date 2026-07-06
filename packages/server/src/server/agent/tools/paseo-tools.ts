@@ -35,13 +35,7 @@ import { expandUserPath, isSameOrDescendantPath, resolvePathFromBase } from "../
 import type { TerminalManager } from "../../../terminal/terminal-manager.js";
 import type { CreatePaseoWorktreeWorkflowFn } from "../../worktree-session.js";
 import type { ScheduleService } from "../../schedule/service.js";
-import {
-  ScheduleRunSchema,
-  ScheduleSummarySchema,
-  StoredScheduleSchema,
-  type ScheduleCadence,
-  type UpdateScheduleInput,
-} from "@getpaseo/protocol/schedule/types";
+import { type ScheduleCadence, type UpdateScheduleInput } from "@getpaseo/protocol/schedule/types";
 import type { ProviderSnapshotManager } from "../provider-snapshot-manager.js";
 import {
   AgentModelSchema,
@@ -390,6 +384,162 @@ const WorktreeSummarySchema = z.object({
   branchName: z.string().optional(),
   head: z.string().optional(),
   workspaceIds: z.array(z.string()).optional(),
+});
+
+const ScheduleRunOutputSchema = z.object({
+  id: z.string(),
+  scheduledFor: z.string(),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+  status: z.enum(["running", "succeeded", "failed"]),
+  agentId: z.string().nullable(),
+  output: z.string().nullable(),
+  error: z.string().nullable(),
+});
+
+const ImageAttachmentOutputSchema = z.object({
+  data: z.string(),
+  mimeType: z.string(),
+});
+
+const GitHubPrAttachmentOutputSchema = z.object({
+  type: z.literal("github_pr"),
+  mimeType: z.literal("application/github-pr"),
+  number: z.number().int().positive(),
+  title: z.string(),
+  url: z.string(),
+  body: z.string().nullable().optional(),
+  baseRefName: z.string().nullable().optional(),
+  headRefName: z.string().nullable().optional(),
+});
+
+const GitHubIssueAttachmentOutputSchema = z.object({
+  type: z.literal("github_issue"),
+  mimeType: z.literal("application/github-issue"),
+  number: z.number().int().positive(),
+  title: z.string(),
+  url: z.string(),
+  body: z.string().nullable().optional(),
+});
+
+const TextAttachmentOutputSchema = z.object({
+  type: z.literal("text"),
+  mimeType: z.literal("text/plain"),
+  contextKind: z.string().optional(),
+  title: z.string().nullable().optional(),
+  text: z.string(),
+});
+
+const ReviewAttachmentContextLineOutputSchema = z.object({
+  oldLineNumber: z.number().int().positive().nullable(),
+  newLineNumber: z.number().int().positive().nullable(),
+  type: z.enum(["add", "remove", "context"]),
+  content: z.string(),
+});
+
+const ReviewAttachmentOutputSchema = z.object({
+  type: z.literal("review"),
+  mimeType: z.literal("application/paseo-review"),
+  cwd: z.string(),
+  mode: z.enum(["uncommitted", "base"]),
+  baseRef: z.string().nullable().optional(),
+  comments: z.array(
+    z.object({
+      filePath: z.string(),
+      side: z.enum(["old", "new"]),
+      lineNumber: z.number().int().positive(),
+      body: z.string(),
+      context: z.object({
+        hunkHeader: z.string(),
+        targetLine: ReviewAttachmentContextLineOutputSchema,
+        lines: z.array(ReviewAttachmentContextLineOutputSchema),
+      }),
+    }),
+  ),
+});
+
+const UploadedFileAttachmentOutputSchema = z.object({
+  type: z.literal("uploaded_file"),
+  id: z.string(),
+  fileName: z.string(),
+  mimeType: z.string(),
+  size: z.number().int().nonnegative(),
+  path: z.string(),
+});
+
+const AgentAttachmentOutputSchema = z.discriminatedUnion("type", [
+  GitHubPrAttachmentOutputSchema,
+  GitHubIssueAttachmentOutputSchema,
+  TextAttachmentOutputSchema,
+  ReviewAttachmentOutputSchema,
+  UploadedFileAttachmentOutputSchema,
+]);
+
+const ScheduleCadenceOutputSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("every"),
+    everyMs: z.number().int().positive(),
+  }),
+  z.object({
+    type: z.literal("cron"),
+    expression: z.string(),
+    timezone: z.string().optional(),
+  }),
+]);
+
+const ScheduleTargetOutputSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("agent"),
+    agentId: z.string(),
+  }),
+  z.object({
+    type: z.literal("new-agent"),
+    config: z.object({
+      provider: z.string(),
+      cwd: z.string(),
+      modeId: z.string().optional(),
+      model: z.string().optional(),
+      thinkingOptionId: z.string().optional(),
+      title: z.string().nullable().optional(),
+      approvalPolicy: z.string().optional(),
+      sandboxMode: z.string().optional(),
+      networkAccess: z.boolean().optional(),
+      webSearch: z.boolean().optional(),
+      featureValues: z.record(z.string(), z.unknown()).optional(),
+      extra: z
+        .object({
+          codex: z.record(z.string(), z.unknown()).optional(),
+          claude: z.record(z.string(), z.unknown()).optional(),
+        })
+        .optional(),
+      systemPrompt: z.string().optional(),
+      mcpServers: z.record(z.string(), z.unknown()).optional(),
+    }),
+  }),
+]);
+
+const StoredScheduleOutputSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  prompt: z.string(),
+  delivery: z.enum(["schedule-notification", "agent-message"]).optional(),
+  images: z.array(ImageAttachmentOutputSchema).optional(),
+  attachments: z.array(AgentAttachmentOutputSchema).optional(),
+  cadence: ScheduleCadenceOutputSchema,
+  target: ScheduleTargetOutputSchema,
+  status: z.enum(["active", "paused", "completed"]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  nextRunAt: z.string().nullable(),
+  lastRunAt: z.string().nullable(),
+  pausedAt: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  maxRuns: z.number().int().positive().nullable(),
+  runs: z.array(ScheduleRunOutputSchema),
+});
+
+const ScheduleSummaryOutputSchema = StoredScheduleOutputSchema.omit({
+  runs: true,
 });
 
 function resolveTerminalKeyToken(key: string, literal: boolean): string {
@@ -2091,7 +2241,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         maxRuns: z.number().int().positive().optional(),
         expiresIn: z.string().optional(),
       },
-      outputSchema: ScheduleSummarySchema.shape,
+      outputSchema: ScheduleSummaryOutputSchema.shape,
     },
     async ({ prompt, cron, timezone, name, provider, cwd, maxRuns, expiresIn }) => {
       if (!scheduleService) {
@@ -2136,7 +2286,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         maxRuns: z.number().int().positive().optional(),
         expiresIn: z.string().optional(),
       },
-      outputSchema: ScheduleSummarySchema.shape,
+      outputSchema: ScheduleSummaryOutputSchema.shape,
     },
     async ({ prompt, cron, timezone, name, maxRuns, expiresIn }) => {
       if (!scheduleService) {
@@ -2174,7 +2324,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       description: "List all schedules managed by the daemon.",
       inputSchema: {},
       outputSchema: {
-        schedules: z.array(ScheduleSummarySchema),
+        schedules: z.array(ScheduleSummaryOutputSchema),
       },
     },
     async () => {
@@ -2200,7 +2350,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       inputSchema: {
         id: z.string(),
       },
-      outputSchema: StoredScheduleSchema.shape,
+      outputSchema: StoredScheduleOutputSchema.shape,
     },
     async ({ id }) => {
       if (!scheduleService) {
@@ -2344,7 +2494,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           .describe("New relative expiry duration (for example: 1h, 2d)."),
         clearExpires: z.boolean().optional().describe("Clear any schedule expiry."),
       },
-      outputSchema: StoredScheduleSchema.shape,
+      outputSchema: StoredScheduleOutputSchema.shape,
     },
     async (input) => {
       if (!scheduleService) {
@@ -2369,7 +2519,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         id: z.string(),
       },
       outputSchema: {
-        runs: z.array(ScheduleRunSchema),
+        runs: z.array(ScheduleRunOutputSchema),
       },
     },
     async ({ id }) => {

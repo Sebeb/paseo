@@ -42,6 +42,8 @@ describe("routeKeyboardShortcut — dispatch passthroughs", () => {
       "workspace.tab.restore.lastClosed",
       { id: "workspace.tab.restore-last-closed", scope: "workspace" },
     ],
+    ["workspace.navigation.back", { id: "workspace.navigation.back", scope: "workspace" }],
+    ["workspace.navigation.forward", { id: "workspace.navigation.forward", scope: "workspace" }],
     ["sidebar.toggle.right", { id: "sidebar.toggle.right", scope: "sidebar" }],
     ["workspace.pane.split.right", { id: "workspace.pane.split.right", scope: "workspace" }],
     ["workspace.pane.split.down", { id: "workspace.pane.split.down", scope: "workspace" }],

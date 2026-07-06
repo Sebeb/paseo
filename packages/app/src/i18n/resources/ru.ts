@@ -104,6 +104,7 @@ export const ru: TranslationResources = {
       dropImagesHere: "Скиньте изображения сюда",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "Изменить сообщение в очереди",
+      editScheduledMessage: "Изменить запланированное сообщение",
       sendQueuedMessageNow: "Отправить сообщение в очереди сейчас",
       openImage: "Открыть прикрепленное изображение",
       removeImage: "Удалить прикрепленное изображение",
@@ -471,6 +472,10 @@ export const ru: TranslationResources = {
     terminal: {
       hostDisconnected: "Host не подключен",
       unableToSubscribe: "Невозможно подписаться на терминал",
+    },
+    navigation: {
+      back: "Back",
+      forward: "Forward",
     },
     tabs: {
       loading: "Загрузка...",
@@ -1722,6 +1727,8 @@ export const ru: TranslationResources = {
         restoreLastClosedTab: "Восстановить последнюю закрытую вкладку",
         jumpToWorkspace: "Перейти в рабочую область",
         jumpToTab: "Перейти на вкладку",
+        historyBack: "Back",
+        historyForward: "Forward",
         previousWorkspace: "Предыдущая рабочая область",
         nextWorkspace: "Следующая рабочая область",
         previousTab: "Предыдущая вкладка",

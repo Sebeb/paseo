@@ -3,6 +3,10 @@ import { useSessionStore } from "@/stores/session-store";
 import { getHostRuntimeStore, isHostRuntimeConnected } from "@/runtime/host-runtime";
 import { resolveNavigateToAgent, type NavigateToAgentInput } from "./resolve";
 import { navigateToPreparedWorkspaceTab } from "@/utils/workspace-navigation";
+import {
+  buildAgentWorkspaceLookup,
+  resolveEffectiveAgentWorkspaceId,
+} from "@/workspace-tabs/agent-workspace-resolution";
 
 export type { NavigateToAgentInput } from "./resolve";
 
@@ -63,7 +67,14 @@ export function navigateToAgent(input: NavigateToAgentInput): string {
       const session = useSessionStore.getState().sessions[serverId];
       const agent = session?.agents.get(agentId) ?? session?.agentDetails.get(agentId);
       return {
-        agentWorkspaceId: agent?.workspaceId,
+        agentWorkspaceId: resolveEffectiveAgentWorkspaceId({
+          agent,
+          agentsById: buildAgentWorkspaceLookup({
+            sessionAgents: session?.agents,
+            agentDetails: session?.agentDetails,
+          }),
+          workspaces: session?.workspaces,
+        }),
       };
     },
     navigateToHostAgent: (route) => {

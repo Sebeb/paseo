@@ -447,6 +447,24 @@ describe("buildCollapseThinkingGroups", () => {
     expect(index.groupByItemId.has("progress-2")).toBe(true);
   });
 
+  it("leaves response-presented assistant text visible while the turn is still running", () => {
+    const index = buildRunningThinkingGroups([
+      userMessage("u1", 1),
+      toolCall("tool-1", 2),
+      assistantMessage("progress-copy", 3, { presentation: "progress" }),
+      assistantMessage("final-response", 4, { presentation: "response" }),
+    ]);
+
+    expect(index.groups).toHaveLength(1);
+    expect(index.groups[0]).toMatchObject({
+      itemIds: ["tool-1", "progress-copy"],
+      status: "completed",
+      finalAssistantItemId: "final-response",
+    });
+    expect(index.groupByItemId.has("progress-copy")).toBe(true);
+    expect(index.groupByItemId.has("final-response")).toBe(false);
+  });
+
   it("records active group timing from the active group's own first and latest work item", () => {
     const index = buildRunningThinkingGroups([
       userMessage("u1", 1),

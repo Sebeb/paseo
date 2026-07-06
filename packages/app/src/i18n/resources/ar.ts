@@ -104,6 +104,7 @@ export const ar: TranslationResources = {
       dropImagesHere: "إسقاط الصور هنا",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "تحرير الرسالة في قائمة الانتظار",
+      editScheduledMessage: "تحرير الرسالة المجدولة",
       sendQueuedMessageNow: "إرسال رسالة في قائمة الانتظار الآن",
       openImage: "فتح مرفق الصورة",
       removeImage: "إزالة مرفق الصورة",
@@ -467,6 +468,10 @@ export const ar: TranslationResources = {
     terminal: {
       hostDisconnected: "Host غير متصل",
       unableToSubscribe: "غير قادر على الاشتراك في المحطة",
+    },
+    navigation: {
+      back: "Back",
+      forward: "Forward",
     },
     tabs: {
       loading: "تحميل...",
@@ -1688,6 +1693,8 @@ export const ar: TranslationResources = {
         restoreLastClosedTab: "استعادة آخر علامة تبويب مغلقة",
         jumpToWorkspace: "انتقل إلى مساحة العمل",
         jumpToTab: "انتقل إلى علامة التبويب",
+        historyBack: "Back",
+        historyForward: "Forward",
         previousWorkspace: "مساحة العمل السابقة",
         nextWorkspace: "مساحة العمل التالية",
         previousTab: "علامة التبويب السابقة",

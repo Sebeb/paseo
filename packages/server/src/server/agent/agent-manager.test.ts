@@ -5201,6 +5201,67 @@ test("turn_failed emits a system error assistant timeline message and keeps erro
   expect(systemErrors[0]?.text).toContain("invalid model id");
 });
 
+test("completed turn with final out-of-credit message is treated as failed", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-out-of-credit-"));
+  const storagePath = join(workdir, "agents");
+  const storage = new AgentStorage(storagePath, logger);
+
+  class OutOfCreditSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = "turn-out-of-credit-1";
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "timeline",
+          provider: this.provider,
+          turnId,
+          item: {
+            type: "assistant_message",
+            text: "You have run out of credits. Add credits to continue.",
+          },
+        });
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+  }
+
+  class OutOfCreditClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      return new OutOfCreditSession(config);
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: {
+      codex: new OutOfCreditClient(),
+    },
+    registry: storage,
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000133",
+  });
+
+  const agent = await manager.createAgent({
+    provider: "codex",
+    cwd: workdir,
+    title: "Out of credit test",
+  });
+
+  await expect(manager.runAgent(agent.id, "hello")).rejects.toThrow("run out of credits");
+
+  const snapshot = manager.getAgent(agent.id);
+  expect(snapshot?.lifecycle).toBe("error");
+  expect(snapshot?.lastError).toBe("You have run out of credits. Add credits to continue.");
+
+  const systemError = manager
+    .getTimeline(agent.id)
+    .find(
+      (item): item is Extract<AgentTimelineItem, { type: "assistant_message" }> =>
+        item.type === "assistant_message" && item.text.includes("[System Error]"),
+    );
+  expect(systemError?.text).toContain("code: out_of_credit");
+});
+
 test("turn_failed surfaces provider code and diagnostic in system error message", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-turn-failed-detail-"));
   const storagePath = join(workdir, "agents");

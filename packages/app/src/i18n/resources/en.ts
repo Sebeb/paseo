@@ -102,6 +102,7 @@ export const en = {
       dropImagesHere: "Drop images here",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "Edit queued message",
+      editScheduledMessage: "Edit scheduled message",
       sendQueuedMessageNow: "Send queued message now",
       openImage: "Open image attachment",
       removeImage: "Remove image attachment",
@@ -467,6 +468,10 @@ export const en = {
     terminal: {
       hostDisconnected: "Host is not connected",
       unableToSubscribe: "Unable to subscribe to terminal",
+    },
+    navigation: {
+      back: "Back",
+      forward: "Forward",
     },
     tabs: {
       loading: "Loading...",
@@ -1695,6 +1700,8 @@ export const en = {
         restoreLastClosedTab: "Restore last closed tab",
         jumpToWorkspace: "Jump to workspace",
         jumpToTab: "Jump to tab",
+        historyBack: "Back",
+        historyForward: "Forward",
         previousWorkspace: "Previous workspace",
         nextWorkspace: "Next workspace",
         previousTab: "Previous tab",

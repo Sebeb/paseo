@@ -1,11 +1,19 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { View, Text, Pressable, ScrollView, type PressableStateCallbackType } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  type GestureResponderEvent,
+  type PressableStateCallbackType,
+} from "react-native";
 import { useSidebarScroll } from "@/components/sidebar/sidebar-scroll-context";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
+import { applySidebarShowLastCount } from "@/hooks/sidebar-workspaces-view-model";
 import {
   buildStatusGroups,
   buildStatusShortcutIndex,
@@ -72,12 +80,16 @@ import {
 } from "@/components/sidebar/sidebar-vc-operation-badge";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
 import type { SidebarBadgeMode } from "@/stores/sidebar-view-store";
-import type { SidebarWorkspaceSortMode } from "@/stores/sidebar-view-store";
+import type {
+  SidebarWorkspaceShowLastCount,
+  SidebarWorkspaceSortMode,
+} from "@/stores/sidebar-view-store";
 import {
   createEmptySidebarTabStatusSummary,
   getVisibleSidebarEntryStatusKinds,
   type SidebarTabStatusSummary,
 } from "@/utils/sidebar-tab-status-summary";
+import { SidebarShowAllToggle } from "@/components/sidebar/sidebar-show-all-toggle";
 
 // Themed icon wrappers
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
@@ -116,9 +128,13 @@ interface StatusWorkspaceListProps {
   showShortcutBadges: boolean;
   badgeMode: SidebarBadgeMode;
   workspaceSortMode: SidebarWorkspaceSortMode;
+  workspaceShowLastCount: SidebarWorkspaceShowLastCount;
   tabStatusSummaries: Map<string, SidebarTabStatusSummary>;
   messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>;
   onWorkspacePress?: () => void;
+  statusSummaryToggleActiveWorkspaceKey?: string | null;
+  onStatusSummaryTogglePress?: () => void;
+  embedded?: boolean;
 }
 
 export function SidebarStatusWorkspaceList({
@@ -129,9 +145,13 @@ export function SidebarStatusWorkspaceList({
   showShortcutBadges,
   badgeMode,
   workspaceSortMode,
+  workspaceShowLastCount,
   tabStatusSummaries,
   messageStatusCountsByWorkspaceKey,
   onWorkspacePress,
+  statusSummaryToggleActiveWorkspaceKey = null,
+  onStatusSummaryTogglePress,
+  embedded = false,
 }: StatusWorkspaceListProps) {
   const groups = useMemo(
     () => buildStatusGroups(workspaces, workspaceSortMode),
@@ -140,18 +160,83 @@ export function SidebarStatusWorkspaceList({
   const collapsedStatusGroupKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedStatusGroupKeys,
   );
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const [expandedStatusBuckets, setExpandedStatusBuckets] = useState<Set<StatusGroup["bucket"]>>(
+    () => new Set(),
+  );
+
+  useEffect(() => {
+    setExpandedStatusBuckets(new Set());
+  }, [serverId, workspaceShowLastCount]);
+
+  const forceIncludeWorkspaceKey =
+    serverId && activeWorkspaceSelection?.serverId === serverId
+      ? `${serverId}:${activeWorkspaceSelection.workspaceId}`
+      : null;
+  const visibleGroups = useMemo(
+    () =>
+      groups.map((group) => {
+        const showAll = expandedStatusBuckets.has(group.bucket);
+        const visibleResult = applySidebarShowLastCount({
+          items: group.rows,
+          showLastCount: workspaceShowLastCount,
+          showAll,
+          forceIncludeKey: forceIncludeWorkspaceKey,
+          getKey: (workspace) => workspace.workspaceKey,
+        });
+        return {
+          ...group,
+          rows: visibleResult.visibleItems,
+          totalRowCount: group.rows.length,
+          showAll,
+          shouldShowVisibilityToggle: visibleResult.shouldShowVisibilityToggle,
+        };
+      }),
+    [expandedStatusBuckets, forceIncludeWorkspaceKey, groups, workspaceShowLastCount],
+  );
+  const handleToggleStatusGroupVisibility = useCallback((bucket: StatusGroup["bucket"]) => {
+    setExpandedStatusBuckets((current) => {
+      const next = new Set(current);
+      if (next.has(bucket)) {
+        next.delete(bucket);
+      } else {
+        next.add(bucket);
+      }
+      return next;
+    });
+  }, []);
 
   const statusShortcutIndex = useMemo(
     () =>
       showShortcutBadges
         ? buildStatusShortcutIndex(
-            groups.filter((group) => !collapsedStatusGroupKeys.has(group.bucket)),
+            visibleGroups.filter((group) => !collapsedStatusGroupKeys.has(group.bucket)),
           )
         : new Map<string, number>(),
-    [collapsedStatusGroupKeys, groups, showShortcutBadges],
+    [collapsedStatusGroupKeys, showShortcutBadges, visibleGroups],
   );
-
+  const groupList = (
+    <StatusGroupList
+      groups={visibleGroups}
+      collapsedStatusGroupKeys={collapsedStatusGroupKeys}
+      projectNamesByKey={projectNamesByKey}
+      serverId={serverId}
+      shortcutIndex={statusShortcutIndex}
+      showShortcutBadges={showShortcutBadges}
+      badgeMode={badgeMode}
+      tabStatusSummaries={tabStatusSummaries}
+      messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
+      onToggleGroupVisibility={handleToggleStatusGroupVisibility}
+      onWorkspacePress={onWorkspacePress}
+      statusSummaryToggleActiveWorkspaceKey={statusSummaryToggleActiveWorkspaceKey}
+      onStatusSummaryTogglePress={onStatusSummaryTogglePress}
+    />
+  );
   const { onScroll: onSidebarScroll } = useSidebarScroll();
+
+  if (embedded) {
+    return <View style={styles.embeddedContainer}>{groupList}</View>;
+  }
 
   return (
     <View style={styles.container}>
@@ -164,18 +249,7 @@ export function SidebarStatusWorkspaceList({
           scrollEventThrottle={16}
           testID="sidebar-status-list-scroll"
         >
-          <StatusGroupList
-            groups={groups}
-            collapsedStatusGroupKeys={collapsedStatusGroupKeys}
-            projectNamesByKey={projectNamesByKey}
-            serverId={serverId}
-            shortcutIndex={statusShortcutIndex}
-            showShortcutBadges={showShortcutBadges}
-            badgeMode={badgeMode}
-            tabStatusSummaries={tabStatusSummaries}
-            messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
-            onWorkspacePress={onWorkspacePress}
-          />
+          {groupList}
         </NestableScrollContainer>
       ) : (
         <ScrollView
@@ -186,22 +260,17 @@ export function SidebarStatusWorkspaceList({
           scrollEventThrottle={16}
           testID="sidebar-status-list-scroll"
         >
-          <StatusGroupList
-            groups={groups}
-            collapsedStatusGroupKeys={collapsedStatusGroupKeys}
-            projectNamesByKey={projectNamesByKey}
-            serverId={serverId}
-            shortcutIndex={statusShortcutIndex}
-            showShortcutBadges={showShortcutBadges}
-            badgeMode={badgeMode}
-            tabStatusSummaries={tabStatusSummaries}
-            messageStatusCountsByWorkspaceKey={messageStatusCountsByWorkspaceKey}
-            onWorkspacePress={onWorkspacePress}
-          />
+          {groupList}
         </ScrollView>
       )}
     </View>
   );
+}
+
+interface VisibleStatusGroup extends StatusGroup {
+  totalRowCount: number;
+  showAll: boolean;
+  shouldShowVisibilityToggle: boolean;
 }
 
 function StatusGroupList({
@@ -214,9 +283,12 @@ function StatusGroupList({
   badgeMode,
   tabStatusSummaries,
   messageStatusCountsByWorkspaceKey,
+  onToggleGroupVisibility,
   onWorkspacePress,
+  statusSummaryToggleActiveWorkspaceKey,
+  onStatusSummaryTogglePress,
 }: {
-  groups: StatusGroup[];
+  groups: VisibleStatusGroup[];
   collapsedStatusGroupKeys: ReadonlySet<string>;
   projectNamesByKey: Map<string, string>;
   serverId: string | null;
@@ -225,7 +297,10 @@ function StatusGroupList({
   badgeMode: SidebarBadgeMode;
   tabStatusSummaries: Map<string, SidebarTabStatusSummary>;
   messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>;
+  onToggleGroupVisibility: (bucket: StatusGroup["bucket"]) => void;
   onWorkspacePress?: () => void;
+  statusSummaryToggleActiveWorkspaceKey: string | null;
+  onStatusSummaryTogglePress?: () => void;
 }) {
   return (
     <>
@@ -253,13 +328,51 @@ function StatusGroupList({
                     messageStatusCountsByWorkspaceKey.get(workspace.workspaceKey) ?? 0
                   }
                   onWorkspacePress={onWorkspacePress}
+                  statusSummaryToggleActive={
+                    workspace.workspaceKey === statusSummaryToggleActiveWorkspaceKey
+                  }
+                  onStatusSummaryPress={
+                    workspace.workspaceKey === statusSummaryToggleActiveWorkspaceKey
+                      ? onStatusSummaryTogglePress
+                      : undefined
+                  }
                 />
               ))}
+              {group.shouldShowVisibilityToggle ? (
+                <StatusGroupVisibilityToggle
+                  bucket={group.bucket}
+                  expanded={group.showAll}
+                  totalCount={group.totalRowCount}
+                  onToggle={onToggleGroupVisibility}
+                />
+              ) : null}
             </View>
           ) : null}
         </View>
       ))}
     </>
+  );
+}
+
+function StatusGroupVisibilityToggle({
+  bucket,
+  expanded,
+  totalCount,
+  onToggle,
+}: {
+  bucket: StatusGroup["bucket"];
+  expanded: boolean;
+  totalCount: number;
+  onToggle: (bucket: StatusGroup["bucket"]) => void;
+}) {
+  const handlePress = useCallback(() => onToggle(bucket), [bucket, onToggle]);
+  return (
+    <SidebarShowAllToggle
+      expanded={expanded}
+      totalCount={totalCount}
+      testID={`sidebar-status-group-visibility-toggle-${bucket}`}
+      onPress={handlePress}
+    />
   );
 }
 
@@ -355,6 +468,8 @@ const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
   tabStatusSummary,
   messageStatusCount,
   onWorkspacePress,
+  statusSummaryToggleActive,
+  onStatusSummaryPress,
 }: {
   workspace: SidebarWorkspaceEntry;
   projectName: string;
@@ -365,6 +480,8 @@ const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
   tabStatusSummary: SidebarTabStatusSummary;
   messageStatusCount: number;
   onWorkspacePress?: () => void;
+  statusSummaryToggleActive?: boolean;
+  onStatusSummaryPress?: () => void;
 }) {
   const hydratedWorkspace = useSidebarWorkspaceEntry(serverId, workspace.workspaceId);
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
@@ -391,6 +508,8 @@ const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
       tabStatusSummary={tabStatusSummary}
       messageStatusCount={messageStatusCount}
       onPress={handlePress}
+      statusSummaryToggleActive={statusSummaryToggleActive}
+      onStatusSummaryPress={onStatusSummaryPress}
     />
   );
 });
@@ -405,6 +524,8 @@ function StatusWorkspaceRowWithMenu({
   tabStatusSummary,
   messageStatusCount,
   onPress,
+  statusSummaryToggleActive = false,
+  onStatusSummaryPress,
 }: {
   workspace: SidebarWorkspaceEntry;
   projectName: string;
@@ -415,6 +536,8 @@ function StatusWorkspaceRowWithMenu({
   tabStatusSummary: SidebarTabStatusSummary;
   messageStatusCount: number;
   onPress: () => void;
+  statusSummaryToggleActive?: boolean;
+  onStatusSummaryPress?: () => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -556,6 +679,8 @@ function StatusWorkspaceRowWithMenu({
         onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
         pendingBranchActionIds={pendingBranchActionIds}
+        statusSummaryToggleActive={statusSummaryToggleActive}
+        onStatusSummaryPress={selected ? onStatusSummaryPress : undefined}
       />
       <StatusWorkspaceContextMenuContent
         workspaceKey={workspace.workspaceKey}
@@ -583,52 +708,6 @@ function StatusWorkspaceRowWithMenu({
   );
 }
 
-function getStatusWorkspaceActionVisibility({
-  badgeMode,
-  hasArchiveAction,
-  hasDiffStat,
-  hasVcOperationBadges,
-  isHovered,
-  isTouchPlatform,
-  messageStatusCount,
-  shortcutNumber,
-  showShortcutBadge,
-  tabStatusSummary,
-}: {
-  badgeMode: SidebarBadgeMode;
-  hasArchiveAction: boolean;
-  hasDiffStat: boolean;
-  hasVcOperationBadges: boolean;
-  isHovered: boolean;
-  isTouchPlatform: boolean;
-  messageStatusCount: number;
-  shortcutNumber: number | null;
-  showShortcutBadge: boolean;
-  tabStatusSummary: SidebarTabStatusSummary;
-}) {
-  const showShortcut = showShortcutBadge && shortcutNumber !== null;
-  const showStatusSummary =
-    badgeMode === "status" &&
-    !showShortcut &&
-    getVisibleSidebarEntryStatusKinds(tabStatusSummary).length > 0;
-  const showKebabInSlot =
-    hasArchiveAction && (isHovered || isTouchPlatform) && !showStatusSummary && !showShortcut;
-  const showVcOperationBadges =
-    hasVcOperationBadges && !showKebabInSlot && !showShortcut && !showStatusSummary;
-  const showDiffStat =
-    badgeMode === "diff" && hasDiffStat && !showKebabInSlot && !showShortcut && !showStatusSummary;
-  const showActionBase = showVcOperationBadges || showStatusSummary || showDiffStat;
-  const showActionOverlay = showKebabInSlot;
-
-  return {
-    showActionBase,
-    showActionOverlay,
-    showDiffStat,
-    showStatusSummary,
-    shouldRenderActionSlot: showActionBase || showActionOverlay || messageStatusCount > 0,
-  };
-}
-
 function StatusWorkspaceRowInner({
   workspace,
   workspaceTitleSource,
@@ -651,6 +730,8 @@ function StatusWorkspaceRowInner({
   onMarkAsRead,
   archiveShortcutKeys,
   pendingBranchActionIds,
+  statusSummaryToggleActive,
+  onStatusSummaryPress,
 }: {
   workspace: SidebarWorkspaceEntry;
   workspaceTitleSource: WorkspaceTitleSource;
@@ -673,6 +754,8 @@ function StatusWorkspaceRowInner({
   onMarkAsRead?: () => void;
   archiveShortcutKeys?: ShortcutKey[][] | null;
   pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
+  statusSummaryToggleActive: boolean;
+  onStatusSummaryPress?: () => void;
 }) {
   const isTouchPlatform = platformIsNative;
 
@@ -691,7 +774,7 @@ function StatusWorkspaceRowInner({
   return (
     <SidebarWorkspaceRowFrame workspace={workspace} statusSummary={tabStatusSummary}>
       {({ isHovered, hoverHandlers }) => {
-        const visibility = getStatusWorkspaceActionVisibility({
+        const rightState = getStatusWorkspaceRightState({
           badgeMode,
           hasArchiveAction: Boolean(onArchive),
           hasDiffStat: Boolean(workspace.diffStat),
@@ -722,20 +805,20 @@ function StatusWorkspaceRowInner({
                 isHovered={isHovered}
                 isLoading={isArchiving}
                 suppressStatusLoader={badgeMode === "status"}
-                suppressStatusVisual={badgeMode === "status" || visibility.showStatusSummary}
+                suppressStatusVisual={badgeMode === "status" || rightState.showStatusSummary}
                 shortcutNumber={shortcutNumber}
                 showShortcutBadge={showShortcutBadge}
-                hasTrailingContent={visibility.shouldRenderActionSlot}
+                hasTrailingContent={rightState.shouldRenderActionSlot}
               >
-                {visibility.shouldRenderActionSlot ? (
+                {rightState.shouldRenderActionSlot ? (
                   <StatusWorkspaceActionSlot
                     workspace={workspace}
                     statusSummary={tabStatusSummary}
                     messageStatusCount={messageStatusCount}
-                    showStatusSummary={visibility.showStatusSummary}
-                    showDiffStat={visibility.showDiffStat}
-                    showBase={visibility.showActionBase}
-                    showOverlay={visibility.showActionOverlay}
+                    showStatusSummary={rightState.showStatusSummary}
+                    showDiffStat={rightState.showDiffStat}
+                    showBase={rightState.showActionBase}
+                    showOverlay={rightState.showActionOverlay}
                     onCopyPath={onCopyPath}
                     onCopyBranchName={onCopyBranchName}
                     onRename={onRename}
@@ -746,6 +829,10 @@ function StatusWorkspaceRowInner({
                     archivePendingLabel={archivePendingLabel}
                     archiveShortcutKeys={archiveShortcutKeys}
                     pendingBranchActionIds={pendingBranchActionIds}
+                    statusSummaryToggleActive={statusSummaryToggleActive}
+                    onStatusSummaryPress={
+                      rightState.showStatusSummary ? onStatusSummaryPress : undefined
+                    }
                   />
                 ) : null}
               </SidebarWorkspaceRowContent>
@@ -755,6 +842,47 @@ function StatusWorkspaceRowInner({
       }}
     </SidebarWorkspaceRowFrame>
   );
+}
+
+function getStatusWorkspaceRightState(input: {
+  badgeMode: SidebarBadgeMode;
+  hasArchiveAction: boolean;
+  hasDiffStat: boolean;
+  hasVcOperationBadges: boolean;
+  isHovered: boolean;
+  isTouchPlatform: boolean;
+  messageStatusCount: number;
+  shortcutNumber: number | null;
+  showShortcutBadge: boolean;
+  tabStatusSummary: SidebarTabStatusSummary;
+}) {
+  const showShortcut = input.showShortcutBadge && input.shortcutNumber !== null;
+  const showStatusSummary =
+    input.badgeMode === "status" &&
+    !showShortcut &&
+    getVisibleSidebarEntryStatusKinds(input.tabStatusSummary).length > 0;
+  const showKebab = Boolean(
+    input.hasArchiveAction && (input.isHovered || input.isTouchPlatform) && !showStatusSummary,
+  );
+  const showKebabInSlot = showKebab && !showShortcut;
+  const showVcOperationBadges =
+    input.hasVcOperationBadges && !showKebabInSlot && !showShortcut && !showStatusSummary;
+  const showDiffStat =
+    input.badgeMode === "diff" &&
+    input.hasDiffStat &&
+    !showKebabInSlot &&
+    !showShortcut &&
+    !showStatusSummary;
+  const showActionBase = showVcOperationBadges || showStatusSummary || showDiffStat;
+  const showActionOverlay = showKebabInSlot;
+
+  return {
+    showStatusSummary,
+    showDiffStat,
+    showActionBase,
+    showActionOverlay,
+    shouldRenderActionSlot: showActionBase || showActionOverlay || input.messageStatusCount > 0,
+  };
 }
 
 function StatusWorkspaceActionSlot({
@@ -775,6 +903,8 @@ function StatusWorkspaceActionSlot({
   archivePendingLabel,
   archiveShortcutKeys,
   pendingBranchActionIds,
+  statusSummaryToggleActive,
+  onStatusSummaryPress,
 }: {
   workspace: SidebarWorkspaceEntry;
   statusSummary: SidebarTabStatusSummary;
@@ -793,6 +923,8 @@ function StatusWorkspaceActionSlot({
   archivePendingLabel?: string;
   archiveShortcutKeys?: ShortcutKey[][] | null;
   pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
+  statusSummaryToggleActive: boolean;
+  onStatusSummaryPress?: () => void;
 }) {
   return (
     <>
@@ -806,6 +938,8 @@ function StatusWorkspaceActionSlot({
               showStatusSummary={showStatusSummary}
               showDiffStat={showDiffStat}
               pendingBranchActionIds={pendingBranchActionIds}
+              statusSummaryToggleActive={statusSummaryToggleActive}
+              onStatusSummaryPress={onStatusSummaryPress}
             />
           </SidebarWorkspaceTrailingActionBase>
           <SidebarWorkspaceTrailingActionOverlay visible={showOverlay}>
@@ -836,17 +970,32 @@ function StatusWorkspaceBaseMeta({
   showStatusSummary,
   showDiffStat,
   pendingBranchActionIds,
+  statusSummaryToggleActive,
+  onStatusSummaryPress,
 }: {
   workspace: SidebarWorkspaceEntry;
   statusSummary: SidebarTabStatusSummary;
   showStatusSummary: boolean;
   showDiffStat: boolean;
   pendingBranchActionIds: readonly CheckoutGitAsyncActionId[];
+  statusSummaryToggleActive: boolean;
+  onStatusSummaryPress?: () => void;
 }) {
   if (pendingBranchActionIds.length > 0) {
     return <SidebarVcOperationBadges actionIds={pendingBranchActionIds} />;
   }
   if (showStatusSummary) {
+    if (onStatusSummaryPress) {
+      return (
+        <StatusSummaryToggleButton
+          active={statusSummaryToggleActive}
+          testID={`sidebar-workspace-status-toggle-${workspace.workspaceKey}`}
+          onPress={onStatusSummaryPress}
+        >
+          <SidebarEntryStatusBadges summary={statusSummary} />
+        </StatusSummaryToggleButton>
+      );
+    }
     return <SidebarEntryStatusBadges summary={statusSummary} />;
   }
   if (!showDiffStat || !workspace.diffStat) {
@@ -1031,6 +1180,51 @@ function StatusWorkspaceContextMenuContent({
   );
 }
 
+function StatusSummaryToggleButton({
+  active,
+  testID,
+  onPress,
+  children,
+}: {
+  active: boolean;
+  testID: string;
+  onPress: () => void;
+  children: ReactNode;
+}) {
+  const handlePressIn = useCallback((event: GestureResponderEvent) => {
+    event.stopPropagation();
+  }, []);
+  const handlePress = useCallback(
+    (event: GestureResponderEvent) => {
+      event.stopPropagation();
+      onPress();
+    },
+    [onPress],
+  );
+  const style = useCallback(
+    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.workspaceStatusSummaryToggle,
+      active && styles.workspaceStatusSummaryToggleActive,
+      (hovered || pressed) && styles.workspaceStatusSummaryToggleHovered,
+    ],
+    [active],
+  );
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Show workspaces grouped by workspace"
+      hitSlop={4}
+      onPressIn={handlePressIn}
+      onPress={handlePress}
+      style={style}
+      testID={testID}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
 function kebabStyle({ hovered = false }: PressableStateCallbackType & { hovered?: boolean }) {
   return [styles.kebabButton, hovered && styles.kebabButtonHovered];
 }
@@ -1052,6 +1246,9 @@ function getStatusWorkspaceRowStyle({
 const styles = StyleSheet.create((theme) => ({
   container: {
     flex: 1,
+  },
+  embeddedContainer: {
+    width: "100%",
   },
   list: {
     flex: 1,
@@ -1136,6 +1333,19 @@ const styles = StyleSheet.create((theme) => ({
   },
   sidebarRowSelected: {
     backgroundColor: theme.colors.surfaceSidebarHover,
+  },
+  workspaceStatusSummaryToggle: {
+    minHeight: 24,
+    paddingHorizontal: theme.spacing[1],
+    borderRadius: theme.borderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  workspaceStatusSummaryToggleActive: {
+    backgroundColor: theme.colors.surface2,
+  },
+  workspaceStatusSummaryToggleHovered: {
+    backgroundColor: theme.colors.surface2,
   },
   kebabButton: {
     width: 24,

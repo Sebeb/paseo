@@ -2,6 +2,10 @@ import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
 import type { WorkspaceTabSnapshot } from "@/stores/workspace-layout-actions";
 import { shouldAutoOpenAgentTab } from "@/subagents/policies";
 import { normalizeWorkspaceOpaqueId } from "@/utils/workspace-identity";
+import {
+  buildAgentWorkspaceLookup,
+  resolveEffectiveAgentWorkspaceId,
+} from "@/workspace-tabs/agent-workspace-resolution";
 
 export interface WorkspaceAgentVisibility {
   activeAgentIds: Set<string>;
@@ -11,80 +15,6 @@ export interface WorkspaceAgentVisibility {
   branchGroupIdsByAgentId: Map<string, readonly string[]>;
 }
 
-function trimComparable(value: string | null | undefined): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed ? trimmed.toLocaleLowerCase() : null;
-}
-
-function workspacesRepresentSameBranch(
-  left: WorkspaceDescriptor | null | undefined,
-  right: WorkspaceDescriptor | null | undefined,
-): boolean {
-  if (!left || !right || left.id === right.id) {
-    return false;
-  }
-  return (
-    left.projectId === right.projectId &&
-    trimComparable(left.name) === trimComparable(right.name) &&
-    trimComparable(left.projectRootPath) === trimComparable(right.projectRootPath)
-  );
-}
-
-function resolveDelegationRootAgent(
-  agent: Agent,
-  agentsById: ReadonlyMap<string, Agent>,
-): Agent | null {
-  const seen = new Set<string>([agent.id]);
-  let current = agent;
-
-  while (true) {
-    const parentAgentId = current.parentAgentId;
-    if (!parentAgentId) {
-      return current;
-    }
-    if (seen.has(parentAgentId)) {
-      return null;
-    }
-    const parent = agentsById.get(parentAgentId);
-    if (!parent) {
-      return null;
-    }
-    seen.add(parentAgentId);
-    current = parent;
-  }
-}
-
-function resolveAgentWorkspaceId(input: {
-  agent: Agent;
-  agentsById: ReadonlyMap<string, Agent>;
-  workspaces?: ReadonlyMap<string, WorkspaceDescriptor> | undefined;
-}): string | null {
-  const ownWorkspaceId = normalizeWorkspaceOpaqueId(input.agent.workspaceId);
-  if (!input.agent.parentAgentId) {
-    return ownWorkspaceId;
-  }
-
-  const rootAgent = resolveDelegationRootAgent(input.agent, input.agentsById);
-  const rootWorkspaceId = normalizeWorkspaceOpaqueId(rootAgent?.workspaceId);
-  if (!rootWorkspaceId || !ownWorkspaceId || rootWorkspaceId === ownWorkspaceId) {
-    return ownWorkspaceId ?? rootWorkspaceId;
-  }
-
-  if (
-    workspacesRepresentSameBranch(
-      input.workspaces?.get(ownWorkspaceId),
-      input.workspaces?.get(rootWorkspaceId),
-    )
-  ) {
-    return rootWorkspaceId;
-  }
-
-  return ownWorkspaceId;
-}
-
 function agentBelongsToWorkspace(input: {
   agent: Agent;
   agentsById: ReadonlyMap<string, Agent>;
@@ -92,7 +22,7 @@ function agentBelongsToWorkspace(input: {
   workspaceId: string;
 }): boolean {
   return (
-    resolveAgentWorkspaceId({
+    resolveEffectiveAgentWorkspaceId({
       agent: input.agent,
       agentsById: input.agentsById,
       workspaces: input.workspaces,
@@ -110,18 +40,29 @@ function createEmptyWorkspaceAgentVisibility(): WorkspaceAgentVisibility {
   };
 }
 
-function buildAgentsById(input: {
-  sessionAgents: Map<string, Agent> | undefined;
-  agentDetails?: Map<string, Agent> | undefined;
-}): Map<string, Agent> {
-  const agentsById = new Map<string, Agent>();
-  for (const agent of input.agentDetails?.values() ?? []) {
-    agentsById.set(agent.id, agent);
+function hasKnownSeparateWorkspaceParent(input: {
+  agent: Agent;
+  agentsById: ReadonlyMap<string, Agent>;
+  workspaces?: ReadonlyMap<string, WorkspaceDescriptor> | undefined;
+  workspaceId: string;
+}): boolean {
+  const parentAgentId = input.agent.parentAgentId;
+  if (!parentAgentId) {
+    return false;
   }
-  for (const agent of input.sessionAgents?.values() ?? []) {
-    agentsById.set(agent.id, agent);
+  const ownWorkspaceId = normalizeWorkspaceOpaqueId(input.agent.workspaceId);
+  if (ownWorkspaceId !== input.workspaceId) {
+    return false;
   }
-  return agentsById;
+  const parentWorkspaceId = normalizeWorkspaceOpaqueId(
+    input.agentsById.get(parentAgentId)?.workspaceId,
+  );
+  if (!parentWorkspaceId || parentWorkspaceId === input.workspaceId) {
+    return false;
+  }
+  return Boolean(
+    input.workspaces?.has(input.workspaceId) && input.workspaces.has(parentWorkspaceId),
+  );
 }
 
 function recordVisibleSessionAgent(input: {
@@ -170,6 +111,18 @@ function recordVisibleSessionAgent(input: {
     visibility.autoOpenAgentIds.add(agent.id);
     return;
   }
+  if (
+    agent.parentAgentId &&
+    parentAgent &&
+    !hasKnownSeparateWorkspaceParent({
+      agent,
+      agentsById: input.agentsById,
+      workspaces: input.workspaces,
+      workspaceId: input.workspaceId,
+    })
+  ) {
+    return;
+  }
   if (shouldAutoOpenAgentTab(agent)) {
     visibility.autoOpenAgentIds.add(agent.id);
   }
@@ -207,7 +160,7 @@ export function deriveWorkspaceAgentVisibility(input: {
   }
 
   const visibility = createEmptyWorkspaceAgentVisibility();
-  const agentsById = buildAgentsById({ sessionAgents, agentDetails });
+  const agentsById = buildAgentWorkspaceLookup({ sessionAgents, agentDetails });
   for (const agent of sessionAgents?.values() ?? []) {
     recordVisibleSessionAgent({
       agent,

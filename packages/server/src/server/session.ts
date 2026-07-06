@@ -44,14 +44,17 @@ import {
 import { ensureAgentLoaded } from "./agent/agent-loading.js";
 import {
   formatSystemNotificationPrompt,
+  isSystemInjectedEnvelope,
   sendPromptToAgent,
   waitForAgentRunStartWithTimeout,
   unarchiveAgentState,
 } from "./agent/agent-prompt.js";
+import type { AgentTimelineRow } from "./agent/agent-timeline-store-types.js";
 import {
   resolveCreateAgentTitles,
   resolveFirstAgentPromptTitle,
 } from "./agent/create-agent-title.js";
+import { generateAgentTitleFromFirstAgentContext } from "./agent-title-generator.js";
 import { respondToAgentPermission } from "./agent/permission-response.js";
 import type { VoiceCallerContext, VoiceSpeakHandler } from "./voice-types.js";
 import type { ScriptHealthState } from "./script-health-monitor.js";
@@ -2434,7 +2437,7 @@ export class Session {
           initialTitle: workspacePromptTitle,
         },
       );
-      const createdDirectoryWorkspaceForAgent = !createdWorktree && !msg.workspaceId;
+      const isFirstAgentInWorkspace = !(await this.workspaceHasAnyAgent(workspaceId));
 
       const { snapshot, liveSnapshot } = await createAgentCommand(
         {
@@ -2465,16 +2468,19 @@ export class Session {
         },
       );
       createdAgentId = snapshot.id;
+      if (!createdWorktree && msg.workspaceId && isFirstAgentInWorkspace) {
+        await this.writeInitialWorkspaceTitleIfUntitled(workspaceId, workspacePromptTitle);
+      }
       await this.agentUpdates.forwardLiveAgent(snapshot);
-      if (createdDirectoryWorkspaceForAgent && trimmedPrompt) {
-        this.workspaceAutoName.scheduleForDirectory(
-          {
-            workspaceId,
-            cwd: createAgentConfig.cwd,
-            firstAgentContext,
-          },
-          { currentSelection: this.getFocusedAgentSelectionForCwd(createAgentConfig.cwd) },
-        );
+      if (trimmedPrompt || (attachments && attachments.length > 0)) {
+        this.scheduleAutoNameAgentTitleFromContext({
+          agentId: snapshot.id,
+          workspaceId,
+          cwd: createAgentConfig.cwd,
+          firstAgentContext,
+          updateWorkspaceTitle: isFirstAgentInWorkspace,
+          preferNativeTitle: this.agentManager.supportsNativeThreadTitle(snapshot.id),
+        });
       }
       this.createAgentLifecycleDispatch.registerAutoArchiveIfRequested({
         autoArchive,
@@ -3133,19 +3139,45 @@ export class Session {
     }
   }
 
+  /**
+   * Resolve a branch's pending membership to the timeline id of the first
+   * user message sent after branching. The send request's client messageId
+   * cannot be used directly: providers assign their own timeline ids
+   * (Claude uses the SDK/transcript uuid, Codex uses app-server item ids),
+   * and the branch counter in the app is keyed by timeline message ids.
+   * The user message is committed to the durable timeline asynchronously,
+   * so this retries briefly; callers must not await it on the send path.
+   */
   private async markPendingBranchMessage(
     agentId: string,
-    messageId: string | undefined,
+    sentMessageId: string | undefined,
   ): Promise<void> {
-    if (!messageId) {
-      return;
-    }
     const record = await this.agentStorage.get(agentId);
     const pendingGroupId = record?.branching?.pendingGroupId;
     if (!record || !pendingGroupId) {
       return;
     }
-    const branching = this.normalizeBranchingMetadata(record.branching);
+    const pendingMembership = record.branching?.memberships.find(
+      (membership) => membership.groupId === pendingGroupId && membership.messageId === null,
+    );
+    if (!pendingMembership) {
+      return;
+    }
+
+    const messageId = await this.resolveBranchUserMessageId({
+      agentId,
+      sentMessageId,
+      notBefore: Date.parse(pendingMembership.createdAt),
+    });
+    if (!messageId) {
+      return;
+    }
+
+    const latestRecord = await this.agentStorage.get(agentId);
+    if (!latestRecord || latestRecord.branching?.pendingGroupId !== pendingGroupId) {
+      return;
+    }
+    const branching = this.normalizeBranchingMetadata(latestRecord.branching);
     let changed = false;
     branching.memberships = branching.memberships.map((membership) => {
       if (membership.groupId !== pendingGroupId || membership.messageId !== null) {
@@ -3158,7 +3190,44 @@ export class Session {
       return;
     }
     branching.pendingGroupId = null;
-    await this.writeAgentBranchingMetadata(record, branching);
+    await this.writeAgentBranchingMetadata(latestRecord, branching);
+  }
+
+  private async resolveBranchUserMessageId(input: {
+    agentId: string;
+    sentMessageId: string | undefined;
+    notBefore: number;
+  }): Promise<string | null> {
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      let rows: AgentTimelineRow[];
+      try {
+        rows = await this.agentManager.getTimelineRows(input.agentId);
+      } catch {
+        return null;
+      }
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const row = rows[index];
+        if (!row || row.item.type !== "user_message" || !row.item.messageId) {
+          continue;
+        }
+        if (isSystemInjectedEnvelope(row.item.text)) {
+          continue;
+        }
+        if (input.sentMessageId && row.item.messageId === input.sentMessageId) {
+          return row.item.messageId;
+        }
+        const timestamp = Date.parse(row.timestamp);
+        if (Number.isFinite(input.notBefore) && timestamp >= input.notBefore) {
+          return row.item.messageId;
+        }
+        break;
+      }
+      if (Date.now() >= deadline) {
+        return null;
+      }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
+    }
   }
 
   private async buildAgentSessionConfig(
@@ -3208,6 +3277,121 @@ export class Session {
       legacyWorktreeName,
       firstAgentContext,
     );
+  }
+
+  // Generated names may replace the prompt title set at creation, but not a user
+  // rename that landed while the async generator was running.
+  private async applyGeneratedWorkspaceTitle(
+    workspaceId: string,
+    input: { title: string; branch?: string | null; promptTitle?: string | null },
+  ): Promise<void> {
+    const current = await this.workspaceRegistry.get(workspaceId);
+    if (!current) {
+      return;
+    }
+    let title = current.title;
+    if (!title || (input.promptTitle && title === input.promptTitle)) {
+      title = input.title;
+    }
+    await this.workspaceRegistry.upsert({
+      ...current,
+      title,
+      ...(input.branch ? { branch: input.branch } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  private async workspaceHasAnyAgent(workspaceId: string): Promise<boolean> {
+    if (this.agentManager.listAgents().some((agent) => agent.workspaceId === workspaceId)) {
+      return true;
+    }
+    const storedAgents = await this.agentStorage.list();
+    return storedAgents.some(
+      (agent) => agent.workspaceId === workspaceId && agent.internal !== true,
+    );
+  }
+
+  private scheduleAutoNameAgentTitleFromContext(input: {
+    agentId: string;
+    workspaceId: string;
+    cwd: string;
+    firstAgentContext: FirstAgentContext;
+    updateWorkspaceTitle: boolean;
+    preferNativeTitle: boolean;
+  }): void {
+    setTimeout(() => {
+      void this.maybeAutoNameAgentTitleFromContext(input).catch((error) => {
+        this.sessionLogger.warn({ err: error, cwd: input.cwd }, "Failed to auto-name agent title");
+      });
+    }, 0);
+  }
+
+  private async maybeAutoNameAgentTitleFromContext(input: {
+    agentId: string;
+    workspaceId: string;
+    cwd: string;
+    firstAgentContext: FirstAgentContext;
+    updateWorkspaceTitle: boolean;
+    preferNativeTitle: boolean;
+  }): Promise<void> {
+    const nativeTitle = input.preferNativeTitle
+      ? await this.waitForNativeAgentTitle(input.agentId)
+      : null;
+    const title =
+      nativeTitle ??
+      (await generateAgentTitleFromFirstAgentContext({
+        agentManager: this.agentManager,
+        cwd: input.cwd,
+        workspaceGitService: this.workspaceGitService,
+        providerSnapshotManager: this.providerSnapshotManager,
+        daemonConfig: this.readStructuredGenerationDaemonConfig(),
+        currentSelection: this.getFocusedAgentSelectionForCwd(input.cwd),
+        firstAgentContext: input.firstAgentContext,
+        logger: this.sessionLogger,
+      }));
+    if (!title) {
+      return;
+    }
+    await this.agentManager.setTitle(input.agentId, title);
+    if (input.updateWorkspaceTitle) {
+      await this.applyGeneratedWorkspaceTitle(input.workspaceId, {
+        title,
+        promptTitle: resolveFirstAgentPromptTitle(input.firstAgentContext),
+      });
+      await this.emitWorkspaceUpdateForWorkspaceId(input.workspaceId);
+    }
+  }
+
+  private async waitForNativeAgentTitle(agentId: string): Promise<string | null> {
+    const delaysMs = [0, 500, 1_000, 2_000];
+    for (const delayMs of delaysMs) {
+      if (delayMs > 0) {
+        await new Promise((done) => setTimeout(done, delayMs));
+      }
+      const title = await this.agentManager.refreshNativeThreadTitle(agentId);
+      if (title) {
+        return title;
+      }
+    }
+    return null;
+  }
+
+  private async writeInitialWorkspaceTitleIfUntitled(
+    workspaceId: string,
+    title: string | null,
+  ): Promise<void> {
+    if (!title) {
+      return;
+    }
+    const current = await this.workspaceRegistry.get(workspaceId);
+    if (!current || current.title) {
+      return;
+    }
+    await this.workspaceRegistry.upsert({
+      ...current,
+      title,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   private isPathWithinRoot(rootPath: string, candidatePath: string): boolean {
@@ -5680,7 +5864,14 @@ export class Session {
         return;
       }
 
-      await this.markPendingBranchMessage(agentId, msg.messageId);
+      // Fire-and-forget: waits for the user message to land in the durable
+      // timeline (up to ~15s) and must not delay the send response.
+      void this.markPendingBranchMessage(agentId, msg.messageId).catch((error) => {
+        this.sessionLogger.warn(
+          { err: error, agentId },
+          "Failed to resolve pending branch message",
+        );
+      });
 
       if (dispatchResult.outOfBand) {
         this.emit({
