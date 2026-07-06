@@ -387,11 +387,17 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     marginRight: -theme.spacing[1],
   },
   trailingRow: {
-    alignSelf: "flex-end",
+    alignSelf: "stretch",
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
     marginTop: theme.spacing[2],
+  },
+  trailingRowActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    marginLeft: "auto",
   },
   trailingRowHidden: {
     opacity: 0,
@@ -561,27 +567,29 @@ export const UserMessage = memo(function UserMessage({
             {branchInfo && onNavigateBranch ? (
               <BranchCounter branchInfo={branchInfo} onNavigate={onNavigateBranch} />
             ) : null}
-            <Text style={userMessageStylesheet.timestampText}>{formattedTimestamp}</Text>
-            {canBranch ? (
-              <BranchButton
-                isPending={branchMutation.isPending}
-                rewoundText={message}
-                onBranch={handleBranch}
+            <View style={userMessageStylesheet.trailingRowActions}>
+              <Text style={userMessageStylesheet.timestampText}>{formattedTimestamp}</Text>
+              {canBranch ? (
+                <BranchButton
+                  isPending={branchMutation.isPending}
+                  rewoundText={message}
+                  onBranch={handleBranch}
+                />
+              ) : null}
+              {capabilities ? (
+                <RewindMenu
+                  capabilities={capabilities}
+                  isPending={rewindMutation.isPending}
+                  rewoundText={message}
+                  onRewind={handleRewind}
+                />
+              ) : null}
+              <TurnCopyButton
+                getContent={getMessageContent}
+                containerStyle={userMessageStylesheet.copyButton}
+                accessibilityLabel={t("message.actions.copyMessage")}
               />
-            ) : null}
-            {capabilities ? (
-              <RewindMenu
-                capabilities={capabilities}
-                isPending={rewindMutation.isPending}
-                rewoundText={message}
-                onRewind={handleRewind}
-              />
-            ) : null}
-            <TurnCopyButton
-              getContent={getMessageContent}
-              containerStyle={userMessageStylesheet.copyButton}
-              accessibilityLabel={t("message.actions.copyMessage")}
-            />
+            </View>
           </View>
         ) : null}
       </View>

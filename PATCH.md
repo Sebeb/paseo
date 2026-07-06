@@ -117,7 +117,7 @@ Provider fork/rewind resolution details:
 - Updated branch metadata is persisted through `AgentStorage.upsert` and immediately emitted through `agentUpdates.emitStoredRecord`.
 - The success response includes the branch agent ID and the freshly listed group for the group ID.
 
-`markPendingBranchMessage(agentId, messageId)` runs when a user message is accepted. If the target agent has `branching.pendingGroupId`, it finds memberships in that group with `messageId: null`, replaces them with the accepted message ID, clears `pendingGroupId`, persists the record, and emits the updated snapshot. If the send request has no message ID, the agent has no pending group, or no matching membership changed, it does nothing.
+`markPendingBranchMessage(agentId, sentMessageId)` runs fire-and-forget when a user message is accepted on an agent with `branching.pendingGroupId`. The send request's client messageId cannot be stored directly: providers assign their own timeline ids (Claude uses the SDK/transcript uuid, Codex uses app-server item ids) and the app's branch counter is keyed by timeline message ids. Instead, `resolveBranchUserMessageId` polls the durable timeline (500ms interval, ~15s deadline) for the newest non-system-injected `user_message` row that either matches the sent client id or has a commit timestamp at/after the pending membership's `createdAt`. Once resolved, the membership's `messageId` is filled, `pendingGroupId` is cleared, and the record is persisted and re-emitted — which changes the branch agent's snapshot and triggers the app to refetch branch groups.
 
 `listBranchGroupsForAgent(agentId, groupId?)` scans all stored agents. Without an explicit group ID, it first collects all group IDs present on the requested agent. With an explicit group ID, it includes that group even if the requested agent no longer has a local membership. It then scans all records again, gathers matching memberships into groups, includes `archivedAt` and `title` from each stored agent record, sorts each group's members by ordinal, and returns the groups.
 
@@ -217,7 +217,7 @@ Adds controls to user-message rows for creating a branch from that message and f
 
 ### Behavior
 
-`AgentStreamView` reads `serverInfo.features.agentBranching` and `agent.capabilities.supportsBranchConversation`. It fetches branch groups only when a daemon client is connected, the daemon feature flag is true, and the agent snapshot has at least one branching membership. Fetched groups are cached by server and agent.
+`AgentStreamView` reads `serverInfo.features.agentBranching` and `agent.capabilities.supportsBranchConversation`. It fetches branch groups only when a daemon client is connected, the daemon feature flag is true, and the agent snapshot has at least one branching membership. The branch-groups query key includes a JSON fingerprint of `agent.branching`, so the groups refetch when the daemon resolves a pending branch message (mutation-side invalidation still matches via key prefix).
 
 `branchInfoByMessageId` is derived from branch groups by finding the current agent's member in each group. Only groups with at least two members and a non-null current `messageId` are shown. The map key is the current branch's message ID, so the counter appears beside the user message that represents that branch.
 
@@ -228,7 +228,7 @@ A user message can branch only when all of these are true:
 - The agent status is neither `running` nor `initializing`.
 - The provider capability has `supportsBranchConversation === true`.
 
-`UserMessage` shows its trailing action row when the message has text and either branch info is present, the layout is compact, the platform is native, or the row is hovered. The row can contain, in order, the branch counter, timestamp, branch button, rewind menu, and copy button.
+`UserMessage` shows its trailing action row when the message has text and either branch info is present, the layout is compact, the platform is native, or the row is hovered. The row stretches to the bubble's width: the branch counter sits at the bottom-left, and the timestamp, branch button, rewind menu, and copy button are grouped bottom-right (via `marginLeft: "auto"` so they stay right-aligned when no counter is shown).
 
 `BranchButton` ignores presses while pending, disables the pressable while pending, and passes the original user message text as `rewoundText`. It uses a tooltip on desktop and no mobile tooltip.
 
@@ -259,6 +259,10 @@ Render profiling now treats `agent.branching` as a reason for agent stream re-re
 ### Persistence
 
 Branch metadata is stored inside each persisted agent record rather than in a separate table or file. There is no migration; records without `branching` parse normally. Branch metadata is copied into snapshots when present and is preserved during agent storage flushes.
+
+### Integration with feat/sidebar-workspace-tabs
+
+The branch mutation attaches the source agent's tab as a child of the branch tab via `attachChildTab` (`parentTabIdByTabId`). The sidebar workspace tab tree feature (`feat/sidebar-workspace-tabs`, not on this branch's base) prunes agent→agent tab parent links that the daemon does not corroborate via `parentAgentId` in `pruneStaleAgentParentTabMappings`. When both features are merged, the prune must also keep links between agents that share a branch group: `agent-visibility.ts` builds `branchGroupIdsByAgentId` from `agent.branching.memberships`, threads it through `WorkspaceTabSnapshot`, and the prune keeps a link when child and parent agents share any branch group id. This is implemented on the `merging` branch as commit `4877bd70d` ("fix(app): keep branch-linked agent tab parenting through reconcile") — carry it whenever these branches are recombined.
 
 ### Compatibility
 

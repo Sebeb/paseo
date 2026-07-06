@@ -364,8 +364,16 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       (state) => state.consumePending,
     );
     const setPendingBranchNavigation = useBranchNavigationStore((state) => state.setPending);
+    // The fingerprint keys the query to the snapshot's branching metadata, so
+    // the groups refetch when the daemon resolves a pending branch message
+    // (the branch's first user message after branching). The mutation's
+    // prefix-based invalidation still matches this longer key.
+    const branchingFingerprint = useMemo(
+      () => JSON.stringify(agent.branching ?? null),
+      [agent.branching],
+    );
     const branchGroupsQuery = useQuery({
-      queryKey: agentBranchGroupsQueryKey(resolvedServerId, agentId),
+      queryKey: [...agentBranchGroupsQueryKey(resolvedServerId, agentId), branchingFingerprint],
       queryFn: async () => {
         if (!client) {
           return [];
