@@ -4,7 +4,7 @@ Branch: `feat/vertical-pane-tabs`
 
 Base: `origin/main`
 
-Anchor commit: d906cf0a35df459c24426eecfeb10d87f8339679 — docs(patch): refresh PATCH.md for feat/vertical-pane-tabs
+Anchor commit: 196dcdc902540257b324902b86cea6fed9a7053e — feat(sidebar): add per-server sort modes and show-last limits for projects and workspaces
 
 ## Purpose
 
@@ -14,7 +14,7 @@ This branch expands Paseo's desktop workspace tabs from a single horizontal tab 
 - `vertical`: a dedicated left-side vertical tab rail that still participates in desktop pane splits.
 - `sidebar`: embedded workspace tabs inside the left sidebar, with the main pane's desktop tab row suppressed so the sidebar becomes the canonical tab surface.
 
-The branch also consolidates sidebar workspace rows and embedded tab rows onto shared status, sorting, and row-layout primitives so both vertical modes expose the same actions, badges, and close behavior.
+The branch also consolidates sidebar workspace rows and embedded tab rows onto shared status, sorting, show-last, and row-layout primitives so project mode, status mode, sidebar tabs, and vertical rails expose the same actions, badges, close behavior, and display preferences.
 
 ## Settings And Persisted State
 
@@ -141,7 +141,7 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
   - vertical rows compare tab centers along the y-axis.
 - Vertical rows move close buttons and overflow affordances into overlay positions that do not widen the rail, and they suppress the icon status badge in favor of the denser right-side presentation.
 - Hover/focus tooltips for vertical rows use `workspace-tab-tooltip-preview.tsx` so truncated vertical entries still expose file/agent context.
-- Per-pane display menus expose a `Vertical tabs` toggle and reuse the same display-preference sections as the sidebar features.
+- Per-pane display menus reuse the same tab display-preference and badge menu blocks as the sidebar features. The shared tab menu can change the global tab layout mode, tab sort mode, and recent/show-last count; vertical rails additionally expose the shared sidebar badge preference.
 - The shared new-tab dropdown exposes the same create-agent, create-terminal, create-browser, terminal-profile, edit-profile, and pinnable-target behavior used by the desktop tab row. The desktop row wraps that dropdown with the pinned launcher row; sidebar call sites reuse only the dropdown.
 - `testIDPrefix` defaults to `workspace-new-tab-menu` for the desktop row and lets sidebar call sites generate workspace-specific trigger/item ids without duplicating dropdown logic.
 
@@ -151,7 +151,13 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
 
 - `packages/app/src/components/left-sidebar.tsx`
 - `packages/app/src/components/sidebar-workspace-list.tsx`
+- `packages/app/src/components/sidebar/sidebar-show-all-toggle.tsx`
+- `packages/app/src/components/sidebar/sidebar-status-list.tsx`
 - `packages/app/src/components/sidebar/sidebar-scroll-context.ts`
+- `packages/app/src/hooks/sidebar-status-view-model.ts`
+- `packages/app/src/hooks/sidebar-workspaces-view-model.ts`
+- `packages/app/src/hooks/use-sidebar-workspaces-list.ts`
+- `packages/app/src/stores/sidebar-collapsed-sections-store/{index.ts,state.ts,state.test.ts}`
 - `packages/app/src/stores/panel-store/{index.ts,state.ts,state.test.ts}`
 
 **Behavior**
@@ -163,7 +169,12 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
 - The rail header's shared dropdown can create draft, terminal, terminal-profile, and Electron browser tabs. It focuses the workspace's main pane before opening the tab, reports disconnected hosts and missing workspace paths through toast errors, updates the terminal query cache after terminal creation, and routes `Edit terminal profiles` to the host terminal settings section.
 - When `tabLayoutMode === "sidebar"` on desktop, the standard sidebar workspace list becomes expandable and renders embedded tabs beneath each workspace.
 - The embedded list is driven from the workspace layout store's main pane tab order, then post-processed through the sidebar ordering helpers so user drag order stays stable even when sort mode changes away from `manual`.
-- The sidebar can cap the number of shown embedded tabs via a persisted `recentTabCount` preference and expose `Show all` / `Show less` toggles per workspace.
+- The sidebar can cap the number of shown projects, workspaces, status-bucket rows, and embedded tabs via persisted show-last preferences and expose shared visibility footers.
+- `SidebarShowAllToggle` is the shared footer row for those limits. It renders translated show-all/show-less labels, supports nested or flush indentation, and is used by embedded tabs, project lists, workspace lists, and status groups. Embedded tabs keep the footer visible while expanded so it can show `Show less`; helper-backed project/workspace/status lists suppress the footer once `showAll` is true.
+- Project and workspace limits force-include the currently selected project/workspace even when it falls outside the first N sorted entries, so the active route does not disappear because of a display cap.
+- Project-mode lists keep `DraggableList` only while the relevant sort mode is `manual`; non-manual project or workspace sort modes render static rows so drag reordering cannot imply a persisted order that is not currently driving the view.
+- Status mode groups hydrated workspace rows by fixed status bucket order, applies the selected workspace sort mode within each bucket, caps each bucket with the workspace show-last preference, and builds shortcut numbers from the visible, non-collapsed rows.
+- Project auto-collapse mirrors workspace auto-collapse: when `autoCollapseProjects` is enabled and a collapsed project is opened, `setOnlyProjectExpanded()` opens it and collapses the other scoped projects. Workspace shift-click still expands/collapses all workspaces within a project.
 - Workspace rows get a richer right-hand control policy:
   - hover/desktop shows create-tab controls plus archive/kebab actions when available;
   - touch/compact keeps those controls visible;
@@ -177,42 +188,85 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
 **Files**
 
 - `packages/app/src/components/sidebar/sidebar-grouping-selector.tsx`
+- `packages/app/src/components/sidebar/sidebar-display-preferences-menu.test.tsx`
+- `packages/app/src/hooks/sidebar-status-view-model.ts`
+- `packages/app/src/hooks/sidebar-status-view-model.test.ts`
+- `packages/app/src/hooks/sidebar-workspaces-view-model.ts`
+- `packages/app/src/hooks/sidebar-workspaces-view-model.test.ts`
+- `packages/app/src/hooks/use-sidebar-workspaces-list.ts`
+- `packages/app/src/stores/session-store.ts`
+- `packages/app/src/stores/sidebar-collapsed-sections-store/{index.ts,state.ts,state.test.ts}`
 - `packages/app/src/stores/sidebar-view-store.ts`
 - `packages/app/src/stores/sidebar-view-store.test.ts`
+- `packages/app/src/utils/sidebar-shortcuts.ts`
 - `packages/app/src/utils/sidebar-tab-sort.ts`
 - `packages/app/src/utils/sidebar-tab-sort.test.ts`
 - `packages/app/src/components/sidebar/workspace-row-right-visibility.ts`
 - `packages/app/src/components/sidebar/workspace-row-right-visibility.test.ts`
+- `packages/protocol/src/messages.ts`
 
 **Public surface**
 
-- `type SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated" | "status"`
-- `type SidebarEmbeddedRecentTabCount = 3 | 5 | 10 | "all"`
+- `type SidebarSortMode = "manual" | "created" | "lastUpdated" | "status"`
+- `type SidebarEmbeddedTabSortMode = SidebarSortMode`
+- `type SidebarWorkspaceSortMode = SidebarSortMode`
+- `type SidebarProjectSortMode = SidebarSortMode`
+- `type SidebarShowLastCount = 3 | 5 | 10 | "all"`
+- `type SidebarEmbeddedRecentTabCount = SidebarShowLastCount`
+- `type SidebarWorkspaceShowLastCount = SidebarShowLastCount`
+- `type SidebarProjectShowLastCount = SidebarShowLastCount`
 - `type SidebarBadgeMode = "diff" | "status" | "none"`
-- `type SidebarTabBarBadgeMode = "status" | "none"`
-- `SidebarDisplayPreferencesMenuSections(...)`
+- `SidebarTabDisplayPreferencesMenuItems({ serverId, showRecentTabCount?, closeOnSelect? })`
+- `SidebarBadgePreferenceMenuItems({ serverId, closeOnSelect? })`
+- `sortSidebarWorkspaceProjects({ projects, sortMode })`
+- `sortSidebarProjects({ projects, sortMode })`
+- `sortSidebarWorkspaces({ workspaces, sortMode })`
+- `applySidebarShowLastCount({ items, showLastCount, showAll, forceIncludeKey, getKey })`
+- `buildStatusGroups(workspaces, sortMode)`
+- `buildStatusSidebarShortcutModel({ workspaces, projectNamesByKey, workspaceSortMode?, collapsedStatusGroupKeys?, shortcutLimit? })`
+- `WorkspaceDescriptor.createdAt?: Date | null`
+- `WorkspaceDescriptor.activityAt?: Date | null`
+- `WorkspaceDescriptorPayload.createdAt?: string`
 
 **Behavior**
 
 - The sidebar view store now persists per-server display preferences for:
   - workspace grouping mode
+  - project sort mode
+  - workspace sort mode
   - embedded-tab sort mode
+  - project show-last count
+  - workspace show-last count
   - embedded recent-tab count
   - workspace badge mode
-  - vertical-tab-bar badge mode
+  - auto-collapse projects
   - auto-collapse workspaces
-- `SidebarDisplayPreferencesMenuSections` is the shared menu block used by:
-  - the global sidebar grouping menu
-  - the sidebar embedded-tab header menu
-  - the per-pane/workspace vertical tab menus
-- Sorting rules:
-  - `manual` preserves the current layout order
-  - `created` sorts descending by tab `createdAt`
-  - `lastUpdated` sorts descending by agent `lastUserMessageAt`, falling back to tab `createdAt`
-  - `status` sorts by urgency rank (`input_required`, `failed`, `unread`, `in_progress`) and then by newest activity
+- Server IDs are trimmed before storing preferences. Invalid persisted sort modes normalize to `manual`; invalid project/workspace show-last counts normalize to `all`; invalid embedded recent-tab counts normalize to `5`; invalid badge modes normalize to `status`.
+- `SidebarGroupingSelector` renders universal `Group by` and `Sidebar badge` controls first, then single-expanded Projects, Workspaces, and, in sidebar-tab mode only, Tabs sections. Selecting preferences keeps the dropdown open.
+- The Projects section controls project sort, project show-last count, and project auto-collapse.
+- The Workspaces section controls workspace sort, workspace show-last count, workspace title source, and workspace auto-collapse.
+- The Tabs section and vertical tab display menus use `SidebarTabDisplayPreferencesMenuItems` for view mode, embedded-tab sort, and recent tab count. `SidebarBadgePreferenceMenuItems` is reusable where a surface also needs badge selection.
+- Project/workspace sorting rules:
+  - `manual` preserves the structure/order-store order and keeps drag reorder active.
+  - `created` sorts newest first; workspaces use `workspace.createdAt`, projects use the earliest created child workspace.
+  - `lastUpdated` sorts newest first by `activityAt`, then `createdAt`, then `statusEnteredAt`; projects use the latest child workspace value.
+  - `status` sorts by urgency rank (`needs_input`, `failed`, `attention`, `running`, `done`), then newest activity, then natural name/key comparison.
+- Embedded-tab sorting rules remain tab-specific:
+  - `manual` preserves current layout order.
+  - `created` sorts descending by tab `createdAt`.
+  - `lastUpdated` sorts descending by agent `lastUserMessageAt`, falling back to tab `createdAt`.
+  - `status` sorts by urgency rank (`input_required`, `failed`, `unread`, `in_progress`) and then by newest activity.
+- Show-last rules:
+  - project and workspace defaults are `all`;
+  - embedded tab default is `5`;
+  - numeric values show the first `3`, `5`, or `10` rows after sorting;
+  - `showAll` bypasses the cap and suppresses the visibility toggle;
+  - `forceIncludeKey` appends the active item when it is outside the visible slice.
 - Badge mode rules:
-  - sidebar workspace rows can show diff stats, propagated status summaries, or nothing;
-  - vertical tab bars only expose `status` or `none`.
+  - sidebar workspace rows can show diff stats, propagated status summaries, or nothing.
+  - vertical tab rows read the unified badge preference and only render status badges when the mode is `status`.
+- `WorkspaceDescriptorPayloadSchema` accepts optional `createdAt`, and `normalizeWorkspaceDescriptor()` parses `createdAt`, `activityAt`, and `statusEnteredAt` through a shared timestamp normalizer that returns `null` for missing or invalid values.
+- `useSidebarWorkspacesList()` hydrates structural project rows from the session store only when a non-manual project/workspace sort requires timestamps/status data. Order-store repair still uses the unsorted base structure so persisted manual order is not rewritten by sorted views.
 - `getWorkspaceRowRightVisibility()` returns `showCreateTab: true` when a workspace row has a create-tab action, the row action controls are visible by hover/touch/compact layout, and no shortcut badge is being shown.
 
 ## Shared Sidebar Row And Status Primitives
@@ -220,6 +274,7 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
 **Files**
 
 - `packages/app/src/components/sidebar/sidebar-entry-row.tsx`
+- `packages/app/src/components/sidebar/sidebar-show-all-toggle.tsx`
 - `packages/app/src/components/sidebar/sidebar-workspace-row-content.tsx`
 - `packages/app/src/components/sidebar/sidebar-workspace-row.tsx`
 - `packages/app/src/components/sidebar/sidebar-status-list.tsx`
@@ -233,6 +288,7 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
 - `SidebarEntryRowContent`
 - `SidebarEntryStatusBadges`
 - `SidebarEntryPrimaryStatusBadge`
+- `SidebarShowAllToggle`
 - `summarizeSidebarTabs(...)`
 - `combineSidebarTabStatusSummaries(...)`
 - `getVisibleSidebarEntryStatusKinds(...)`
@@ -256,6 +312,7 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
 - Draft propagation distinguishes "tab is a draft" from "tab has draft text": draft icons can appear locally without necessarily propagating upward.
 - Running tabs use the synchronized loader badge; input-required and failed can collapse to a single icon when the count is exactly one.
 - Workspace-level summaries are built by combining the propagated portions of child tab summaries, which keeps workspace badges aligned with the embedded-tab rows beneath them.
+- Status-mode workspace rows can show the same status badge summaries as project-mode rows when `badgeMode === "status"`, and they suppress diff/status trailing content while a kebab action or shortcut badge is visible.
 
 ## Navigation, Docs, And Supporting Updates
 
@@ -263,14 +320,19 @@ The branch also consolidates sidebar workspace rows and embedded tab rows onto s
 
 - `docs/agent-lifecycle.md`
 - `docs/design.md`
+- `packages/app/src/components/workspace-shortcut-targets-subscriber.tsx`
+- `packages/app/src/components/workspace-shortcut-targets-subscriber.test.tsx`
 - `packages/app/src/stores/navigation-active-workspace-store/{index.ts,navigation.ts,navigation.test.ts}`
 - `packages/app/src/utils/prepare-workspace-tab.ts`
+- `packages/app/src/utils/sidebar-shortcuts.ts`
 
 **Behavior**
 
 - `docs/agent-lifecycle.md` now documents the intentional distinction between closing root-agent tabs and closing subagent tabs.
 - `docs/design.md` records the shared sidebar-entry primitive and its fixed 36px row height as the canonical sidebar row layout.
 - Navigation store changes support the new tab surfaces without re-opening attention tabs over an explicit user tab selection.
+- Workspace shortcut target publishing reads the status-mode workspace sort preference and passes it into `buildStatusSidebarShortcutModel()`, so numeric shortcuts match the sorted visual order rather than the unsorted project structure.
+- The shortcut subscriber test mocks AsyncStorage because sidebar preference state is now persisted through the sidebar view store.
 
 ## Test Coverage
 
@@ -284,10 +346,14 @@ Focused tests added or updated on this branch include:
 - `packages/app/src/components/sidebar/sidebar-entry-row.test.tsx`
 - `packages/app/src/components/sidebar/sidebar-workspace-row-content.test.tsx`
 - `packages/app/src/components/sidebar/workspace-row-right-visibility.test.ts`
+- `packages/app/src/components/workspace-shortcut-targets-subscriber.test.tsx`
+- `packages/app/src/hooks/sidebar-status-view-model.test.ts`
+- `packages/app/src/hooks/sidebar-workspaces-view-model.test.ts`
+- `packages/app/src/stores/sidebar-collapsed-sections-store/state.test.ts`
 - `packages/app/src/stores/sidebar-view-store.test.ts`
 - `packages/app/src/utils/sidebar-tab-sort.test.ts`
 - `packages/app/src/utils/sidebar-tab-status-summary.test.ts`
 - `packages/app/src/components/split-container-tab-drop-preview.test.ts`
 - `packages/app/src/workspace-tabs/tab-navigation.test.ts`
 
-These tests cover settings migration, pane metadata normalization, main-pane detection, embedded-tab ordering, display-menu persistence, sidebar badge/status rendering, workspace-row action visibility, and orientation-aware tab-drop preview logic.
+These tests cover settings migration, pane metadata normalization, main-pane detection, embedded-tab ordering, display-menu persistence, project/workspace sort and show-last behavior, sidebar collapsed-section persistence, status-mode shortcut ordering, sidebar badge/status rendering, workspace-row action visibility, and orientation-aware tab-drop preview logic.
