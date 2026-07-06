@@ -475,6 +475,7 @@ export const ptBR: TranslationResources = {
         copyResumeCommand: "Copiar comando de retomada",
         copyAgentId: "Copiar ID do agente",
         copyFilePath: "Copiar caminho do arquivo",
+        duplicateChat: "Duplicar chat",
         rename: "Renomear",
         closeAbove: "Fechar abas acima",
         closeBelow: "Fechar abas abaixo",
@@ -517,6 +518,7 @@ export const ptBR: TranslationResources = {
         reloadingAgent: "Recarregando agente...",
         reloadedAgent: "Agente recarregado",
         failedToReloadAgent: "Falha ao recarregar agente",
+        failedToDuplicateChat: "Falha ao duplicar o chat",
       },
       confirmations: {
         close: "Fechar",

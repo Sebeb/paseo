@@ -72,6 +72,7 @@ import type {
   DiagnosticsResponse,
   AgentRewindResponseMessage,
   AgentBranchCreateResponseMessage,
+  AgentDuplicateResponseMessage,
   AgentBranchGroupsResponseMessage,
   ListTerminalsResponse,
   CreateTerminalResponse,
@@ -362,6 +363,7 @@ type RefreshProvidersSnapshotPayload = RefreshProvidersSnapshotResponseMessage["
 type ProviderDiagnosticPayload = ProviderDiagnosticResponseMessage["payload"];
 type ProviderUsageListPayload = ProviderUsageListResponseMessage["payload"];
 export type AgentBranchCreatePayload = AgentBranchCreateResponseMessage["payload"];
+export type AgentDuplicatePayload = AgentDuplicateResponseMessage["payload"];
 export type AgentBranchGroupsPayload = AgentBranchGroupsResponseMessage["payload"];
 type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
 type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
@@ -2550,6 +2552,24 @@ export class DaemonClient {
       });
     if (!payload.ok) {
       throw new Error(payload.error ?? "Agent branch failed");
+    }
+    return payload;
+  }
+
+  async duplicateAgent(
+    agentId: string,
+    options?: { requestId?: string },
+  ): Promise<AgentDuplicatePayload> {
+    const payload = await this.sendNamespacedCorrelatedSessionRequest<"agent.duplicate.response">({
+      requestId: options?.requestId,
+      message: {
+        type: "agent.duplicate.request",
+        agentId,
+      },
+      timeout: 30000,
+    });
+    if (!payload.ok) {
+      throw new Error(payload.error ?? "Agent duplicate failed");
     }
     return payload;
   }

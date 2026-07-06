@@ -82,6 +82,72 @@ describe("buildWorkspaceTabMenuEntries", () => {
     ]);
   });
 
+  it("includes duplicate chat for agent tabs only when a handler is provided", () => {
+    const onDuplicateChat = vi.fn();
+    const baseInput = {
+      surface: "desktop" as const,
+      tab: createAgentTab(),
+      index: 0,
+      tabCount: 1,
+      menuTestIDBase: "workspace-tab-context-agent_123",
+      onCopyResumeCommand: vi.fn(),
+      onCopyAgentId: vi.fn(),
+      onCopyFilePath: vi.fn(),
+      onReloadAgent: vi.fn(),
+      onRenameTab: vi.fn(),
+      onCloseTab: vi.fn(),
+      onCloseTabsBefore: vi.fn(),
+      onCloseTabsAfter: vi.fn(),
+      onCloseOtherTabs: vi.fn(),
+    };
+
+    const withoutHandler = buildWorkspaceTabMenuEntries(baseInput);
+    expect(
+      withoutHandler.some((entry) => entry.kind === "item" && entry.key === "duplicate-chat"),
+    ).toBe(false);
+
+    const withHandler = buildWorkspaceTabMenuEntries({ ...baseInput, onDuplicateChat });
+    const duplicateEntry = withHandler.find(
+      (entry) => entry.kind === "item" && entry.key === "duplicate-chat",
+    );
+    if (!duplicateEntry || duplicateEntry.kind !== "item") {
+      throw new Error("Duplicate chat entry missing");
+    }
+    expect(duplicateEntry.label).toBe("Duplicate chat");
+    expect(duplicateEntry.icon).toBe("copy-plus");
+    duplicateEntry.onSelect();
+    expect(onDuplicateChat).toHaveBeenCalledWith("agent-123");
+  });
+
+  it("omits duplicate chat for non-agent tabs even when a handler is provided", () => {
+    const entries = buildWorkspaceTabMenuEntries({
+      surface: "desktop",
+      tab: {
+        key: "terminal_abc",
+        tabId: "terminal_abc",
+        kind: "terminal",
+        target: { kind: "terminal", terminalId: "terminal-abc" },
+      },
+      index: 0,
+      tabCount: 1,
+      menuTestIDBase: "workspace-tab-context-terminal_abc",
+      onCopyResumeCommand: vi.fn(),
+      onCopyAgentId: vi.fn(),
+      onCopyFilePath: vi.fn(),
+      onDuplicateChat: vi.fn(),
+      onReloadAgent: vi.fn(),
+      onRenameTab: vi.fn(),
+      onCloseTab: vi.fn(),
+      onCloseTabsBefore: vi.fn(),
+      onCloseTabsAfter: vi.fn(),
+      onCloseOtherTabs: vi.fn(),
+    });
+
+    expect(entries.some((entry) => entry.kind === "item" && entry.key === "duplicate-chat")).toBe(
+      false,
+    );
+  });
+
   it("omits agent copy actions and rename for draft tabs", () => {
     const entries = buildWorkspaceTabMenuEntries({
       surface: "mobile",

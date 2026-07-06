@@ -123,6 +123,26 @@ Provider fork/rewind resolution details:
 
 Agent storage preserves existing `branching` across live-agent snapshot flushes, matching the existing archive preservation behavior. This prevents normal persistence writes from dropping branch metadata that lives only in stored records.
 
+## Duplicate Chat
+
+### Purpose
+
+Duplicates an agent's full conversation into a new, independent agent — exposed as a "Duplicate chat" entry in the tab context menu. Uses the same fork-on-source machinery as branching but with no rollback and no branch-group linkage: the copy is a standalone sibling with the same config, labels, workspace, and title.
+
+### Public Surface
+
+- `agent.duplicate.request` — `{ type: "agent.duplicate.request"; agentId: string; requestId: string }`
+- `agent.duplicate.response` — `{ payload: { requestId; agentId; duplicateAgentId: string | null; ok; error } }`
+- `AgentSession.duplicateConversation?(): Promise<AgentPersistenceHandle | null>` — fork the full conversation into a new provider session (Claude: SDK `forkSession` up to the last observed assistant message; Codex: `thread/fork` with no rollback). Returns null when there is no conversation history yet.
+- `AgentManager.duplicateConversation(agentId)`
+- `DaemonClient.duplicateAgent(agentId, options?): Promise<AgentDuplicatePayload>` — 30s timeout, throws on `ok: false`.
+
+### Behavior
+
+`handleAgentDuplicateRequest` reuses `resolveAgentBranchSource` (live agent, not running, `supportsBranchConversation`, persisted, not archived), duplicates on the source, then creates the copy via `resumeAgentFromPersistence` (or `createAgent` for a null handle) and hydrates its timeline with `force` + `broadcast`. The source title is copied onto the duplicate record when present. No branching metadata is written — duplicates do not join a branch group.
+
+The feature is gated in the app by the same `serverInfo.features.agentBranching` flag as branching (both capabilities ship in the same daemon version).
+
 ## Daemon Client API
 
 ### Purpose
@@ -138,6 +158,7 @@ Exposes typed client helpers for app code to create a branch and fetch branch gr
 - `export type AgentBranchCreatePayload = AgentBranchCreateResponseMessage["payload"]`
 - `export type AgentBranchGroupsPayload = AgentBranchGroupsResponseMessage["payload"]`
 - `DaemonClient.createAgentBranch(agentId: string, messageId: string, options?: { requestId?: string }): Promise<AgentBranchCreatePayload>`
+- `DaemonClient.duplicateAgent(agentId: string, options?: { requestId?: string }): Promise<AgentDuplicatePayload>`
 - `DaemonClient.fetchAgentBranchGroups(agentId: string, options?: { requestId?: string; groupId?: string }): Promise<AgentBranchGroupsPayload>`
 
 ### Behavior
@@ -150,7 +171,7 @@ Exposes typed client helpers for app code to create a branch and fetch branch gr
 
 ### Purpose
 
-Adds controls to user-message rows for creating a branch from that message and for navigating between sibling branches in the same group.
+Adds controls to user-message rows for creating a branch from that message and for navigating between sibling branches in the same group. Also adds a "Duplicate chat" entry to agent tab context menus (desktop right-click and mobile tab switcher): shown only when the daemon advertises `features.agentBranching` and a handler is supplied, it calls `DaemonClient.duplicateAgent`, opens the duplicate agent in a focused tab, and fetches its timeline. The entry uses the `copy-plus` icon and is plumbed as an optional `onDuplicateChat` handler through `workspace-tab-menu.ts`, `workspace-desktop-tabs-row.tsx`, `split-container.tsx`, and `workspace-screen.tsx`.
 
 ### Files
 

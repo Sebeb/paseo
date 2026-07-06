@@ -1436,6 +1436,8 @@ export class Session {
         return this.handleAgentBranchCreateRequest(msg);
       case "agent.branch.groups.request":
         return this.handleAgentBranchGroupsRequest(msg);
+      case "agent.duplicate.request":
+        return this.handleAgentDuplicateRequest(msg);
       default:
         return undefined;
     }
@@ -3055,6 +3057,78 @@ export class Session {
         group: null,
         ok: false,
         error: error instanceof Error ? error.message : "Failed to branch agent",
+      });
+    }
+  }
+
+  private async handleAgentDuplicateRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.duplicate.request" }>,
+  ): Promise<void> {
+    let duplicateAgentId: string | null = null;
+    try {
+      const { sourceAgent, sourceRecord } = await this.resolveAgentBranchSource(msg.agentId);
+
+      // Duplicate on the SOURCE agent: fork the full conversation into a
+      // brand-new provider session so the copy never shares native state
+      // with the source. A null handle means there is no conversation
+      // history yet — the duplicate starts fresh.
+      const duplicatedHandle = await this.agentManager.duplicateConversation(sourceAgent.id);
+      const duplicateOptions = {
+        labels: sourceAgent.labels,
+        workspaceId: sourceAgent.workspaceId,
+        initialTitle: sourceRecord.title ?? null,
+      };
+      const duplicateAgent = duplicatedHandle
+        ? await this.agentManager.resumeAgentFromPersistence(
+            duplicatedHandle,
+            sourceAgent.config,
+            undefined,
+            {
+              labels: duplicateOptions.labels,
+              workspaceId: duplicateOptions.workspaceId,
+            },
+          )
+        : await this.agentManager.createAgent(sourceAgent.config, undefined, duplicateOptions);
+      duplicateAgentId = duplicateAgent.id;
+      if (duplicatedHandle) {
+        await this.agentManager.hydrateTimelineFromProvider(duplicateAgent.id, {
+          force: true,
+          broadcast: true,
+        });
+        if (sourceRecord.title) {
+          const duplicateRecord = await this.agentStorage.get(duplicateAgent.id);
+          if (duplicateRecord && !duplicateRecord.title) {
+            const nextRecord: StoredAgentRecord = {
+              ...duplicateRecord,
+              title: sourceRecord.title,
+              updatedAt: new Date().toISOString(),
+            };
+            await this.agentStorage.upsert(nextRecord);
+            await this.agentUpdates.emitStoredRecord(nextRecord);
+          }
+        }
+      }
+
+      this.emit({
+        type: "agent.duplicate.response",
+        payload: {
+          requestId: msg.requestId,
+          agentId: sourceAgent.id,
+          duplicateAgentId: duplicateAgent.id,
+          ok: true,
+          error: null,
+        },
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.duplicate.response",
+        payload: {
+          requestId: msg.requestId,
+          agentId: msg.agentId,
+          duplicateAgentId,
+          ok: false,
+          error: error instanceof Error ? error.message : "Failed to duplicate agent",
+        },
       });
     }
   }

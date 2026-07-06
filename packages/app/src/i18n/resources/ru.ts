@@ -475,6 +475,7 @@ export const ru: TranslationResources = {
         copyResumeCommand: "Копировать команду возобновления",
         copyAgentId: "Скопировать идентификатор агента",
         copyFilePath: "Copy file path",
+        duplicateChat: "Дублировать чат",
         rename: "Переименовать",
         closeAbove: "Закрыть вкладки выше",
         closeBelow: "Закройте вкладки ниже",
@@ -517,6 +518,7 @@ export const ru: TranslationResources = {
         reloadingAgent: "Перезагрузка агента...",
         reloadedAgent: "Перезагруженный агент",
         failedToReloadAgent: "Не удалось перезагрузить агент",
+        failedToDuplicateChat: "Не удалось дублировать чат",
       },
       confirmations: {
         close: "Закрывать",

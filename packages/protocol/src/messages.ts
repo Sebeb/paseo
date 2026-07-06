@@ -1438,6 +1438,23 @@ export const AgentBranchCreateResponseMessageSchema = z.object({
   }),
 });
 
+export const AgentDuplicateRequestMessageSchema = z.object({
+  type: z.literal("agent.duplicate.request"),
+  agentId: z.string(),
+  requestId: z.string(),
+});
+
+export const AgentDuplicateResponseMessageSchema = z.object({
+  type: z.literal("agent.duplicate.response"),
+  payload: z.object({
+    requestId: z.string(),
+    agentId: z.string(),
+    duplicateAgentId: z.string().nullable(),
+    ok: z.boolean(),
+    error: z.string().nullable(),
+  }),
+});
+
 export const AgentBranchGroupsRequestMessageSchema = z.object({
   type: z.literal("agent.branch.groups.request"),
   agentId: z.string(),
@@ -2162,6 +2179,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentDetachRequestMessageSchema,
   AgentRewindRequestMessageSchema,
   AgentBranchCreateRequestMessageSchema,
+  AgentDuplicateRequestMessageSchema,
   AgentBranchGroupsRequestMessageSchema,
   AgentPermissionResponseMessageSchema,
   CheckoutStatusRequestSchema,
@@ -4293,6 +4311,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentDetachResponseMessageSchema,
   AgentRewindResponseMessageSchema,
   AgentBranchCreateResponseMessageSchema,
+  AgentDuplicateResponseMessageSchema,
   AgentBranchGroupsResponseMessageSchema,
   UpdateAgentResponseMessageSchema,
   ProjectRenameResponseSchema,
@@ -4450,6 +4469,7 @@ export type AgentRewindResponseMessage = z.infer<typeof AgentRewindResponseMessa
 export type AgentBranchCreateResponseMessage = z.infer<
   typeof AgentBranchCreateResponseMessageSchema
 >;
+export type AgentDuplicateResponseMessage = z.infer<typeof AgentDuplicateResponseMessageSchema>;
 export type AgentBranchGroupsResponseMessage = z.infer<
   typeof AgentBranchGroupsResponseMessageSchema
 >;
@@ -4598,6 +4618,7 @@ export type SetAgentThinkingRequestMessage = z.infer<typeof SetAgentThinkingRequ
 export type SetAgentFeatureRequestMessage = z.infer<typeof SetAgentFeatureRequestMessageSchema>;
 export type AgentDetachRequestMessage = z.infer<typeof AgentDetachRequestMessageSchema>;
 export type AgentBranchCreateRequestMessage = z.infer<typeof AgentBranchCreateRequestMessageSchema>;
+export type AgentDuplicateRequestMessage = z.infer<typeof AgentDuplicateRequestMessageSchema>;
 export type AgentBranchGroupsRequestMessage = z.infer<typeof AgentBranchGroupsRequestMessageSchema>;
 export type AgentPermissionResponseMessage = z.infer<typeof AgentPermissionResponseMessageSchema>;
 export type CheckoutStatusRequest = z.infer<typeof CheckoutStatusRequestSchema>;

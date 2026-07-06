@@ -22,6 +22,7 @@ import {
   ArrowRightToLine,
   ChevronDown,
   Copy,
+  CopyPlus,
   Ellipsis,
   EllipsisVertical,
   Globe,
@@ -236,6 +237,7 @@ const ThemedEllipsis = withUnistyles(Ellipsis);
 const ThemedEllipsisVertical = withUnistyles(EllipsisVertical);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedCopy = withUnistyles(Copy);
+const ThemedCopyPlus = withUnistyles(CopyPlus);
 const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedArrowLeftToLine = withUnistyles(ArrowLeftToLine);
 const ThemedArrowRightToLine = withUnistyles(ArrowRightToLine);
@@ -391,6 +393,7 @@ interface MobileWorkspaceTabSwitcherProps {
   onCopyResumeCommand: (agentId: string) => Promise<void> | void;
   onCopyAgentId: (agentId: string) => Promise<void> | void;
   onCopyFilePath: (path: string) => Promise<void> | void;
+  onDuplicateChat?: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
@@ -532,6 +535,8 @@ function MobileTabDropdownMenuItem({
     switch (entry.icon) {
       case "copy":
         return <ThemedCopy size={16} uniProps={mutedColorMapping} />;
+      case "copy-plus":
+        return <ThemedCopyPlus size={16} uniProps={mutedColorMapping} />;
       case "rotate-cw":
         return <ThemedRotateCw size={16} uniProps={mutedColorMapping} />;
       case "arrow-left-to-line":
@@ -579,6 +584,7 @@ function MobileWorkspaceTabOption({
   onCopyResumeCommand,
   onCopyAgentId,
   onCopyFilePath,
+  onDuplicateChat,
   onReloadAgent,
   onRenameTab,
   onCloseTab,
@@ -597,6 +603,7 @@ function MobileWorkspaceTabOption({
   onCopyResumeCommand: (agentId: string) => Promise<void> | void;
   onCopyAgentId: (agentId: string) => Promise<void> | void;
   onCopyFilePath: (path: string) => Promise<void> | void;
+  onDuplicateChat?: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
@@ -610,6 +617,7 @@ function MobileWorkspaceTabOption({
       copyResumeCommand: t("workspace.tabs.menu.copyResumeCommand"),
       copyAgentId: t("workspace.tabs.menu.copyAgentId"),
       copyFilePath: t("workspace.tabs.menu.copyFilePath"),
+      duplicateChat: t("workspace.tabs.menu.duplicateChat"),
       rename: t("workspace.tabs.menu.rename"),
       closeAbove: t("workspace.tabs.menu.closeAbove"),
       closeBelow: t("workspace.tabs.menu.closeBelow"),
@@ -632,6 +640,7 @@ function MobileWorkspaceTabOption({
     onCopyResumeCommand,
     onCopyAgentId,
     onCopyFilePath,
+    onDuplicateChat,
     onReloadAgent,
     onRenameTab,
     onCloseTab,
@@ -699,6 +708,7 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
   onCopyResumeCommand,
   onCopyAgentId,
   onCopyFilePath,
+  onDuplicateChat,
   onReloadAgent,
   onRenameTab,
   onCloseTab,
@@ -755,6 +765,7 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
           onCopyResumeCommand={onCopyResumeCommand}
           onCopyAgentId={onCopyAgentId}
           onCopyFilePath={onCopyFilePath}
+          onDuplicateChat={onDuplicateChat}
           onReloadAgent={onReloadAgent}
           onRenameTab={onRenameTab}
           onCloseTab={onCloseTab}
@@ -773,6 +784,7 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
       onCopyResumeCommand,
       onCopyAgentId,
       onCopyFilePath,
+      onDuplicateChat,
       onReloadAgent,
       onRenameTab,
       onCloseTab,
@@ -2689,6 +2701,43 @@ function WorkspaceScreenContent({
     [client, isConnected, normalizedServerId, toast, t],
   );
 
+  const supportsDuplicateChat = useSessionStore(
+    (state) => state.sessions[normalizedServerId]?.serverInfo?.features?.agentBranching === true,
+  );
+
+  const handleDuplicateChat = useCallback(
+    async (agentId: string) => {
+      if (!client || !isConnected) {
+        toast.error(t("workspace.terminal.hostDisconnected"));
+        return;
+      }
+      try {
+        const result = await client.duplicateAgent(agentId);
+        if (!result.duplicateAgentId) {
+          throw new Error(result.error ?? t("workspace.tabs.toasts.failedToDuplicateChat"));
+        }
+        useWorkspaceLayoutStore.getState().openTabFocused(persistenceKey ?? "", {
+          kind: "agent",
+          agentId: result.duplicateAgentId,
+        });
+        await client.fetchAgentTimeline(result.duplicateAgentId, {
+          direction: "tail",
+          projection: "projected",
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t("workspace.tabs.toasts.failedToDuplicateChat"),
+        );
+      }
+    },
+    [client, isConnected, persistenceKey, toast, t],
+  );
+
+  const duplicateChatHandler = useMemo(
+    () => (supportsDuplicateChat ? handleDuplicateChat : undefined),
+    [supportsDuplicateChat, handleDuplicateChat],
+  );
+
   const handleCopyWorkspacePath = useCallback(async () => {
     if (!workspaceDirectory) {
       toast.error(t("workspace.header.toasts.workspacePathUnavailable"));
@@ -3449,6 +3498,7 @@ function WorkspaceScreenContent({
         onCopyResumeCommand={handleCopyResumeCommand}
         onCopyAgentId={handleCopyAgentId}
         onCopyFilePath={handleCopyFilePath}
+        onDuplicateChat={duplicateChatHandler}
         onReloadAgent={handleReloadAgent}
         onRenameTab={handleRenameTab}
         onCloseTabsToLeft={handleCloseTabsToLeftInPane}
@@ -3473,6 +3523,7 @@ function WorkspaceScreenContent({
     workspaceLayout,
     persistenceKey,
     desktopFocusModeEnabled,
+    duplicateChatHandler,
     normalizedServerId,
     normalizedWorkspaceId,
     isRouteFocused,
@@ -3565,6 +3616,7 @@ function WorkspaceScreenContent({
           onCopyResumeCommand={handleCopyResumeCommand}
           onCopyAgentId={handleCopyAgentId}
           onCopyFilePath={handleCopyFilePath}
+          onDuplicateChat={duplicateChatHandler}
           onReloadAgent={handleReloadAgent}
           onRenameTab={handleRenameTab}
           onCloseTab={handleCloseTabById}
@@ -3587,6 +3639,7 @@ function WorkspaceScreenContent({
           onCopyResumeCommand={handleCopyResumeCommand}
           onCopyAgentId={handleCopyAgentId}
           onCopyFilePath={handleCopyFilePath}
+          onDuplicateChat={duplicateChatHandler}
           onReloadAgent={handleReloadAgent}
           onRenameTab={handleRenameTab}
           onCloseTabsToLeft={handleCloseTabsToLeft}

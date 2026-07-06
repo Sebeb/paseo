@@ -79,6 +79,7 @@ import {
 } from "./codex/app-server-transport.js";
 import {
   type CodexUserMessageTurnIndex,
+  duplicateCodexConversation,
   forkCodexConversation,
   revertCodexConversation,
 } from "./codex/rewind.js";
@@ -3939,6 +3940,37 @@ export class CodexAppServerAgentSession implements AgentSession {
       metadata: {
         ...base?.metadata,
         threadId: forked.threadId,
+      },
+    };
+  }
+
+  async duplicateConversation(): Promise<AgentPersistenceHandle | null> {
+    if (!this.currentThreadId) {
+      // Nothing has been said yet — the duplicate starts fresh.
+      return null;
+    }
+    await this.connect();
+    if (!this.client) {
+      throw new Error("Codex client is not initialized");
+    }
+    await this.ensureThreadLoaded();
+
+    const duplicated = await duplicateCodexConversation({
+      client: this.client,
+      threadId: this.currentThreadId,
+      cwd: this.config.cwd ?? null,
+      model: this.config.model ?? null,
+      serviceTier: this.serviceTier,
+    });
+
+    const base = this.describePersistence();
+    return {
+      provider: CODEX_PROVIDER,
+      sessionId: duplicated.threadId,
+      nativeHandle: duplicated.threadId,
+      metadata: {
+        ...base?.metadata,
+        threadId: duplicated.threadId,
       },
     };
   }

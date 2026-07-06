@@ -7,6 +7,8 @@ import {
   AgentBranchCreateResponseMessageSchema,
   AgentBranchGroupsRequestMessageSchema,
   AgentBranchGroupsResponseMessageSchema,
+  AgentDuplicateRequestMessageSchema,
+  AgentDuplicateResponseMessageSchema,
   SetAgentFeatureRequestMessageSchema,
   SetAgentFeatureResponseMessageSchema,
 } from "./messages.js";
@@ -290,5 +292,40 @@ describe("agent feature schemas", () => {
         },
       }).payload.groups[0]?.groupId,
     ).toBe("branch-group-1");
+  });
+
+  it("parses agent duplicate RPCs", () => {
+    expect(
+      AgentDuplicateRequestMessageSchema.parse({
+        type: "agent.duplicate.request",
+        agentId: "agent-123",
+        requestId: "req-200",
+      }).agentId,
+    ).toBe("agent-123");
+
+    const success = AgentDuplicateResponseMessageSchema.parse({
+      type: "agent.duplicate.response",
+      payload: {
+        requestId: "req-200",
+        agentId: "agent-123",
+        duplicateAgentId: "agent-copy",
+        ok: true,
+        error: null,
+      },
+    });
+    expect(success.payload.duplicateAgentId).toBe("agent-copy");
+
+    const failure = AgentDuplicateResponseMessageSchema.parse({
+      type: "agent.duplicate.response",
+      payload: {
+        requestId: "req-201",
+        agentId: "agent-123",
+        duplicateAgentId: null,
+        ok: false,
+        error: "Cannot branch while the agent is running",
+      },
+    });
+    expect(failure.payload.ok).toBe(false);
+    expect(failure.payload.duplicateAgentId).toBeNull();
   });
 });

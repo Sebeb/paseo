@@ -475,6 +475,7 @@ export const fr: TranslationResources = {
         copyResumeCommand: "Copier la commande de reprise",
         copyAgentId: "Copier l'identifiant de l'agent",
         copyFilePath: "Copy file path",
+        duplicateChat: "Dupliquer la discussion",
         rename: "Rebaptiser",
         closeAbove: "Fermer les onglets ci-dessus",
         closeBelow: "Fermer les onglets ci-dessous",
@@ -518,6 +519,7 @@ export const fr: TranslationResources = {
         reloadingAgent: "Agent de rechargement...",
         reloadedAgent: "Agent rechargé",
         failedToReloadAgent: "Échec du rechargement de l'agent",
+        failedToDuplicateChat: "Échec de la duplication de la discussion",
       },
       confirmations: {
         close: "Fermer",

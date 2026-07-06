@@ -650,6 +650,12 @@ export interface AgentSession {
    */
   forkConversation?(input: AgentConversationTargetInput): Promise<AgentPersistenceHandle | null>;
   /**
+   * Fork the FULL conversation into a new provider session without mutating
+   * this session's state — the "duplicate chat" primitive. Returns null when
+   * there is no conversation history yet (the duplicate starts fresh).
+   */
+  duplicateConversation?(): Promise<AgentPersistenceHandle | null>;
+  /**
    * Out-of-band prompt handler. When non-null, the manager runs the returned
    * handler instead of allocating a turn. The handler emits stream events
    * directly via the provided `emit` callback, which routes through the

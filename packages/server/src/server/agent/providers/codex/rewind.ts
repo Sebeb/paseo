@@ -116,6 +116,31 @@ export async function forkCodexConversation(
   return { threadId: rolledBack.thread.id, numTurns };
 }
 
+/**
+ * Fork the full thread without rolling anything back — the "duplicate chat"
+ * primitive. The source thread is untouched.
+ */
+export async function duplicateCodexConversation(input: {
+  client: CodexRewindClient;
+  threadId: string | null;
+  cwd?: string | null;
+  model?: string | null;
+  serviceTier?: string | null;
+}): Promise<{ threadId: string }> {
+  if (!input.threadId) {
+    throw new Error("Codex thread is not ready for duplication");
+  }
+  const forked = await forkCodexThread(input.client, {
+    threadId: input.threadId,
+    cwd: input.cwd ?? null,
+    model: input.model ?? null,
+    serviceTier: input.serviceTier ?? null,
+    excludeTurns: false,
+    persistExtendedHistory: true,
+  });
+  return { threadId: forked.thread.id };
+}
+
 export async function revertCodexConversation(
   input: ForkCodexConversationInput & {
     setThreadId: (threadId: string) => void | Promise<void>;

@@ -9,6 +9,7 @@ export interface WorkspaceTabMenuLabels {
   copyResumeCommand: string;
   copyAgentId: string;
   copyFilePath: string;
+  duplicateChat: string;
   rename: string;
   closeAbove: string;
   closeBelow: string;
@@ -24,6 +25,7 @@ export const DEFAULT_WORKSPACE_TAB_MENU_LABELS: WorkspaceTabMenuLabels = {
   copyResumeCommand: i18n.t("workspace.tabs.menu.copyResumeCommand"),
   copyAgentId: i18n.t("workspace.tabs.menu.copyAgentId"),
   copyFilePath: i18n.t("workspace.tabs.menu.copyFilePath"),
+  duplicateChat: i18n.t("workspace.tabs.menu.duplicateChat"),
   rename: i18n.t("workspace.tabs.menu.rename"),
   closeAbove: i18n.t("workspace.tabs.menu.closeAbove"),
   closeBelow: i18n.t("workspace.tabs.menu.closeBelow"),
@@ -42,6 +44,7 @@ export type WorkspaceTabMenuEntry =
       label: string;
       icon?:
         | "copy"
+        | "copy-plus"
         | "rotate-cw"
         | "arrow-left-to-line"
         | "arrow-right-to-line"
@@ -69,6 +72,7 @@ interface BuildWorkspaceTabMenuEntriesInput {
   onCopyResumeCommand: (agentId: string) => Promise<void> | void;
   onCopyAgentId: (agentId: string) => Promise<void> | void;
   onCopyFilePath: (path: string) => Promise<void> | void;
+  onDuplicateChat?: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
@@ -85,6 +89,7 @@ interface BuildWorkspaceDesktopTabActionsInput {
   onCopyResumeCommand: (agentId: string) => Promise<void> | void;
   onCopyAgentId: (agentId: string) => Promise<void> | void;
   onCopyFilePath: (path: string) => Promise<void> | void;
+  onDuplicateChat?: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
@@ -153,6 +158,7 @@ export function buildWorkspaceTabMenuEntries(
     onCopyResumeCommand,
     onCopyAgentId,
     onCopyFilePath,
+    onDuplicateChat,
     onReloadAgent,
     onRenameTab,
     onCloseTab,
@@ -189,6 +195,18 @@ export function buildWorkspaceTabMenuEntries(
         void onCopyAgentId(agentId);
       },
     });
+    if (onDuplicateChat) {
+      entries.push({
+        kind: "item",
+        key: "duplicate-chat",
+        label: labels.duplicateChat,
+        icon: "copy-plus",
+        testID: `${menuTestIDBase}-duplicate-chat`,
+        onSelect: () => {
+          void onDuplicateChat(agentId);
+        },
+      });
+    }
   }
 
   if (tab.target.kind === "file") {
@@ -298,6 +316,7 @@ export function buildWorkspaceDesktopTabActions(
       onCopyResumeCommand: input.onCopyResumeCommand,
       onCopyAgentId: input.onCopyAgentId,
       onCopyFilePath: input.onCopyFilePath,
+      onDuplicateChat: input.onDuplicateChat,
       onReloadAgent: input.onReloadAgent,
       onRenameTab: input.onRenameTab,
       onCloseTab: input.onCloseTab,
