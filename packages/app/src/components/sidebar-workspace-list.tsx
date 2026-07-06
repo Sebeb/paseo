@@ -6211,14 +6211,14 @@ function ProjectModeList({
   );
 }
 
-export function SidebarSelectedProjectHeaderActions({
-  project,
+function useRemoveProjectAction({
   serverId,
-  onWorkspacePress,
+  projectKey,
+  projectName,
 }: {
-  project: SidebarProjectEntry | null;
   serverId: string | null;
-  onWorkspacePress?: () => void;
+  projectKey: string | null;
+  projectName: string;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -6226,26 +6226,6 @@ export function SidebarSelectedProjectHeaderActions({
     serverId ? state.sessions[serverId]?.serverInfo?.features?.projectRemove === true : false,
   );
   const [isRemovingProject, setIsRemovingProject] = useState(false);
-  const rowModel = useMemo(
-    () => (project ? buildSidebarProjectRowModel({ project, collapsed: false }) : null),
-    [project],
-  );
-  const projectKey = project?.projectKey ?? null;
-  const projectName = project?.projectName ?? "";
-  const iconWorkingDir = project?.iconWorkingDir ?? "";
-
-  const handleBeginWorkspaceSetup = useCallback(() => {
-    if (!serverId || !projectKey) {
-      return;
-    }
-    onWorkspacePress?.();
-    router.navigate(
-      buildHostNewWorkspaceRoute(serverId, iconWorkingDir, {
-        displayName: projectName,
-        projectId: projectKey,
-      }) as Href,
-    );
-  }, [iconWorkingDir, onWorkspacePress, projectKey, projectName, serverId]);
 
   const handleRemoveProject = useCallback(() => {
     if (isRemovingProject || !serverId || !projectKey) {
@@ -6288,6 +6268,47 @@ export function SidebarSelectedProjectHeaderActions({
     })();
   }, [canRemoveProject, isRemovingProject, projectKey, projectName, serverId, t, toast]);
 
+  return {
+    handleRemoveProject,
+    removeProjectStatus: isRemovingProject ? ("pending" as const) : ("idle" as const),
+  };
+}
+
+export function SidebarSelectedProjectHeaderActions({
+  project,
+  serverId,
+  onWorkspacePress,
+}: {
+  project: SidebarProjectEntry | null;
+  serverId: string | null;
+  onWorkspacePress?: () => void;
+}) {
+  const rowModel = useMemo(
+    () => (project ? buildSidebarProjectRowModel({ project, collapsed: false }) : null),
+    [project],
+  );
+  const projectKey = project?.projectKey ?? null;
+  const projectName = project?.projectName ?? "";
+  const iconWorkingDir = project?.iconWorkingDir ?? "";
+  const { handleRemoveProject, removeProjectStatus } = useRemoveProjectAction({
+    serverId,
+    projectKey,
+    projectName,
+  });
+
+  const handleBeginWorkspaceSetup = useCallback(() => {
+    if (!serverId || !projectKey) {
+      return;
+    }
+    onWorkspacePress?.();
+    router.navigate(
+      buildHostNewWorkspaceRoute(serverId, iconWorkingDir, {
+        displayName: projectName,
+        projectId: projectKey,
+      }) as Href,
+    );
+  }, [iconWorkingDir, onWorkspacePress, projectKey, projectName, serverId]);
+
   if (!project || !projectKey) {
     return null;
   }
@@ -6306,7 +6327,7 @@ export function SidebarSelectedProjectHeaderActions({
         projectKey={projectKey}
         projectPath={iconWorkingDir}
         onRemoveProject={handleRemoveProject}
-        removeProjectStatus={isRemovingProject ? "pending" : "idle"}
+        removeProjectStatus={removeProjectStatus}
       />
     </View>
   );
@@ -6513,6 +6534,12 @@ function ProjectSelectorCapsule({
   const [glowKind, setGlowKind] = useState<"unread" | "input_required" | "failed" | null>(null);
   const placeholderLabel = projectIconPlaceholderLabelFromDisplayName(project.projectName);
   const placeholderInitial = placeholderLabel.charAt(0).toUpperCase();
+  const projectServerId = project.serverId ?? project.hosts[0]?.serverId ?? null;
+  const { handleRemoveProject, removeProjectStatus } = useRemoveProjectAction({
+    serverId: projectServerId,
+    projectKey: project.projectKey,
+    projectName: project.projectName,
+  });
 
   useEffect(() => {
     if (reduceMotionEnabled) {
@@ -6615,30 +6642,39 @@ function ProjectSelectorCapsule({
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
     >
-      <Pressable
-        accessibilityRole={platformIsWeb ? undefined : "button"}
-        accessibilityLabel={accessibilityLabel}
-        accessibilityState={accessibilityState}
-        testID={`sidebar-project-selector-capsule-${project.projectKey}`}
-        onPress={handlePress}
-        style={pressableStyle}
-      >
-        <Animated.View pointerEvents="none" style={selectedFillStyle} />
-        {glowStyle ? <Animated.View pointerEvents="none" style={glowStyle} /> : null}
-        <View style={styles.projectSelectorIconSlot}>
-          <ProjectIcon
-            iconDataUri={iconDataUri}
-            placeholderInitial={placeholderInitial}
-            projectKey={project.projectKey}
-          />
-        </View>
-        {visibleStatusKinds.length > 0 ? (
-          <SidebarEntryStatusBadges
-            summary={statusSummary}
-            excludeKinds={WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS}
-          />
-        ) : null}
-      </Pressable>
+      <ContextMenu>
+        <ContextMenuTrigger
+          enabledOnMobile={false}
+          accessibilityRole={platformIsWeb ? undefined : "button"}
+          accessibilityLabel={accessibilityLabel}
+          accessibilityState={accessibilityState}
+          testID={`sidebar-project-selector-capsule-${project.projectKey}`}
+          onPress={handlePress}
+          style={pressableStyle}
+        >
+          <Animated.View pointerEvents="none" style={selectedFillStyle} />
+          {glowStyle ? <Animated.View pointerEvents="none" style={glowStyle} /> : null}
+          <View style={styles.projectSelectorIconSlot}>
+            <ProjectIcon
+              iconDataUri={iconDataUri}
+              placeholderInitial={placeholderInitial}
+              projectKey={project.projectKey}
+            />
+          </View>
+          {visibleStatusKinds.length > 0 ? (
+            <SidebarEntryStatusBadges
+              summary={statusSummary}
+              excludeKinds={WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS}
+            />
+          ) : null}
+        </ContextMenuTrigger>
+        <ProjectContextMenuContent
+          projectKey={project.projectKey}
+          projectPath={project.iconWorkingDir}
+          onRemoveProject={handleRemoveProject}
+          removeProjectStatus={removeProjectStatus}
+        />
+      </ContextMenu>
     </View>
   );
 }
