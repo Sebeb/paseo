@@ -121,19 +121,32 @@ export function appendWorkspaceNavigationHistoryEntry(
       ? normalizedState.entries[normalizedState.currentIndex]
       : null;
   if (currentEntry && workspaceNavigationEntriesEqual(currentEntry, normalizedEntry)) {
-    const entries = normalizedState.entries.map((candidate, index) =>
-      index === normalizedState.currentIndex
-        ? { ...candidate, timestamp: normalizedEntry.timestamp }
-        : candidate,
-    );
-    return { entries, currentIndex: normalizedState.currentIndex };
+    const updatedCurrentEntry = { ...currentEntry, timestamp: normalizedEntry.timestamp };
+    const entries = [
+      ...normalizedState.entries
+        .slice(0, normalizedState.currentIndex)
+        .filter((candidate) => !workspaceNavigationEntriesEqual(candidate, normalizedEntry)),
+      updatedCurrentEntry,
+      ...normalizedState.entries
+        .slice(normalizedState.currentIndex + 1)
+        .filter((candidate) => !workspaceNavigationEntriesEqual(candidate, normalizedEntry)),
+    ].slice(-MAX_HISTORY_ENTRIES);
+    return {
+      entries,
+      currentIndex: entries.findIndex((candidate) =>
+        workspaceNavigationEntriesEqual(candidate, updatedCurrentEntry),
+      ),
+    };
   }
 
   const retainedEntries =
     normalizedState.currentIndex >= 0
       ? normalizedState.entries.slice(0, normalizedState.currentIndex + 1)
       : normalizedState.entries;
-  const nextEntries = [...retainedEntries, normalizedEntry].slice(-MAX_HISTORY_ENTRIES);
+  const dedupedEntries = retainedEntries.filter(
+    (candidate) => !workspaceNavigationEntriesEqual(candidate, normalizedEntry),
+  );
+  const nextEntries = [...dedupedEntries, normalizedEntry].slice(-MAX_HISTORY_ENTRIES);
   return {
     entries: nextEntries,
     currentIndex: nextEntries.length - 1,

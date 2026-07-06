@@ -60,6 +60,55 @@ describe("workspace navigation history state", () => {
     expect(state.currentIndex).toBe(0);
   });
 
+  it("removes earlier non-consecutive duplicates when appending a window again", () => {
+    const state = appendMany([
+      entry({ workspaceId: "one", tabId: "a" }),
+      entry({ workspaceId: "one", tabId: "b" }),
+      entry({ workspaceId: "one", tabId: "a", timestamp: 3 }),
+    ]);
+
+    expect(state.entries.map((item) => item.tabId)).toEqual(["b", "a"]);
+    expect(state.entries[1]?.timestamp).toBe(3);
+    expect(state.currentIndex).toBe(1);
+  });
+
+  it("removes duplicate retained history before appending after going back", () => {
+    const initial = appendMany([
+      entry({ workspaceId: "one", tabId: "a" }),
+      entry({ workspaceId: "one", tabId: "b" }),
+      entry({ workspaceId: "one", tabId: "c" }),
+    ]);
+    const wentBack = setWorkspaceNavigationHistoryIndex(initial, 1);
+    const state = appendWorkspaceNavigationHistoryEntry(
+      wentBack,
+      entry({ workspaceId: "one", tabId: "a", timestamp: 4 }),
+    );
+
+    expect(state.entries.map((item) => item.tabId)).toEqual(["b", "a"]);
+    expect(state.entries[1]?.timestamp).toBe(4);
+    expect(state.currentIndex).toBe(1);
+  });
+
+  it("removes older duplicates when refreshing the current entry", () => {
+    const duplicate = entry({ workspaceId: "one", tabId: "a", timestamp: 1 });
+    const state = appendWorkspaceNavigationHistoryEntry(
+      {
+        entries: [
+          duplicate,
+          entry({ workspaceId: "one", tabId: "b" }),
+          { ...duplicate, timestamp: 2 },
+          entry({ workspaceId: "one", tabId: "c" }),
+        ],
+        currentIndex: 2,
+      },
+      entry({ workspaceId: "one", tabId: "a", timestamp: 5 }),
+    );
+
+    expect(state.entries.map((item) => item.tabId)).toEqual(["b", "a", "c"]);
+    expect(state.entries[1]?.timestamp).toBe(5);
+    expect(state.currentIndex).toBe(1);
+  });
+
   it("truncates forward history when a new entry is added after going back", () => {
     const initial = appendMany([
       entry({ workspaceId: "one", tabId: "a" }),
