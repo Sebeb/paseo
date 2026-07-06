@@ -2930,7 +2930,7 @@ function WorkspaceRowInner({
             style={styles.workspaceRowContainer}
             {...hoverHandlers}
           >
-            <Pressable
+            <ContextMenuTrigger
               disabled={isArchiving}
               aria-selected={accessibilitySelected}
               accessibilityRole="button"
@@ -2987,7 +2987,7 @@ function WorkspaceRowInner({
                   }
                 />
               </SidebarWorkspaceRowContent>
-            </Pressable>
+            </ContextMenuTrigger>
           </View>
         );
       }}
@@ -3412,48 +3412,51 @@ function useMiddleClickClose(onClose: () => void): MutableRefObject<View | null>
   return ref;
 }
 
+function getEmbeddedTabMenuLeading(
+  entry: Extract<WorkspaceTabMenuEntry, { kind: "item" }>,
+): ReactElement | undefined {
+  const iconStyle = entry.iconRotation === "clockwise-90" ? styles.rotatedMenuIcon : undefined;
+  switch (entry.icon) {
+    case "copy":
+      return <ThemedCopy size={16} uniProps={foregroundMutedColorMapping} />;
+    case "rotate-cw":
+      return <ThemedRotateCw size={16} uniProps={foregroundMutedColorMapping} />;
+    case "arrow-left-to-line":
+      return (
+        <ThemedArrowLeftToLine size={16} style={iconStyle} uniProps={foregroundMutedColorMapping} />
+      );
+    case "arrow-right-to-line":
+      return (
+        <ThemedArrowRightToLine
+          size={16}
+          style={iconStyle}
+          uniProps={foregroundMutedColorMapping}
+        />
+      );
+    case "copy-x":
+      return <ThemedCopyX size={16} uniProps={foregroundMutedColorMapping} />;
+    case "pencil":
+      return <ThemedPencil size={16} uniProps={foregroundMutedColorMapping} />;
+    case "x":
+      return <ThemedX size={16} uniProps={foregroundMutedColorMapping} />;
+    default:
+      return undefined;
+  }
+}
+
+function getEmbeddedTabMenuTrailing(
+  entry: Extract<WorkspaceTabMenuEntry, { kind: "item" }>,
+): ReactElement | null {
+  return entry.hint ? <Text style={styles.embeddedTabMenuItemHint}>{entry.hint}</Text> : null;
+}
+
 function EmbeddedTabMenuItem({
   entry,
 }: {
   entry: Extract<WorkspaceTabMenuEntry, { kind: "item" }>;
 }) {
-  const iconStyle = entry.iconRotation === "clockwise-90" ? styles.rotatedMenuIcon : undefined;
-  const leading = useMemo(() => {
-    switch (entry.icon) {
-      case "copy":
-        return <ThemedCopy size={16} uniProps={foregroundMutedColorMapping} />;
-      case "rotate-cw":
-        return <ThemedRotateCw size={16} uniProps={foregroundMutedColorMapping} />;
-      case "arrow-left-to-line":
-        return (
-          <ThemedArrowLeftToLine
-            size={16}
-            style={iconStyle}
-            uniProps={foregroundMutedColorMapping}
-          />
-        );
-      case "arrow-right-to-line":
-        return (
-          <ThemedArrowRightToLine
-            size={16}
-            style={iconStyle}
-            uniProps={foregroundMutedColorMapping}
-          />
-        );
-      case "copy-x":
-        return <ThemedCopyX size={16} uniProps={foregroundMutedColorMapping} />;
-      case "pencil":
-        return <ThemedPencil size={16} uniProps={foregroundMutedColorMapping} />;
-      case "x":
-        return <ThemedX size={16} uniProps={foregroundMutedColorMapping} />;
-      default:
-        return undefined;
-    }
-  }, [entry.icon, iconStyle]);
-  const trailing = useMemo(
-    () => (entry.hint ? <Text style={styles.embeddedTabMenuItemHint}>{entry.hint}</Text> : null),
-    [entry.hint],
-  );
+  const leading = useMemo(() => getEmbeddedTabMenuLeading(entry), [entry]);
+  const trailing = useMemo(() => getEmbeddedTabMenuTrailing(entry), [entry]);
 
   return (
     <ContextMenuItem
@@ -3462,6 +3465,7 @@ function EmbeddedTabMenuItem({
       destructive={entry.destructive}
       leading={leading}
       trailing={trailing}
+      tooltip={entry.tooltip}
       onSelect={entry.onSelect}
     >
       {entry.label}
@@ -3927,19 +3931,34 @@ function EmbeddedTabKebabMenu({
           entry.kind === "separator" ? (
             <DropdownMenuSeparator key={entry.key} />
           ) : (
-            <DropdownMenuItem
-              key={entry.key}
-              testID={entry.testID}
-              disabled={entry.disabled}
-              destructive={entry.destructive}
-              onSelect={entry.onSelect}
-            >
-              {entry.label}
-            </DropdownMenuItem>
+            <EmbeddedTabDropdownMenuItem key={entry.key} entry={entry} />
           ),
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function EmbeddedTabDropdownMenuItem({
+  entry,
+}: {
+  entry: Extract<WorkspaceTabMenuEntry, { kind: "item" }>;
+}) {
+  const leading = useMemo(() => getEmbeddedTabMenuLeading(entry), [entry]);
+  const trailing = useMemo(() => getEmbeddedTabMenuTrailing(entry), [entry]);
+
+  return (
+    <DropdownMenuItem
+      testID={entry.testID}
+      disabled={entry.disabled}
+      destructive={entry.destructive}
+      leading={leading}
+      trailing={trailing}
+      tooltip={entry.tooltip}
+      onSelect={entry.onSelect}
+    >
+      {entry.label}
+    </DropdownMenuItem>
   );
 }
 
@@ -4175,6 +4194,24 @@ function EmbeddedWorkspaceTabs({
       }),
     [agentMap, allItems, statusSummariesByTabId, tabSortMode],
   );
+  const sortedPaneTabsByPaneId = useMemo(() => {
+    const tabById = new Map(uiTabs.map((tab) => [tab.tabId, tab]));
+    const map = new Map<string, WorkspaceTabDescriptor[]>();
+    for (const [paneId, paneTabs] of paneTabsByPaneId) {
+      const sortItems = paneTabs.flatMap((descriptor) => {
+        const tab = tabById.get(descriptor.tabId);
+        return tab ? [{ descriptor, tab }] : [];
+      });
+      const sortedPaneTabs = sortSidebarTabItems({
+        items: sortItems,
+        sortMode: tabSortMode,
+        agents: agentMap,
+        statusSummariesByTabId,
+      }).map((item) => item.descriptor);
+      map.set(paneId, sortedPaneTabs);
+    }
+    return map;
+  }, [agentMap, paneTabsByPaneId, statusSummariesByTabId, tabSortMode, uiTabs]);
   const treeRows = useMemo(
     () =>
       buildSidebarEmbeddedTabTreeRows({
@@ -4466,7 +4503,7 @@ function EmbeddedWorkspaceTabs({
   );
   const buildMenuEntries = useCallback(
     (item: EmbeddedSidebarTabItem) => {
-      const paneTabs = paneTabsByPaneId.get(item.paneId) ?? [item.descriptor];
+      const paneTabs = sortedPaneTabsByPaneId.get(item.paneId) ?? [item.descriptor];
       const index = Math.max(
         0,
         paneTabs.findIndex((tab) => tab.tabId === item.tab.tabId),
@@ -4518,7 +4555,7 @@ function EmbeddedWorkspaceTabs({
       handleCopyResumeCommand,
       handleReloadAgent,
       handleRenameTab,
-      paneTabsByPaneId,
+      sortedPaneTabsByPaneId,
       t,
       tabMenuLabels,
     ],

@@ -10,7 +10,11 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { useAppSettings, type WorkspaceTitleSource } from "@/hooks/use-settings";
+import {
+  useAppSettings,
+  type AppTabLayoutMode,
+  type WorkspaceTitleSource,
+} from "@/hooks/use-settings";
 import {
   useSidebarViewStore,
   type SidebarBadgeMode,
@@ -60,6 +64,11 @@ const BADGE_MODE_ITEMS: Array<{ value: SidebarBadgeMode; label: string }> = [
 const WORKSPACE_TITLE_SOURCE_ITEMS: Array<{ value: WorkspaceTitleSource; label: string }> = [
   { value: "title", label: "Title" },
   { value: "branch", label: "Branch name" },
+];
+
+const TAB_LAYOUT_MODE_ITEMS: Array<{ value: AppTabLayoutMode; label: string }> = [
+  { value: "horizontal", label: "Horizontal" },
+  { value: "sidebar", label: "Sidebar" },
 ];
 
 type DisplayPreferenceSectionId = "projects" | "workspaces" | "tabs";
@@ -301,6 +310,7 @@ export function SidebarTabDisplayPreferencesMenuItems({
   showRecentTabCount?: boolean;
   closeOnSelect?: boolean;
 }) {
+  const { settings, updateSettings } = useAppSettings();
   const sortMode = useSidebarViewStore((state) =>
     serverId ? state.getEmbeddedTabSortMode(serverId) : "manual",
   );
@@ -324,9 +334,28 @@ export function SidebarTabDisplayPreferencesMenuItems({
     },
     [serverId, setRecentTabCount],
   );
+  const handleTabLayoutModeSelect = useCallback(
+    (mode: AppTabLayoutMode) => {
+      void updateSettings({ tabLayoutMode: mode });
+    },
+    [updateSettings],
+  );
 
   return (
     <>
+      <PreferenceGroup label="View mode">
+        {TAB_LAYOUT_MODE_ITEMS.map((item) => (
+          <PreferenceMenuItem
+            key={item.value}
+            item={item}
+            testIDPrefix="sidebar-tab-layout-mode"
+            isSelected={settings.tabLayoutMode === item.value}
+            closeOnSelect={closeOnSelect}
+            onSelect={handleTabLayoutModeSelect}
+          />
+        ))}
+      </PreferenceGroup>
+      <DropdownMenuSeparator />
       <SortPreferenceGroup
         selectedValue={sortMode}
         testIDPrefix="sidebar-tab-sort"
