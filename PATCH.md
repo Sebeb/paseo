@@ -4,7 +4,7 @@ Branch: `feat/message-schedule-popup`
 
 Base: `origin/main`
 
-Anchor commit: de1ec3c039a5ebbf58d6a4e48d5df889b79bd654 — feat(message-schedule): show scheduled message status in sidebar
+Anchor commit: f50072c55d8c871eb5ecc1d2f8d300db0f7540d3 — feat(schedule): edit scheduled composer messages and fail out-of-credit turns
 
 ## Composer Schedule Send UI
 
@@ -57,6 +57,41 @@ Anchor commit: de1ec3c039a5ebbf58d6a4e48d5df889b79bd654 — feat(message-schedul
 - `dateToOneShotCron` intentionally includes the target date's day-of-week as well as day-of-month/month, matching the server's existing cron shape for one-shot schedule creation.
 - Tests cover choosing the latest future exhausted credit reset, creating a one-shot `agent-message` schedule with encoded images and uploaded-file attachments, and cron expression formatting.
 
+## Scheduled Composer Message Editing
+
+**Purpose** - Lets a user pull a pending scheduled composer message back into the composer as an editable draft, including stored images, uploaded files, and GitHub issue/PR attachments. Editing deletes the old schedule after the draft has been restored so there is only one source of truth for the message being edited.
+
+**Files**
+
+- `packages/app/src/composer/index.tsx`
+- `packages/app/src/composer/scheduled-messages.ts`
+- `packages/app/src/composer/scheduled-messages.test.ts`
+- `packages/app/src/i18n/resources/ar.ts`
+- `packages/app/src/i18n/resources/en.ts`
+- `packages/app/src/i18n/resources/es.ts`
+- `packages/app/src/i18n/resources/fr.ts`
+- `packages/app/src/i18n/resources/ja.ts`
+- `packages/app/src/i18n/resources/pt-BR.ts`
+- `packages/app/src/i18n/resources/ru.ts`
+- `packages/app/src/i18n/resources/zh-CN.ts`
+
+**Public surface**
+
+- `ScheduledComposerMessage` now carries `images: ImageAttachmentPayload[]` and `attachments: AgentAttachment[]` in addition to `id`, `text`, and `dueAt`.
+- `selectScheduledComposerMessages({ schedules, serverId, agentId })` copies stored `images` and `attachments` from each matching schedule, defaulting both to empty arrays when omitted.
+- `restoreScheduledComposerMessageDraft({ message, persistImage })` returns `{ text, attachments }`, where `attachments` is a `UserComposerAttachment[]` that can be passed directly to composer state.
+- The i18n resources add `composer.attachments.editScheduledMessage` for the scheduled-message edit button's accessibility label.
+
+**Behavior**
+
+- `renderQueueTrack` passes `handleEditScheduledMessage` and the localized edit label to every `ScheduledMessageRow`.
+- `ScheduledMessageRow` now has test id `composer-scheduled-message-row`, an accessibility label of `Scheduled message sends in <countdown>`, the existing two-line prompt preview, the countdown text, and a pencil `Pressable` that invokes `onEdit(item.id)`.
+- `handleEditScheduledMessage` finds the selected scheduled message in the current `scheduledMessages` array. Missing ids are ignored. If the daemon client is unavailable, the composer shows `composer.errors.daemonClientDisconnected`.
+- When editing starts, the composer sets `isSchedulingMessage`, clears any send error, restores the draft through `restoreScheduledComposerMessageDraft`, deletes the schedule with `client.scheduleDelete({ id })`, writes the restored text and attachments into composer state, resets GitHub auto-attach suppression, focuses the message input with the existing keyboard-action focus path, and refreshes schedules. Errors are logged and surfaced as the error message or `composer.errors.failedToSend`; the busy flag is cleared in `finally`.
+- Stored schedule images are rehydrated by calling the supplied `persistImage` with `data:<mimeType>;base64,<data>`, the original MIME type, and deterministic file names of `scheduled-image-<n>.<extension>`. Known extensions are `png`, `gif`, `webp`, and `jpg`; unknown MIME types use `img`.
+- Stored `uploaded_file` attachments restore as `{ kind: "file", attachment }`. Stored GitHub issues and PRs restore as picker-compatible search items with `kind`, `number`, `title`, `url`, empty `state`, `body ?? null`, empty `labels`, and optional PR base/head refs. Other attachment types are ignored for draft restore.
+- Tests cover schedule selection preserving stored images and attachments, merging scheduled counts with queued counts, countdown formatting, and draft restoration for stored images, uploaded files, and GitHub attachments.
+
 ## Scheduled Message Sidebar Status
 
 **Purpose** - Surfaces scheduled composer messages in the sidebar so users can see which workspaces have pending scheduled sends without opening each agent.
@@ -73,16 +108,22 @@ Anchor commit: de1ec3c039a5ebbf58d6a4e48d5df889b79bd654 — feat(message-schedul
 
 **Public surface**
 
-- `getScheduledMessageCountsByWorkspace({ schedules, agentWorkspaceKeyById })` returns a `ReadonlyMap<string, number>` keyed by workspace key.
+- `ScheduledComposerMessageWorkspaceCount` is `{ workspaceKey: string; count: number }`.
+- `buildAgentWorkspaceLookupKey(serverId, agentId)` returns the lookup key `${serverId}:${agentId}` used to connect schedules and queued messages back to workspace rows.
+- `countScheduledComposerMessagesByWorkspace({ schedules, agentWorkspaceKeys })` returns `ScheduledComposerMessageWorkspaceCount[]` for active one-shot `agent-message` schedules whose agent target can be mapped to a workspace key.
+- `mergeScheduledComposerMessageCountsByWorkspace({ queuedCounts, schedules, agentWorkspaceKeys })` returns a `ReadonlyMap<string, number>` that starts from existing queued-message counts and increments them by active scheduled composer messages for the same workspace.
+- `formatScheduledCountdown(dueAt, now)` returns plain countdown labels in seconds, minutes, one-decimal hours, or days.
 - `SidebarWorkspaceList` now receives `messageStatusCountsByWorkspaceKey: ReadonlyMap<string, number>`.
 - `SidebarWorkspaceRowContent` receives `messageStatusCount` so row content can render the scheduled-message status affordance.
 
 **Behavior**
 
 - `Composer` refreshes schedule data after a scheduled message is created so sidebar state reflects the new pending send immediately.
-- `left-sidebar.tsx` derives agent-to-workspace ownership from active session state, counts active scheduled `agent-message` schedules per workspace, and passes the map into both project and status sidebar modes.
+- `left-sidebar.tsx` derives agent-to-workspace ownership from active session state and also counts queued composer messages by workspace. The selector uses `useStoreWithEqualityFn` plus explicit map equality so equivalent count/key maps do not force sidebar recomputation or churn.
+- The sidebar count path merges queued-message counts and scheduled-message counts before passing the map into both project and status sidebar modes. Scheduled messages add to the same workspace status number as queued messages instead of replacing it.
+- Scheduled-message counting only includes schedules with `delivery === "agent-message"`, `maxRuns === 1`, `status === "active"`, a non-empty `nextRunAt`, and an agent target whose `serverId:agentId` lookup exists in `agentWorkspaceKeys`.
 - Workspace rows render the scheduled-message count alongside existing status metadata, and status grouping includes the scheduled-message signal when deciding row presentation.
-- `scheduled-messages.test.ts` covers counting only active agent-message schedules and ignoring notification-style or completed schedules.
+- `scheduled-messages.test.ts` covers selecting only active one-shot agent-message schedules for the current host/agent, counting through agent workspace ownership, merging scheduled counts into queued counts, countdown formatting, and preserving media/attachments for scheduled-message editing.
 
 ## Schedule Protocol and Client Payloads
 
@@ -166,6 +207,31 @@ Anchor commit: de1ec3c039a5ebbf58d6a4e48d5df889b79bd654 — feat(message-schedul
 - Startup recovery now preserves stale, unfired one-shot schedules. During `recoverInterruptedRuns`, if an active schedule's `nextRunAt` is in the past and `maxRuns === 1` with zero completed runs, the service leaves the stale `nextRunAt` intact so the next `tick()` fires it once and then completes it. Other stale schedules continue advancing to the next future cadence time.
 - `createOrReplace` writes `delivery: input.delivery ?? undefined`, `images: input.images ?? undefined`, and `attachments: input.attachments ?? undefined`, so omitted replacement fields clear previous values.
 - Tests cover stale unfired one-shot recovery, max-run completion, existing schedule execution, schedule-created agent title behavior, normal user-turn rendering for scheduled new-agent prompts, archiving temporary new-agent sessions, unattended default mode resolution, `runOnCreate` behavior, and related schedule service invariants.
+
+## Out-of-Credit Turn Failure Handling
+
+**Purpose** - Treats provider turns that end with an assistant "out of credit" response as failed turns, even when the provider adapter emits `turn_completed`. This keeps lifecycle state, foreground waiters, system error messages, and provider-runner promises aligned with the user-visible failure.
+
+**Files**
+
+- `packages/server/src/server/agent/agent-manager.ts`
+- `packages/server/src/server/agent/agent-manager.test.ts`
+- `packages/server/src/server/agent/out-of-credit.ts`
+- `packages/server/src/server/agent/providers/provider-runner.ts`
+- `packages/server/src/server/agent/providers/provider-runner.test.ts`
+
+**Public surface**
+
+- `isOutOfCreditMessage(text: string): boolean` normalizes whitespace, returns `false` for empty text, and matches common credit/quota/balance exhaustion phrasing plus provider error codes such as `resource_exhausted`, `insufficient_quota`, `insufficient_balance`, and `billing_hard_limit_reached`.
+- `AgentManager.handleStreamEvent` now returns `HandleStreamEventResult` as `{ event: AgentStreamEvent; shouldNotifyWaiters: boolean }` so callers notify foreground waiters with the effective event after any conversion.
+
+**Behavior**
+
+- `AgentManager` keeps `lastLiveAssistantMessageByAgent`, clearing it on `turn_started` and updating it from live `timeline` events whose item is an assistant message. History replay does not update the live cache.
+- When a `turn_completed` event is handled, `maybeConvertOutOfCreditCompletion` checks the cached live assistant text first, then falls back to the last assistant message in the timeline store. Matching text is converted to `{ type: "turn_failed", provider, error: <message>, code: "out_of_credit", turnId? }`.
+- The converted event is used for stream-event dispatch, lifecycle/finalization decisions, outbound stream dispatch, tracing, and foreground waiter notification. This prevents the original completion from resolving a foreground run when the final assistant content is actually an out-of-credit failure.
+- `runProviderTurn` continues reducing final assistant text from timeline events. On `turn_completed`, it rejects the completion promise with `new Error(finalText)` when `isOutOfCreditMessage(finalText)` matches; otherwise it resolves as before and preserves usage. Existing `turn_failed` and `turn_canceled` behavior is unchanged.
+- Tests cover an agent manager run that emits an assistant out-of-credit message followed by `turn_completed`, expecting `runAgent` to reject, lifecycle `error`, `lastError` set to the assistant message, and a system error containing `code: out_of_credit`. Provider-runner tests cover rejecting a completed turn whose final assistant text says credits are exhausted.
 
 ## Schedule List Presentation
 
