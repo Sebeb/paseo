@@ -16,6 +16,7 @@ export interface ThinkingGroupIndex {
   groups: ThinkingGroup[];
   groupByAnchorItemId: Map<string, ThinkingGroup>;
   groupByItemId: Map<string, ThinkingGroup>;
+  suppressedItemIds: Set<string>;
 }
 
 export interface ThinkingGroupCounts {
@@ -80,6 +81,7 @@ interface BuildTurnGroupsInput {
   turnItems: readonly StreamItem[];
   isCurrentRunningTurn: boolean;
   behavior: Exclude<CollapseThinkingBehavior, "never">;
+  suppressedItemIds: Set<string>;
 }
 
 export function buildCollapseThinkingGroups(input: {
@@ -89,6 +91,7 @@ export function buildCollapseThinkingGroups(input: {
 }): ThinkingGroupIndex {
   const { items, behavior, agentStatus } = input;
   const groups: ThinkingGroup[] = [];
+  const suppressedItemIds = new Set<string>();
   let turnStartIndex = findNextUserMessageIndex(items, 0);
 
   while (turnStartIndex !== null) {
@@ -104,6 +107,7 @@ export function buildCollapseThinkingGroups(input: {
           turnItems,
           isCurrentRunningTurn,
           behavior,
+          suppressedItemIds,
         }),
       );
     }
@@ -124,6 +128,7 @@ export function buildCollapseThinkingGroups(input: {
     groups,
     groupByAnchorItemId,
     groupByItemId,
+    suppressedItemIds,
   };
 }
 
@@ -161,6 +166,13 @@ function buildTurnGroups(input: BuildTurnGroupsInput): ThinkingGroup[] {
     }
 
     if (item.kind === "assistant_message") {
+      const nextItem = input.turnItems[index + 1];
+      if (isProgressAssistantSupersededByResponse(item, nextItem)) {
+        input.suppressedItemIds.add(item.id);
+        pushGroup("completed", nextItem);
+        continue;
+      }
+
       const hasLaterWork = hasLaterCollapsibleWork(input.turnItems, index + 1);
       if (
         item.presentation === "progress" &&
@@ -250,6 +262,27 @@ function isCollapsibleWorkItem(item: StreamItem): boolean {
   }
 
   return item.kind === "thought" || item.kind === "tool_call" || item.kind === "todo_list";
+}
+
+function isProgressAssistantSupersededByResponse(
+  item: StreamItem,
+  nextItem: StreamItem | undefined,
+): nextItem is Extract<StreamItem, { kind: "assistant_message" }> {
+  if (
+    item.kind !== "assistant_message" ||
+    item.presentation !== "progress" ||
+    nextItem?.kind !== "assistant_message" ||
+    nextItem.presentation !== "response"
+  ) {
+    return false;
+  }
+
+  const progressText = item.text.trim();
+  const responseText = nextItem.text.trim();
+  if (!progressText || !responseText) {
+    return false;
+  }
+  return progressText.startsWith(responseText) || responseText.startsWith(progressText);
 }
 
 function isUserFacingToolItem(item: StreamItem): boolean {

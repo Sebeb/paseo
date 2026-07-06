@@ -447,22 +447,23 @@ describe("buildCollapseThinkingGroups", () => {
     expect(index.groupByItemId.has("progress-2")).toBe(true);
   });
 
-  it("leaves response-presented assistant text visible while the turn is still running", () => {
+  it("suppresses a progress copy superseded by response text while the turn is still running", () => {
     const index = buildRunningThinkingGroups([
       userMessage("u1", 1),
       toolCall("tool-1", 2),
-      assistantMessage("progress-copy", 3, { presentation: "progress" }),
-      assistantMessage("final-response", 4, { presentation: "response" }),
+      assistantMessage("final-answer", 3, { presentation: "progress" }),
+      assistantMessage("final-answer with details", 4, { presentation: "response" }),
     ]);
 
     expect(index.groups).toHaveLength(1);
     expect(index.groups[0]).toMatchObject({
-      itemIds: ["tool-1", "progress-copy"],
+      itemIds: ["tool-1"],
       status: "completed",
-      finalAssistantItemId: "final-response",
+      finalAssistantItemId: "final-answer with details",
     });
-    expect(index.groupByItemId.has("progress-copy")).toBe(true);
-    expect(index.groupByItemId.has("final-response")).toBe(false);
+    expect(index.suppressedItemIds.has("final-answer")).toBe(true);
+    expect(index.groupByItemId.has("final-answer")).toBe(false);
+    expect(index.groupByItemId.has("final-answer with details")).toBe(false);
   });
 
   it("records active group timing from the active group's own first and latest work item", () => {

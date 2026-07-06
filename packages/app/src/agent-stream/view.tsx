@@ -754,6 +754,7 @@ const EMPTY_THINKING_GROUP_INDEX: ThinkingGroupIndex = {
   groups: [],
   groupByAnchorItemId: new Map(),
   groupByItemId: new Map(),
+  suppressedItemIds: new Set(),
 };
 
 const THINKING_GROUP_PREVIEW_BOTTOM_EPSILON = 4;
@@ -1534,6 +1535,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
     const renderStreamItem = useCallback(
       (layoutItem: StreamLayoutItem) => {
+        if (thinkingGroupIndex.suppressedItemIds.has(layoutItem.item.id)) {
+          return null;
+        }
+
         const thinkingGroup = thinkingGroupIndex.groupByItemId.get(layoutItem.item.id);
         if (thinkingGroup) {
           if (thinkingGroup.anchorItemId !== layoutItem.item.id) {
