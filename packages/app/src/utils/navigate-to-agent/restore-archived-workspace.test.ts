@@ -20,7 +20,8 @@ vi.mock("@/runtime/host-runtime", () => ({
   isHostRuntimeConnected: () => connected,
 }));
 
-import { useSessionStore, type Agent } from "@/stores/session-store";
+import { useSessionStore, type Agent, type WorkspaceDescriptor } from "@/stores/session-store";
+import { navigateToPreparedWorkspaceTab } from "@/utils/workspace-navigation";
 import { navigateToAgent } from "./index";
 
 const SERVER_ID = "server-1";
@@ -53,10 +54,29 @@ function seedArchivedAgent(options?: { worktreeRestore?: boolean }): void {
   });
 }
 
+function workspace(input: { id: string; name: string }): WorkspaceDescriptor {
+  return {
+    id: input.id,
+    projectId: "project-1",
+    projectDisplayName: "Project 1",
+    projectRootPath: "/repo",
+    workspaceDirectory: `/repo/${input.id}`,
+    projectKind: "git",
+    workspaceKind: "local_checkout",
+    name: input.name,
+    status: "done",
+    statusEnteredAt: null,
+    archivingAt: null,
+    diffStat: null,
+    scripts: [],
+  };
+}
+
 describe("restoreArchivedWorkspace via navigateToAgent", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     refreshAgent.mockReset();
+    vi.mocked(navigateToPreparedWorkspaceTab).mockClear();
     connected = true;
     seedArchivedAgent();
   });
@@ -177,5 +197,46 @@ describe("restoreArchivedWorkspace via navigateToAgent", () => {
     trigger();
 
     expect(refreshAgent).not.toHaveBeenCalled();
+  });
+
+  it("opens same-branch subagent clicks in the parent workspace", () => {
+    const store = useSessionStore.getState();
+    store.clearSession(SERVER_ID);
+    store.initializeSession(SERVER_ID, null as unknown as DaemonClient);
+    store.mergeWorkspaces(SERVER_ID, [
+      workspace({ id: "workspace-parent", name: "main" }),
+      workspace({ id: "workspace-child-duplicate", name: "main" }),
+    ]);
+    store.setAgents(
+      SERVER_ID,
+      new Map([
+        [
+          "parent-agent",
+          {
+            id: "parent-agent",
+            workspaceId: "workspace-parent",
+            parentAgentId: null,
+          } as unknown as Agent,
+        ],
+        [
+          "child-agent",
+          {
+            id: "child-agent",
+            workspaceId: "workspace-child-duplicate",
+            parentAgentId: "parent-agent",
+          } as unknown as Agent,
+        ],
+      ]),
+    );
+
+    navigateToAgent({ serverId: SERVER_ID, agentId: "child-agent" });
+
+    expect(navigateToPreparedWorkspaceTab).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverId: SERVER_ID,
+        workspaceId: "workspace-parent",
+        target: { kind: "agent", agentId: "child-agent" },
+      }),
+    );
   });
 });
