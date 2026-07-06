@@ -28,6 +28,8 @@ import {
   Clock3,
   MessageCircle,
   CopyPlus,
+  Mail,
+  MailOpen,
   Pencil,
   RotateCw,
   Rows2,
@@ -121,6 +123,8 @@ const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedArrowLeftToLine = withUnistyles(ArrowLeftToLine);
 const ThemedArrowRightToLine = withUnistyles(ArrowRightToLine);
 const ThemedCopyX = withUnistyles(CopyX);
+const ThemedMail = withUnistyles(Mail);
+const ThemedMailOpen = withUnistyles(MailOpen);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
@@ -616,6 +620,10 @@ function TabContextMenuItem({
         return <ThemedArrowRightToLine size={16} style={iconStyle} uniProps={mutedColorMapping} />;
       case "copy-x":
         return <ThemedCopyX size={16} uniProps={mutedColorMapping} />;
+      case "mail":
+        return <ThemedMail size={16} uniProps={mutedColorMapping} />;
+      case "mail-open":
+        return <ThemedMailOpen size={16} uniProps={mutedColorMapping} />;
       case "pencil":
         return <ThemedPencil size={16} uniProps={mutedColorMapping} />;
       case "x":
@@ -652,6 +660,7 @@ export interface WorkspaceDesktopTabRowItem {
   isActive: boolean;
   isCloseHovered: boolean;
   isClosingTab: boolean;
+  isUnread: boolean;
 }
 
 interface SplitActionButtonProps {
@@ -703,6 +712,9 @@ interface WorkspaceDesktopTabsRowProps {
   onCopyFilePath: (path: string) => Promise<void> | void;
   onDuplicateChat?: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
+  onMarkAgentRead: (agentId: string) => Promise<void> | void;
+  onMarkAgentUnread: (agentId: string) => Promise<void> | void;
+  canMarkAgentUnread: boolean;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTabsToLeft: (tabId: string) => Promise<void> | void;
   onCloseTabsToRight: (tabId: string) => Promise<void> | void;
@@ -1319,6 +1331,9 @@ export function WorkspaceDesktopTabsRow({
   onCopyFilePath,
   onDuplicateChat,
   onReloadAgent,
+  onMarkAgentRead,
+  onMarkAgentUnread,
+  canMarkAgentUnread,
   onRenameTab,
   onCloseTabsToLeft,
   onCloseTabsToRight,
@@ -1398,6 +1413,8 @@ export function WorkspaceDesktopTabsRow({
       copyAgentId: t("workspace.tabs.menu.copyAgentId"),
       copyFilePath: t("workspace.tabs.menu.copyFilePath"),
       duplicateChat: t("workspace.tabs.menu.duplicateChat"),
+      markAsRead: t("workspace.tabs.menu.markAsRead"),
+      markAsUnread: t("workspace.tabs.menu.markAsUnread"),
       rename: t("workspace.tabs.menu.rename"),
       closeAbove: t("workspace.tabs.menu.closeAbove"),
       closeBelow: t("workspace.tabs.menu.closeBelow"),
@@ -1518,6 +1535,9 @@ export function WorkspaceDesktopTabsRow({
           onCopyFilePath={onCopyFilePath}
           onDuplicateChat={onDuplicateChat}
           onReloadAgent={onReloadAgent}
+          onMarkAgentRead={onMarkAgentRead}
+          onMarkAgentUnread={onMarkAgentUnread}
+          canMarkAgentUnread={canMarkAgentUnread}
           onRenameTab={onRenameTab}
           onCloseTabsToLeft={onCloseTabsToLeft}
           onCloseTabsToRight={onCloseTabsToRight}
@@ -1552,6 +1572,9 @@ export function WorkspaceDesktopTabsRow({
       onCopyFilePath,
       onCopyResumeCommand,
       onDuplicateChat,
+      onMarkAgentRead,
+      onMarkAgentUnread,
+      canMarkAgentUnread,
       onNavigateTab,
       onReloadAgent,
       onRenameTab,
@@ -1717,6 +1740,9 @@ function ResolvedDesktopTabChip({
   onCopyFilePath,
   onDuplicateChat,
   onReloadAgent,
+  onMarkAgentRead,
+  onMarkAgentUnread,
+  canMarkAgentUnread,
   onRenameTab,
   onCloseTabsToLeft,
   onCloseTabsToRight,
@@ -1746,6 +1772,9 @@ function ResolvedDesktopTabChip({
   onCopyFilePath: (path: string) => Promise<void> | void;
   onDuplicateChat?: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
+  onMarkAgentRead: (agentId: string) => Promise<void> | void;
+  onMarkAgentUnread: (agentId: string) => Promise<void> | void;
+  canMarkAgentUnread: boolean;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTabsToLeft: (tabId: string) => Promise<void> | void;
   onCloseTabsToRight: (tabId: string) => Promise<void> | void;
@@ -1775,16 +1804,21 @@ function ResolvedDesktopTabChip({
         onCopyFilePath,
         onDuplicateChat,
         onReloadAgent,
+        onMarkAgentRead,
+        onMarkAgentUnread,
+        canMarkAgentUnread,
         onRenameTab,
         onCloseTab,
         onCloseTabsToLeft,
         onCloseTabsToRight,
         onCloseOtherTabs,
         labels,
+        isAgentUnread: item.isUnread,
       }),
     [
       index,
       item.tab,
+      item.isUnread,
       onCloseOtherTabs,
       onCloseTab,
       onCloseTabsToLeft,
@@ -1793,6 +1827,9 @@ function ResolvedDesktopTabChip({
       onCopyFilePath,
       onCopyResumeCommand,
       onDuplicateChat,
+      onMarkAgentRead,
+      onMarkAgentUnread,
+      canMarkAgentUnread,
       labels,
       onReloadAgent,
       onRenameTab,

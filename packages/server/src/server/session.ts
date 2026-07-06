@@ -1504,6 +1504,8 @@ export class Session {
         return this.handleAgentPermissionResponse(msg.agentId, msg.requestId, msg.response);
       case "clear_agent_attention":
         return this.handleClearAgentAttention(msg.agentId, msg.requestId);
+      case "agent.attention.set.request":
+        return this.handleSetAgentAttention(msg.agentId, msg.reason, msg.requestId);
       default:
         return undefined;
     }
@@ -3435,6 +3437,38 @@ export class Session {
     } catch (error) {
       this.sessionLogger.error({ err: error, agentIds }, "Failed to clear agent attention");
       // Don't throw - this is not critical
+    }
+  }
+
+  private async handleSetAgentAttention(
+    agentId: string,
+    reason: "finished",
+    requestId: string,
+  ): Promise<void> {
+    try {
+      if (reason !== "finished") {
+        throw new Error(`Unsupported agent attention reason: ${reason}`);
+      }
+      await this.agentManager.setAgentFinishedAttention(agentId);
+      const agent = this.agentManager.getAgent(agentId);
+      this.emit({
+        type: "agent.attention.set.response",
+        payload: {
+          requestId,
+          agentId,
+          agent: agent ? await this.buildAgentPayload(agent) : null,
+        },
+      });
+    } catch (error) {
+      this.sessionLogger.error({ err: error, agentId, reason }, "Failed to set agent attention");
+      this.emit({
+        type: "rpc_error",
+        payload: {
+          requestId,
+          requestType: "agent.attention.set.request",
+          error: errorToFriendlyMessage(error),
+        },
+      });
     }
   }
 

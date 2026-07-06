@@ -4940,6 +4940,8 @@ function EmbeddedWorkspaceTabs({
       copyAgentId: t("workspace.tabs.menu.copyAgentId"),
       copyFilePath: t("workspace.tabs.menu.copyFilePath"),
       duplicateChat: t("workspace.tabs.menu.duplicateChat"),
+      markAsRead: t("workspace.tabs.menu.markAsRead"),
+      markAsUnread: t("workspace.tabs.menu.markAsUnread"),
       rename: t("workspace.tabs.menu.rename"),
       closeAbove: t("workspace.tabs.menu.closeAbove"),
       closeBelow: t("workspace.tabs.menu.closeBelow"),

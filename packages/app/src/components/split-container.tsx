@@ -106,7 +106,11 @@ interface SplitContainerProps {
   onCopyFilePath: (path: string) => Promise<void> | void;
   onDuplicateChat?: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
+  onMarkAgentRead: (agentId: string) => Promise<void> | void;
+  onMarkAgentUnread: (agentId: string) => Promise<void> | void;
+  canMarkAgentUnread: boolean;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
+  unreadAgentIds: Set<string>;
   onCloseTabsToLeft: (tabId: string, paneTabs: WorkspaceTabDescriptor[]) => Promise<void> | void;
   onCloseTabsToRight: (tabId: string, paneTabs: WorkspaceTabDescriptor[]) => Promise<void> | void;
   onCloseOtherTabs: (tabId: string, paneTabs: WorkspaceTabDescriptor[]) => Promise<void> | void;
@@ -440,7 +444,11 @@ export function SplitContainer({
   onCopyFilePath,
   onDuplicateChat,
   onReloadAgent,
+  onMarkAgentRead,
+  onMarkAgentUnread,
+  canMarkAgentUnread,
   onRenameTab,
+  unreadAgentIds,
   onCloseTabsToLeft,
   onCloseTabsToRight,
   onCloseOtherTabs,
@@ -679,7 +687,11 @@ export function SplitContainer({
           onCopyFilePath={onCopyFilePath}
           onDuplicateChat={onDuplicateChat}
           onReloadAgent={onReloadAgent}
+          onMarkAgentRead={onMarkAgentRead}
+          onMarkAgentUnread={onMarkAgentUnread}
+          canMarkAgentUnread={canMarkAgentUnread}
           onRenameTab={onRenameTab}
+          unreadAgentIds={unreadAgentIds}
           onCloseTabsToLeft={onCloseTabsToLeft}
           onCloseTabsToRight={onCloseTabsToRight}
           onCloseOtherTabs={onCloseOtherTabs}
@@ -830,7 +842,11 @@ function SplitNodeView({
   onCopyFilePath,
   onDuplicateChat,
   onReloadAgent,
+  onMarkAgentRead,
+  onMarkAgentUnread,
+  canMarkAgentUnread,
   onRenameTab,
+  unreadAgentIds,
   onCloseTabsToLeft,
   onCloseTabsToRight,
   onCloseOtherTabs,
@@ -893,7 +909,11 @@ function SplitNodeView({
         onCopyFilePath={onCopyFilePath}
         onDuplicateChat={onDuplicateChat}
         onReloadAgent={onReloadAgent}
+        onMarkAgentRead={onMarkAgentRead}
+        onMarkAgentUnread={onMarkAgentUnread}
+        canMarkAgentUnread={canMarkAgentUnread}
         onRenameTab={onRenameTab}
+        unreadAgentIds={unreadAgentIds}
         onCloseTabsToLeft={onCloseTabsToLeft}
         onCloseTabsToRight={onCloseTabsToRight}
         onCloseOtherTabs={onCloseOtherTabs}
@@ -946,7 +966,11 @@ function SplitNodeView({
               onCopyFilePath={onCopyFilePath}
               onDuplicateChat={onDuplicateChat}
               onReloadAgent={onReloadAgent}
+              onMarkAgentRead={onMarkAgentRead}
+              onMarkAgentUnread={onMarkAgentUnread}
+              canMarkAgentUnread={canMarkAgentUnread}
               onRenameTab={onRenameTab}
+              unreadAgentIds={unreadAgentIds}
               onCloseTabsToLeft={onCloseTabsToLeft}
               onCloseTabsToRight={onCloseTabsToRight}
               onCloseOtherTabs={onCloseOtherTabs}
@@ -1008,7 +1032,11 @@ function SplitPaneView({
   onCopyFilePath,
   onDuplicateChat,
   onReloadAgent,
+  onMarkAgentRead,
+  onMarkAgentUnread,
+  canMarkAgentUnread,
   onRenameTab,
+  unreadAgentIds,
   onCloseTabsToLeft,
   onCloseTabsToRight,
   onCloseOtherTabs,
@@ -1083,8 +1111,9 @@ function SplitPaneView({
         isActive: tab.key === activeTabDescriptor?.key,
         isCloseHovered: hoveredCloseTabKey === tab.key,
         isClosingTab: closingTabIds.has(tab.tabId),
+        isUnread: tab.target.kind === "agent" && unreadAgentIds.has(tab.target.agentId),
       })),
-    [activeTabDescriptor?.key, closingTabIds, hoveredCloseTabKey, sortedPaneTabs],
+    [activeTabDescriptor?.key, closingTabIds, hoveredCloseTabKey, sortedPaneTabs, unreadAgentIds],
   );
 
   useEffect(() => {
@@ -1186,6 +1215,9 @@ function SplitPaneView({
         onCopyFilePath={onCopyFilePath}
         onDuplicateChat={onDuplicateChat}
         onReloadAgent={onReloadAgent}
+        onMarkAgentRead={onMarkAgentRead}
+        onMarkAgentUnread={onMarkAgentUnread}
+        canMarkAgentUnread={canMarkAgentUnread}
         onRenameTab={onRenameTab}
         onCloseTabsToLeft={handleCloseTabsToLeft}
         onCloseTabsToRight={handleCloseTabsToRight}

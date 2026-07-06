@@ -1909,6 +1909,13 @@ export const ClearAgentAttentionMessageSchema = z.object({
   requestId: z.string().optional(),
 });
 
+export const SetAgentAttentionMessageSchema = z.object({
+  type: z.literal("agent.attention.set.request"),
+  agentId: z.string(),
+  reason: z.enum(["finished"]),
+  requestId: z.string(),
+});
+
 export const ClientHeartbeatMessageSchema = z.object({
   type: z.literal("client_heartbeat"),
   deviceType: z.enum(["web", "mobile"]),
@@ -2157,6 +2164,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   FileDownloadTokenRequestSchema,
   FileUploadRequestSchema,
   ClearAgentAttentionMessageSchema,
+  SetAgentAttentionMessageSchema,
   ClientHeartbeatMessageSchema,
   PingMessageSchema,
   ListCommandsRequestSchema,
@@ -2395,6 +2403,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentBranching: z.boolean().optional(),
         // COMPAT(projectIconOverride): added in v0.1.X, drop the gate when daemon floor >= v0.1.X.
         projectIconOverride: z.boolean().optional(),
+        // COMPAT(agentAttentionSet): added in v0.1.105, remove gate after 2027-01-06 once daemon floor >= v0.1.105.
+        agentAttentionSet: z.boolean().optional(),
       })
       .optional(),
   })
@@ -3050,6 +3060,15 @@ export const ClearAgentAttentionResponseMessageSchema = z.object({
     requestId: z.string(),
     agentId: z.string().or(z.array(z.string())),
     agents: z.array(AgentSnapshotPayloadSchema),
+  }),
+});
+
+export const SetAgentAttentionResponseMessageSchema = z.object({
+  type: z.literal("agent.attention.set.response"),
+  payload: z.object({
+    requestId: z.string(),
+    agentId: z.string(),
+    agent: AgentSnapshotPayloadSchema.nullable(),
   }),
 });
 
@@ -4278,6 +4297,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentForkContextResponseMessageSchema,
   CancelAgentResponseMessageSchema,
   ClearAgentAttentionResponseMessageSchema,
+  SetAgentAttentionResponseMessageSchema,
   WorkspaceCreateResponseSchema,
   WorkspaceClearAttentionResponseSchema,
   SendAgentMessageResponseMessageSchema,
@@ -4698,6 +4718,10 @@ export type ShutdownServerRequestMessage = z.infer<typeof ShutdownServerRequestM
 export type ClearAgentAttentionMessage = z.infer<typeof ClearAgentAttentionMessageSchema>;
 export type ClearAgentAttentionResponseMessage = z.infer<
   typeof ClearAgentAttentionResponseMessageSchema
+>;
+export type SetAgentAttentionMessage = z.infer<typeof SetAgentAttentionMessageSchema>;
+export type SetAgentAttentionResponseMessage = z.infer<
+  typeof SetAgentAttentionResponseMessageSchema
 >;
 export type ClientHeartbeatMessage = z.infer<typeof ClientHeartbeatMessageSchema>;
 export type ListCommandsRequest = z.infer<typeof ListCommandsRequestSchema>;

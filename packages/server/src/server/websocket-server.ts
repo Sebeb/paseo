@@ -1246,6 +1246,8 @@ export class VoiceAssistantWebSocketServer {
         agentBranching: true,
         // COMPAT(projectIconOverride): added in v0.1.X, drop the gate when daemon floor >= v0.1.X.
         projectIconOverride: true,
+        // COMPAT(agentAttentionSet): added in v0.1.105, remove gate after 2027-01-06 once daemon floor >= v0.1.105.
+        agentAttentionSet: true,
       },
     };
   }

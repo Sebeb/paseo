@@ -1525,6 +1525,17 @@ export class AgentManager {
     }
   }
 
+  async setAgentFinishedAttention(agentId: string): Promise<void> {
+    const agent = this.requireAgent(agentId);
+    agent.attention = {
+      requiresAttention: true,
+      attentionReason: "finished",
+      attentionTimestamp: new Date(),
+    };
+    await this.persistSnapshot(agent);
+    this.emitState(agent, { persist: false });
+  }
+
   async archiveSnapshot(agentId: string, archivedAt: string): Promise<StoredAgentRecord> {
     const registry = this.requireRegistry();
     const liveAgent = this.getAgent(agentId);

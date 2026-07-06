@@ -43,6 +43,7 @@ describe("buildWorkspaceTabMenuEntries", () => {
     expect(entries.filter((entry) => entry.kind === "item").map((entry) => entry.label)).toEqual([
       "Copy resume command",
       "Copy agent id",
+      "Mark as unread",
       "Rename",
       "Close to the left",
       "Close to the right",
@@ -73,6 +74,7 @@ describe("buildWorkspaceTabMenuEntries", () => {
     expect(entries.filter((entry) => entry.kind === "item").map((entry) => entry.label)).toEqual([
       "Copy resume command",
       "Copy agent id",
+      "Mark as unread",
       "Rename",
       "Close tabs above",
       "Close tabs below",
@@ -316,6 +318,7 @@ describe("buildWorkspaceTabMenuEntries", () => {
     expect(labels).not.toContain("Copy agent id");
     expect(labels).not.toContain("Copy file path");
     expect(labels).not.toContain("Reload agent");
+    expect(labels).not.toContain("Mark as unread");
 
     const renameEntry = entries.find((entry) => entry.kind === "item" && entry.label === "Rename");
     if (!renameEntry || renameEntry.kind !== "item") {
@@ -356,6 +359,7 @@ describe("buildWorkspaceTabMenuEntries", () => {
     expect(labels).not.toContain("Copy agent id");
     expect(labels).not.toContain("Rename");
     expect(labels).not.toContain("Reload agent");
+    expect(labels).not.toContain("Mark as unread");
 
     const copyFilePathEntry = entries.find(
       (entry) => entry.kind === "item" && entry.key === "copy-file-path",
@@ -365,6 +369,80 @@ describe("buildWorkspaceTabMenuEntries", () => {
     }
     copyFilePathEntry.onSelect();
     expect(onCopyFilePath).toHaveBeenCalledWith("/some/path.ts");
+  });
+
+  it("toggles agent tabs between mark unread and mark read entries", () => {
+    const onMarkAgentRead = vi.fn();
+    const onMarkAgentUnread = vi.fn();
+    const baseInput = {
+      surface: "desktop" as const,
+      tab: createAgentTab(),
+      index: 0,
+      tabCount: 1,
+      menuTestIDBase: "workspace-tab-context-agent_123",
+      onCopyResumeCommand: vi.fn(),
+      onCopyAgentId: vi.fn(),
+      onCopyFilePath: vi.fn(),
+      onReloadAgent: vi.fn(),
+      onRenameTab: vi.fn(),
+      onCloseTab: vi.fn(),
+      onCloseTabsBefore: vi.fn(),
+      onCloseTabsAfter: vi.fn(),
+      onCloseOtherTabs: vi.fn(),
+      onMarkAgentRead,
+      onMarkAgentUnread,
+    };
+
+    const unreadEntries = buildWorkspaceTabMenuEntries({
+      ...baseInput,
+      isAgentUnread: true,
+    });
+    const readEntry = unreadEntries.find(
+      (entry) => entry.kind === "item" && entry.key === "mark-as-read",
+    );
+    if (!readEntry || readEntry.kind !== "item") {
+      throw new Error("Mark as read entry missing");
+    }
+    readEntry.onSelect();
+
+    const readEntries = buildWorkspaceTabMenuEntries({
+      ...baseInput,
+      isAgentUnread: false,
+    });
+    const unreadEntry = readEntries.find(
+      (entry) => entry.kind === "item" && entry.key === "mark-as-unread",
+    );
+    if (!unreadEntry || unreadEntry.kind !== "item") {
+      throw new Error("Mark as unread entry missing");
+    }
+    unreadEntry.onSelect();
+
+    expect(readEntry.label).toBe("Mark as read");
+    expect(readEntry.icon).toBe("mail-open");
+    expect(unreadEntry.label).toBe("Mark as unread");
+    expect(unreadEntry.icon).toBe("mail");
+    expect(onMarkAgentRead).toHaveBeenCalledWith("agent-123");
+    expect(onMarkAgentUnread).toHaveBeenCalledWith("agent-123");
+
+    const unsupportedEntries = buildWorkspaceTabMenuEntries({
+      ...baseInput,
+      isAgentUnread: false,
+      canMarkAgentUnread: false,
+    });
+    expect(
+      unsupportedEntries.some((entry) => entry.kind === "item" && entry.key === "mark-as-unread"),
+    ).toBe(false);
+
+    const unsupportedUnreadEntries = buildWorkspaceTabMenuEntries({
+      ...baseInput,
+      isAgentUnread: true,
+      canMarkAgentUnread: false,
+    });
+    expect(
+      unsupportedUnreadEntries.some(
+        (entry) => entry.kind === "item" && entry.key === "mark-as-read",
+      ),
+    ).toBe(true);
   });
 
   it("uses the same rename entry shape for agent and terminal tabs", () => {

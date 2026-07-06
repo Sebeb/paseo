@@ -22,6 +22,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, type Href } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { useTranslation } from "react-i18next";
+import equal from "fast-deep-equal";
 import { DiffStat } from "@/components/diff-stat";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import {
@@ -38,6 +39,8 @@ import {
   EllipsisVertical,
   Globe,
   Import as ImportIcon,
+  Mail,
+  MailOpen,
   PanelRight,
   Pencil,
   RotateCw,
@@ -138,6 +141,7 @@ import {
   useHostRuntimeSnapshot,
   useHosts,
 } from "@/runtime/host-runtime";
+import { useHostFeature } from "@/runtime/host-features";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import {
   shouldShowWorkspaceSetup,
@@ -257,6 +261,7 @@ const WORKSPACE_FLOATING_PANEL_PORTAL_HOST_PREFIX = "workspace-floating-panels";
 const EMPTY_UI_TABS: WorkspaceTab[] = [];
 const EMPTY_RECENTLY_CLOSED_TABS: RecentlyClosedWorkspaceTab[] = [];
 const EMPTY_WORKSPACE_SCRIPTS: WorkspaceDescriptor["scripts"] = [];
+const EMPTY_AGENT_MAP = new Map<string, Agent>();
 const EMPTY_PINNED_AGENT_IDS = new Set<string>();
 const EMPTY_SET = new Set<string>();
 const COMPACT_WEB_GESTURE_TOUCH_ACTION = isWeb ? "auto" : "pan-y";
@@ -303,6 +308,8 @@ const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedArrowLeftToLine = withUnistyles(ArrowLeftToLine);
 const ThemedArrowRightToLine = withUnistyles(ArrowRightToLine);
 const ThemedCopyX = withUnistyles(CopyX);
+const ThemedMail = withUnistyles(Mail);
+const ThemedMailOpen = withUnistyles(MailOpen);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedX = withUnistyles(X);
 const ThemedSquarePen = withUnistyles(SquarePen);
@@ -452,6 +459,8 @@ interface MobileWorkspaceTabSwitcherProps {
   activeTab: WorkspaceTabDescriptor | null;
   tabSwitcherOptions: ComboboxOption[];
   tabByKey: Map<string, WorkspaceTabDescriptor>;
+  unreadAgentIds: Set<string>;
+  canMarkAgentUnread: boolean;
   normalizedServerId: string;
   normalizedWorkspaceId: string;
   onSelectSwitcherTab: (key: string) => void;
@@ -460,6 +469,8 @@ interface MobileWorkspaceTabSwitcherProps {
   onCopyFilePath: (path: string) => Promise<void> | void;
   onDuplicateChat?: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
+  onMarkAgentRead: (agentId: string) => Promise<void> | void;
+  onMarkAgentUnread: (agentId: string) => Promise<void> | void;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
   onCloseTabsAbove: (tabId: string) => Promise<void> | void;
@@ -611,6 +622,10 @@ function MobileTabDropdownMenuItem({
         return <ThemedArrowRightToLine size={16} style={iconStyle} uniProps={mutedColorMapping} />;
       case "copy-x":
         return <ThemedCopyX size={16} uniProps={mutedColorMapping} />;
+      case "mail":
+        return <ThemedMail size={16} uniProps={mutedColorMapping} />;
+      case "mail-open":
+        return <ThemedMailOpen size={16} uniProps={mutedColorMapping} />;
       case "pencil":
         return <ThemedPencil size={16} uniProps={mutedColorMapping} />;
       case "x":
@@ -646,12 +661,16 @@ function MobileWorkspaceTabOption({
   normalizedWorkspaceId,
   selected,
   active,
+  isUnread,
+  canMarkAgentUnread,
   onPress,
   onCopyResumeCommand,
   onCopyAgentId,
   onCopyFilePath,
   onDuplicateChat,
   onReloadAgent,
+  onMarkAgentRead,
+  onMarkAgentUnread,
   onRenameTab,
   onCloseTab,
   onCloseTabsAbove,
@@ -665,12 +684,16 @@ function MobileWorkspaceTabOption({
   normalizedWorkspaceId: string;
   selected: boolean;
   active: boolean;
+  isUnread: boolean;
+  canMarkAgentUnread: boolean;
   onPress: () => void;
   onCopyResumeCommand: (agentId: string) => Promise<void> | void;
   onCopyAgentId: (agentId: string) => Promise<void> | void;
   onCopyFilePath: (path: string) => Promise<void> | void;
   onDuplicateChat?: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
+  onMarkAgentRead: (agentId: string) => Promise<void> | void;
+  onMarkAgentUnread: (agentId: string) => Promise<void> | void;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
   onCloseTabsAbove: (tabId: string) => Promise<void> | void;
@@ -684,6 +707,8 @@ function MobileWorkspaceTabOption({
       copyAgentId: t("workspace.tabs.menu.copyAgentId"),
       copyFilePath: t("workspace.tabs.menu.copyFilePath"),
       duplicateChat: t("workspace.tabs.menu.duplicateChat"),
+      markAsRead: t("workspace.tabs.menu.markAsRead"),
+      markAsUnread: t("workspace.tabs.menu.markAsUnread"),
       rename: t("workspace.tabs.menu.rename"),
       closeAbove: t("workspace.tabs.menu.closeAbove"),
       closeBelow: t("workspace.tabs.menu.closeBelow"),
@@ -708,12 +733,16 @@ function MobileWorkspaceTabOption({
     onCopyFilePath,
     onDuplicateChat,
     onReloadAgent,
+    onMarkAgentRead,
+    onMarkAgentUnread,
     onRenameTab,
     onCloseTab,
     onCloseTabsBefore: onCloseTabsAbove,
     onCloseTabsAfter: onCloseTabsBelow,
     onCloseOtherTabs,
     labels: tabMenuLabels,
+    isAgentUnread: isUnread,
+    canMarkAgentUnread,
   });
 
   const fallbackLabels = useMemo(
@@ -769,6 +798,8 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
   activeTab,
   tabSwitcherOptions,
   tabByKey,
+  unreadAgentIds,
+  canMarkAgentUnread,
   normalizedServerId,
   normalizedWorkspaceId,
   onSelectSwitcherTab,
@@ -777,6 +808,8 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
   onCopyFilePath,
   onDuplicateChat,
   onReloadAgent,
+  onMarkAgentRead,
+  onMarkAgentUnread,
   onRenameTab,
   onCloseTab,
   onCloseTabsAbove,
@@ -828,12 +861,16 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
           normalizedWorkspaceId={normalizedWorkspaceId}
           selected={selected}
           active={active}
+          isUnread={tab.target.kind === "agent" && unreadAgentIds.has(tab.target.agentId)}
+          canMarkAgentUnread={canMarkAgentUnread}
           onPress={onPress}
           onCopyResumeCommand={onCopyResumeCommand}
           onCopyAgentId={onCopyAgentId}
           onCopyFilePath={onCopyFilePath}
           onDuplicateChat={onDuplicateChat}
           onReloadAgent={onReloadAgent}
+          onMarkAgentRead={onMarkAgentRead}
+          onMarkAgentUnread={onMarkAgentUnread}
           onRenameTab={onRenameTab}
           onCloseTab={onCloseTab}
           onCloseTabsAbove={onCloseTabsAbove}
@@ -846,6 +883,8 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
       tabByKey,
       tabIndexByKey,
       tabs.length,
+      unreadAgentIds,
+      canMarkAgentUnread,
       normalizedServerId,
       normalizedWorkspaceId,
       onCopyResumeCommand,
@@ -853,6 +892,8 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
       onCopyFilePath,
       onDuplicateChat,
       onReloadAgent,
+      onMarkAgentRead,
+      onMarkAgentUnread,
       onRenameTab,
       onCloseTab,
       onCloseTabsAbove,
@@ -2689,6 +2730,21 @@ function WorkspaceScreenContent({
       }),
     workspaceAgentVisibilityEqual,
   );
+  const unreadSourceAgents = useStoreWithEqualityFn(
+    useSessionStore,
+    (state) => state.sessions[normalizedServerId]?.agents ?? EMPTY_AGENT_MAP,
+    equal,
+  );
+  const unreadAgentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const agent of unreadSourceAgents.values()) {
+      if (agent.workspaceId === normalizedWorkspaceId && agent.requiresAttention) {
+        ids.add(agent.id);
+      }
+    }
+    return ids;
+  }, [normalizedWorkspaceId, unreadSourceAgents]);
+  const canMarkAgentUnread = useHostFeature(normalizedServerId, "agentAttentionSet");
 
   const {
     handleTerminalCreated,
@@ -3769,6 +3825,36 @@ function WorkspaceScreenContent({
     [normalizedServerId, toast, t],
   );
 
+  const handleMarkAgentRead = useCallback(
+    async (agentId: string) => {
+      if (!client || !isConnected) {
+        toast.error(t("workspace.terminal.hostDisconnected"));
+        return;
+      }
+      try {
+        await client.clearAgentAttention(agentId);
+      } catch {
+        toast.error(t("workspace.tabs.toasts.markReadFailed"));
+      }
+    },
+    [client, isConnected, toast, t],
+  );
+
+  const handleMarkAgentUnread = useCallback(
+    async (agentId: string) => {
+      if (!client || !isConnected) {
+        toast.error(t("workspace.terminal.hostDisconnected"));
+        return;
+      }
+      try {
+        await client.markAgentUnread(agentId);
+      } catch {
+        toast.error(t("workspace.tabs.toasts.markUnreadFailed"));
+      }
+    },
+    [client, isConnected, toast, t],
+  );
+
   const handleReloadAgent = useCallback(
     async (agentId: string) => {
       if (!client || !isConnected) {
@@ -4343,8 +4429,9 @@ function WorkspaceScreenContent({
         isActive: tab.tabId === activeTabDescriptor?.tabId,
         isCloseHovered: hoveredCloseTabKey === tab.key,
         isClosingTab: closingTabIds.has(tab.tabId),
+        isUnread: tab.target.kind === "agent" && unreadAgentIds.has(tab.target.agentId),
       })),
-    [activeTabDescriptor?.tabId, closingTabIds, hoveredCloseTabKey, navigationTabs],
+    [activeTabDescriptor?.tabId, closingTabIds, hoveredCloseTabKey, navigationTabs, unreadAgentIds],
   );
 
   const handleFocusPane = useStableEvent(function handleFocusPane(paneId: string) {
@@ -4682,7 +4769,11 @@ function WorkspaceScreenContent({
         onCopyFilePath={handleCopyFilePath}
         onDuplicateChat={duplicateChatHandler}
         onReloadAgent={handleReloadAgent}
+        onMarkAgentRead={handleMarkAgentRead}
+        onMarkAgentUnread={handleMarkAgentUnread}
+        canMarkAgentUnread={canMarkAgentUnread}
         onRenameTab={handleRenameTab}
+        unreadAgentIds={unreadAgentIds}
         onCloseTabsToLeft={handleCloseTabsToLeftInPane}
         onCloseTabsToRight={handleCloseTabsToRightInPane}
         onCloseOtherTabs={handleCloseOtherTabsInPane}
@@ -4724,7 +4815,11 @@ function WorkspaceScreenContent({
     handleCopyAgentId,
     handleCopyFilePath,
     handleReloadAgent,
+    handleMarkAgentRead,
+    handleMarkAgentUnread,
+    canMarkAgentUnread,
     handleRenameTab,
+    unreadAgentIds,
     handleCloseTabsToLeftInPane,
     handleCloseTabsToRightInPane,
     handleCloseOtherTabsInPane,
@@ -4818,6 +4913,8 @@ function WorkspaceScreenContent({
           activeTab={activeTabDescriptor}
           tabSwitcherOptions={tabSwitcherOptions}
           tabByKey={tabByKey}
+          unreadAgentIds={unreadAgentIds}
+          canMarkAgentUnread={canMarkAgentUnread}
           normalizedServerId={normalizedServerId}
           normalizedWorkspaceId={normalizedWorkspaceId}
           onSelectSwitcherTab={handleSelectSwitcherTab}
@@ -4826,6 +4923,8 @@ function WorkspaceScreenContent({
           onCopyFilePath={handleCopyFilePath}
           onDuplicateChat={duplicateChatHandler}
           onReloadAgent={handleReloadAgent}
+          onMarkAgentRead={handleMarkAgentRead}
+          onMarkAgentUnread={handleMarkAgentUnread}
           onRenameTab={handleRenameTab}
           onCloseTab={handleCloseTabByIdVoid}
           onCloseTabsAbove={handleCloseTabsToLeft}
@@ -4850,6 +4949,9 @@ function WorkspaceScreenContent({
           onCopyFilePath={handleCopyFilePath}
           onDuplicateChat={duplicateChatHandler}
           onReloadAgent={handleReloadAgent}
+          onMarkAgentRead={handleMarkAgentRead}
+          onMarkAgentUnread={handleMarkAgentUnread}
+          canMarkAgentUnread={canMarkAgentUnread}
           onRenameTab={handleRenameTab}
           onCloseTabsToLeft={handleCloseTabsToLeft}
           onCloseTabsToRight={handleCloseTabsToRight}

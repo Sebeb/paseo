@@ -1660,6 +1660,30 @@ export class DaemonClient {
     });
   }
 
+  async markAgentUnread(agentId: string): Promise<void> {
+    const requestId = this.createRequestId();
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.attention.set.request",
+      agentId,
+      reason: "finished",
+      requestId,
+    });
+    await this.sendRequest({
+      requestId,
+      message,
+      options: { skipQueue: true },
+      select: (msg) => {
+        if (msg.type !== "agent.attention.set.response") {
+          return null;
+        }
+        if (msg.payload.requestId !== requestId) {
+          return null;
+        }
+        return msg.payload;
+      },
+    });
+  }
+
   async clearWorkspaceAttention(workspaceId: string | string[]): Promise<void> {
     const requestId = this.createRequestId();
     const message = SessionInboundMessageSchema.parse({

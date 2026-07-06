@@ -10,6 +10,8 @@ export interface WorkspaceTabMenuLabels {
   copyAgentId: string;
   copyFilePath: string;
   duplicateChat: string;
+  markAsRead: string;
+  markAsUnread: string;
   rename: string;
   closeAbove: string;
   closeBelow: string;
@@ -28,6 +30,8 @@ export const DEFAULT_WORKSPACE_TAB_MENU_LABELS: WorkspaceTabMenuLabels = {
   copyAgentId: i18n.t("workspace.tabs.menu.copyAgentId"),
   copyFilePath: i18n.t("workspace.tabs.menu.copyFilePath"),
   duplicateChat: i18n.t("workspace.tabs.menu.duplicateChat"),
+  markAsRead: i18n.t("workspace.tabs.menu.markAsRead"),
+  markAsUnread: i18n.t("workspace.tabs.menu.markAsUnread"),
   rename: i18n.t("workspace.tabs.menu.rename"),
   closeAbove: i18n.t("workspace.tabs.menu.closeAbove"),
   closeBelow: i18n.t("workspace.tabs.menu.closeBelow"),
@@ -53,6 +57,8 @@ export type WorkspaceTabMenuEntry =
         | "arrow-left-to-line"
         | "arrow-right-to-line"
         | "copy-x"
+        | "mail"
+        | "mail-open"
         | "pencil"
         | "x";
       iconRotation?: "clockwise-90";
@@ -79,12 +85,16 @@ interface BuildWorkspaceTabMenuEntriesInput {
   onCopyFilePath: (path: string) => Promise<void> | void;
   onDuplicateChat?: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
+  onMarkAgentRead?: (agentId: string) => Promise<void> | void;
+  onMarkAgentUnread?: (agentId: string) => Promise<void> | void;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
   onCloseTabsBefore: (tabId: string) => Promise<void> | void;
   onCloseTabsAfter: (tabId: string) => Promise<void> | void;
   onCloseOtherTabs: (tabId: string) => Promise<void> | void;
   labels?: WorkspaceTabMenuLabels;
+  isAgentUnread?: boolean;
+  canMarkAgentUnread?: boolean;
 }
 
 interface BuildWorkspaceDesktopTabActionsInput {
@@ -96,12 +106,16 @@ interface BuildWorkspaceDesktopTabActionsInput {
   onCopyFilePath: (path: string) => Promise<void> | void;
   onDuplicateChat?: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
+  onMarkAgentRead?: (agentId: string) => Promise<void> | void;
+  onMarkAgentUnread?: (agentId: string) => Promise<void> | void;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
   onCloseTabsToLeft: (tabId: string) => Promise<void> | void;
   onCloseTabsToRight: (tabId: string) => Promise<void> | void;
   onCloseOtherTabs: (tabId: string) => Promise<void> | void;
   labels?: WorkspaceTabMenuLabels;
+  isAgentUnread?: boolean;
+  canMarkAgentUnread?: boolean;
 }
 
 export interface WorkspaceDesktopTabActions {
@@ -181,6 +195,8 @@ export function buildWorkspaceTabMenuEntries(
     onCopyFilePath,
     onDuplicateChat,
     onReloadAgent,
+    onMarkAgentRead,
+    onMarkAgentUnread,
     onRenameTab,
     onCloseTab,
     onCloseTabsBefore,
@@ -245,6 +261,22 @@ export function buildWorkspaceTabMenuEntries(
   }
 
   if (tab.target.kind === "agent" || tab.target.kind === "terminal") {
+    if (tab.target.kind === "agent") {
+      const { agentId } = tab.target;
+      const isAgentUnread = input.isAgentUnread === true;
+      if (isAgentUnread || input.canMarkAgentUnread !== false) {
+        entries.push({
+          kind: "item",
+          key: isAgentUnread ? "mark-as-read" : "mark-as-unread",
+          label: isAgentUnread ? labels.markAsRead : labels.markAsUnread,
+          icon: isAgentUnread ? "mail-open" : "mail",
+          testID: `${menuTestIDBase}-${isAgentUnread ? "mark-as-read" : "mark-as-unread"}`,
+          onSelect: () => {
+            void (isAgentUnread ? onMarkAgentRead?.(agentId) : onMarkAgentUnread?.(agentId));
+          },
+        });
+      }
+    }
     entries.push({
       kind: "item",
       key: "rename",
@@ -341,12 +373,16 @@ export function buildWorkspaceDesktopTabActions(
       onCopyFilePath: input.onCopyFilePath,
       onDuplicateChat: input.onDuplicateChat,
       onReloadAgent: input.onReloadAgent,
+      onMarkAgentRead: input.onMarkAgentRead,
+      onMarkAgentUnread: input.onMarkAgentUnread,
       onRenameTab: input.onRenameTab,
       onCloseTab: input.onCloseTab,
       onCloseTabsBefore: input.onCloseTabsToLeft,
       onCloseTabsAfter: input.onCloseTabsToRight,
       onCloseOtherTabs: input.onCloseOtherTabs,
       labels: input.labels,
+      isAgentUnread: input.isAgentUnread,
+      canMarkAgentUnread: input.canMarkAgentUnread,
     }),
     closeButtonTestId: getCloseButtonTestId(input.tab),
   };

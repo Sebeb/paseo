@@ -3432,6 +3432,46 @@ test("fetches agents via RPC with filters, sort, and pagination", async () => {
   });
 });
 
+test("marks an agent unread via agent.attention.set.request", async () => {
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "mark_unread_unit_test",
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const promise = client.markAgentUnread("agent-123");
+
+  expect(mock.sent).toHaveLength(1);
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({
+    type: "agent.attention.set.request",
+    agentId: "agent-123",
+    reason: "finished",
+  });
+  expect(typeof request.requestId).toBe("string");
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "agent.attention.set.response",
+      payload: {
+        requestId: request.requestId,
+        agentId: "agent-123",
+        agent: null,
+      },
+    }),
+  );
+
+  await expect(promise).resolves.toBeUndefined();
+});
+
 test("detaches an agent through the namespaced detach RPC", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();
