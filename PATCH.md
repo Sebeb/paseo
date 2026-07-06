@@ -1,16 +1,16 @@
-# Patch Summary: Embedded Workspace Tabs In Sidebar
+# Patch Summary: Sidebar Workspace Tabs And Status Flash
 
-Branch: `feat/sidebar-workspace-tabs`
+Branch: `feat/sidebar-status-flash`
 
 Base: `origin/main`
 
-Anchor commit: 7a87367b75486fed3c2b862638ecb11618d5aaa0 — feat(sidebar-tabs): add status hover summaries
+Anchor commit: a1ddbcd082a1e84b9857c5deb72e6cc7ddce605f — feat(sidebar): flash status glow on new attention statuses
 
 ## Purpose
 
-This branch redesigns the sidebar so workspace tabs can be shown and controlled directly under each workspace. It adds sidebar-specific tab ordering, recent tab filtering, status badges, grouping controls, tab-close cleanup, and layout state needed for embedded tab presentation.
+This branch redesigns the sidebar so workspace tabs can be shown and controlled directly under each workspace. It adds sidebar-specific project/workspace/tab ordering, show-last filtering, status badges, grouping controls, tab-close cleanup, status hover explainers, and status flash signals for newly attention-worthy rows.
 
-The branch is intentionally grouped because the sidebar list, workspace layout store, tab close behavior, status summaries, and sidebar preferences depend on each other.
+The branch is intentionally grouped because the sidebar list, workspace layout store, tab close behavior, status summaries, status flash routing, and sidebar preferences depend on each other.
 
 ## User-Facing Changes
 
@@ -20,9 +20,12 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
   - workspace title source
   - auto-collapse projects
   - auto-collapse workspaces
+  - project sort mode (manual, created, lastUpdated, **status**)
+  - project show-last limit (3, 5, 10, all)
   - workspace sort mode (manual, created, lastUpdated, **status**)
+  - workspace show-last limit (3, 5, 10, all)
   - embedded tab sort mode (manual, created, lastUpdated, **status**)
-  - recent tab count
+  - embedded tab show-last/recent count
   - sidebar badge mode
 - Adds per-kind status count badges for workspace tabs (queued messages, draft, input required, unread, in-progress, failed).
 - Adds workspace expansion/collapse behavior for showing or hiding embedded tabs.
@@ -50,6 +53,10 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Workspace and project rows suppress draft-only status dots/badges so a typed draft in an embedded tab does not make the whole workspace or project look active; embedded tab rows still show draft status directly.
 - Parent embedded tab rows keep their normal tab icon visible at rest, swap the leading slot to the expand/collapse chevron only on hover/touch/compact layouts, and show a small collapsed-subtree count before the label when descendants are hidden.
 - Project, workspace, and embedded-tab hover cards include status explainer rows so status dots can be interpreted without opening the tab or workspace.
+- Reworks the sidebar controls menu into universal controls plus collapsible Projects, Workspaces, and Tabs preference sections.
+- Adds project sorting and project/workspace "show last" limits, with "show all/show less" toggles and forced inclusion for the active project/workspace.
+- Lets the selected workspace's status summary toggle between project grouping and status grouping, including scoped status content inside the active project.
+- Flashes a temporary colored glow when `input_required`, `unread`, or `failed` status newly appears on a collapsed project, collapsed workspace, or embedded tab row. Hidden child-tab statuses route to the nearest visible ancestor before falling back to parent workspace/project rows.
 
 ## Restored Main Polish
 
@@ -75,26 +82,31 @@ This new persisted zustand store owns sidebar-specific display preferences.
 #### Types
 
 - `SidebarGroupMode = "project" | "status"`
-- `SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated" | "status"`
-- `SidebarWorkspaceSortMode = SidebarEmbeddedTabSortMode`
-- `SidebarEmbeddedRecentTabCount = 3 | 5 | 10 | "all"`
+- `SidebarSortMode = "manual" | "created" | "lastUpdated" | "status"`
+- `SidebarEmbeddedTabSortMode = SidebarSortMode`
+- `SidebarWorkspaceSortMode = SidebarSortMode`
+- `SidebarProjectSortMode = SidebarSortMode`
+- `SidebarShowLastCount = 3 | 5 | 10 | "all"`
+- `SidebarEmbeddedRecentTabCount = SidebarShowLastCount`
+- `SidebarWorkspaceShowLastCount = SidebarShowLastCount`
+- `SidebarProjectShowLastCount = SidebarShowLastCount`
 - `SidebarBadgeMode = "diff" | "status" | "none"`
 
 #### Normalizers
 
-##### `normalizeTabSortMode(value)`
+##### `normalizeSortMode(value)`
 
-Returns a valid tab sort mode:
+Returns a valid sort mode:
 
 - accepts `"created"`, `"lastUpdated"`, `"manual"`, and `"status"`
 - falls back to `"manual"`
 
-##### `normalizeRecentTabCount(value)`
+##### `normalizeShowLastCount(value, fallback)`
 
-Returns a valid recent tab count:
+Returns a valid show-last count:
 
 - accepts `3`, `5`, `10`, and `"all"`
-- falls back to `5`
+- falls back to the caller-provided fallback, so project/workspace limits default to `"all"` while embedded tab recent-count still defaults to `5`
 
 ##### `normalizeBadgeMode(value)`
 
@@ -120,7 +132,7 @@ Returns a valid badge mode:
 ##### `getEmbeddedTabSortMode(serverId)` / `setEmbeddedTabSortMode(serverId, mode)`
 
 - Store and read per-server tab sort mode.
-- Always normalize values through `normalizeTabSortMode`.
+- Always normalize values through `normalizeSortMode`.
 
 ##### `getWorkspaceSortMode(serverId)` / `setWorkspaceSortMode(serverId, mode)`
 
@@ -128,10 +140,28 @@ Returns a valid badge mode:
 - Use the same value space and normalization as embedded tab sort mode: `"manual"`, `"created"`, `"lastUpdated"`, and `"status"`.
 - Empty server ids read as `"manual"` and are ignored on write.
 
+##### `getProjectSortMode(serverId)` / `setProjectSortMode(serverId, mode)`
+
+- Store and read per-server project sort mode.
+- Use the same value space and normalization as workspace/tab sort mode.
+- Empty server ids read as `"manual"` and are ignored on write.
+
 ##### `getEmbeddedRecentTabCount(serverId)` / `setEmbeddedRecentTabCount(serverId, count)`
 
 - Store and read per-server recent tab count.
-- Always normalize values through `normalizeRecentTabCount`.
+- Normalize through `normalizeShowLastCount(count, 5)`.
+
+##### `getWorkspaceShowLastCount(serverId)` / `setWorkspaceShowLastCount(serverId, count)`
+
+- Store and read per-server workspace show-last count.
+- Empty server ids read as `"all"` and are ignored on write.
+- Normalize through `normalizeShowLastCount(count, "all")`.
+
+##### `getProjectShowLastCount(serverId)` / `setProjectShowLastCount(serverId, count)`
+
+- Store and read per-server project show-last count.
+- Empty server ids read as `"all"` and are ignored on write.
+- Normalize through `normalizeShowLastCount(count, "all")`.
 
 ##### `getBadgeMode(serverId)` / `setBadgeMode(serverId, mode)`
 
@@ -153,8 +183,11 @@ The store persists to `AsyncStorage` under `sidebar-group-mode`. It partializes 
 Persisted preference maps are:
 
 - `groupModeByServerId`
+- `projectSortModeByServerId`
 - `workspaceSortModeByServerId`
 - `embeddedTabSortModeByServerId`
+- `projectShowLastCountByServerId`
+- `workspaceShowLastCountByServerId`
 - `embeddedRecentTabCountByServerId`
 - `badgeModeByServerId`
 
@@ -173,33 +206,44 @@ This replaces the narrower display preferences menu with a broader sidebar contr
 
 Implementation details:
 
-- Reads app settings and sidebar view store state.
-- Reads current group mode, workspace sort mode, tab sort mode, recent count, badge mode, project auto-collapse state, and workspace auto-collapse state.
-- Writes per-server preferences only when `serverId` is non-null.
-- Shows embedded-tab controls only when `settings.tabLayoutMode !== "horizontal"`.
-- Shows the workspace auto-collapse toggle only for the sidebar tab layout; the project auto-collapse toggle is always available from the sidebar controls.
-- Uses `closeOnSelect = !showTabControls` so simple grouping closes the menu, while multi-control embedded tab settings can stay open.
-- Preserves the current `workspaceTitleSource` setting by writing through `updateSettings`.
+- Reads app settings only for `tabLayoutMode` and delegates preference reads/writes to small section components.
+- Keeps universal controls at the top: **Group by** and **Sidebar badge**.
+- Uses a single expanded display-preference section at a time. The default expanded section is **Workspaces**.
+- Renders collapsible **Projects**, **Workspaces**, and **Tabs** sections. The **Tabs** section appears only when `settings.tabLayoutMode === "sidebar"`.
+- If the menu is open on the tabs section and the tab layout stops being `"sidebar"`, an effect switches the expanded section back to workspaces.
+- All preference menu items use `closeOnSelect={false}` so the popup stays open while the user changes multiple display settings.
 
-The workspace sort menu includes the same four options as tab sorting: Manual, Created, Last Updated, and **Status**. Status sorts workspaces by urgency, with recency and name as tiebreakers.
+The project section includes:
 
-The tab sort mode menu includes four options: Manual, Created, Last Updated, and **Status** (sorts by most urgent status, with recency as a tiebreaker).
+- Sort by: Manual, Created, Last updated, Status.
+- Show last: 3, 5, 10, All.
+- Auto collapse toggle backed by `autoCollapseProjects`.
 
-The top-level menu includes two persistent toggle items:
+The workspace section includes:
 
-- **Auto collapse projects** toggles `autoCollapseProjects` and keeps the menu open.
-- **Auto collapse workspaces** toggles `autoCollapseWorkspaces`, keeps the menu open, and is only rendered while the app uses sidebar tab layout.
+- Sort by: Manual, Created, Last updated, Status.
+- Show last: 3, 5, 10, All.
+- Title source: Title, Directory name, Branch name, written through `updateSettings({ workspaceTitleSource })`.
+- Auto collapse toggle backed by `autoCollapseWorkspaces`.
+
+The tabs section includes:
+
+- Sort by: Manual, Created, Last updated, Status.
+- Show last: 3, 5, 10, All, backed by the existing embedded recent-tab count preference.
+
+The sidebar badge preference group includes Status, Diff, and None and is exported for reuse outside the full grouping selector.
 
 #### Menu Item Components
 
-The selector defines typed item components for:
+The selector defines typed reusable components for:
 
-- workspace title source
-- group mode
-- workspace sort mode
-- tab sort mode
-- recent tab count
-- badge mode
+- `SidebarTabDisplayPreferencesMenuItems({ serverId, showRecentTabCount = true, closeOnSelect = false })`
+- `SidebarBadgePreferenceMenuItems({ serverId, closeOnSelect = false })`
+- `SortPreferenceGroup`
+- `ShowLastPreferenceGroup`
+- `PreferenceGroup`
+- `PreferenceMenuItem<T extends string | number>`
+- `DisplayPreferenceSection`
 
 Each component creates a stable `handleSelect` callback that passes its typed value back to the parent.
 
@@ -213,7 +257,7 @@ Behavior:
 
 - Reads `settings.tabLayoutMode` and treats `"vertical"` on non-compact layouts as a mode where workspace tab content must remain mounted even when the project/workspace list is closed.
 - Calls `useSidebarWorkspacesList` when compact, when the main sidebar is open, or when the desktop vertical tab rail is visible.
-- Replaces `SidebarDisplayPreferencesMenu` with `SidebarGroupingSelector`, so one header/menu controls grouping, title source, workspace sorting, tab sorting, recent tab count, badge mode, and collapse preferences.
+- Replaces `SidebarDisplayPreferencesMenu` with `SidebarGroupingSelector`, so one header/menu controls grouping, badge mode, project display, workspace display, sidebar-tab display, title source, and collapse preferences.
 - Removes the global "new workspace" header/footer action from the sidebar shell.
 - Moves the sessions/history action into the footer and marks it active when the current route is the sessions route.
 - Passes active workspace selection and sidebar badge mode into the desktop sidebar so `SidebarVerticalWorkspaceTabs` can render only the vertical tab rail while the workspace/project list is closed.
@@ -354,6 +398,7 @@ interface SidebarEntryStatusDefinition {
   countMode: SidebarEntryStatusCountMode;
   propagateUp: boolean;
   singleIcon?: SidebarEntryStatusSingleIcon;
+  flashOnIncrease: boolean;
 }
 ```
 
@@ -381,20 +426,20 @@ interface SidebarTabStatusSummary {
 
 `SIDEBAR_TAB_STATUS_BADGE_BUCKETS`: same except `"done"` — used for badge display.
 
-`SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER`: `["queued_messages", "draft", "input_required", "unread", "in_progress", "failed"]` — controls left-to-right badge rendering order.
+`SIDEBAR_ENTRY_STATUS_DISPLAY_ORDER`: `["queued_messages", "draft", "input_required", "in_progress", "unread", "failed"]` — controls left-to-right badge rendering order.
 
-`SIDEBAR_ENTRY_STATUS_SORT_ORDER`: `["draft", "input_required", "failed", "unread", "in_progress"]` — priority order for sort-by-status (excludes `queued_messages`).
+`SIDEBAR_ENTRY_STATUS_SORT_ORDER`: `["input_required", "failed", "unread", "in_progress"]` — priority order for sort-by-status (excludes queued messages and drafts).
 
 `SIDEBAR_ENTRY_STATUS_DEFINITIONS`:
 
-| Kind              | countMode | propagateUp | singleIcon       |
-| ----------------- | --------- | ----------- | ---------------- |
-| `queued_messages` | always    | true        | —                |
-| `draft`           | off       | true        | —                |
-| `input_required`  | onePlus   | true        | `input_required` |
-| `unread`          | onePlus   | true        | —                |
-| `in_progress`     | onePlus   | true        | —                |
-| `failed`          | onePlus   | true        | `failed`         |
+| Kind              | countMode | propagateUp | singleIcon       | flashOnIncrease |
+| ----------------- | --------- | ----------- | ---------------- | --------------- |
+| `queued_messages` | always    | true        | —                | false           |
+| `draft`           | off       | true        | —                | false           |
+| `input_required`  | onePlus   | true        | `input_required` | true            |
+| `unread`          | onePlus   | true        | —                | true            |
+| `in_progress`     | onePlus   | true        | —                | false           |
+| `failed`          | onePlus   | true        | `failed`         | true            |
 
 #### `createEmptySidebarTabStatusSummary()`
 
@@ -499,6 +544,89 @@ Returns `running` when the pending create attempt is for the current server and 
 
 Builds the workspace tab persistence key from server/workspace ids, reads the setup snapshot, and returns `running` only when the snapshot status is `running`.
 
+## Sidebar Status Flash
+
+### `packages/app/src/utils/sidebar-status-flash.ts`
+
+This module routes newly visible attention statuses to the closest sidebar row that can visibly represent them.
+
+Public surface:
+
+```ts
+interface SidebarStatusFlashCandidate {
+  sourceKey: string;
+  kind: SidebarEntryStatusKind;
+  recipientIds: readonly string[];
+}
+
+interface SidebarStatusFlashResolution {
+  nextSeenSourceKeys: Set<string>;
+  triggeredKindByRecipientId: Map<string, SidebarEntryStatusKind>;
+}
+
+function resolveSidebarStatusFlashes(input: {
+  candidates: readonly SidebarStatusFlashCandidate[];
+  seenSourceKeys: ReadonlySet<string>;
+}): SidebarStatusFlashResolution;
+```
+
+Behavior:
+
+- Creates a fresh `nextSeenSourceKeys` set from the current candidate source keys.
+- Ignores candidates whose status definition has `flashOnIncrease: false`.
+- Ignores candidates whose `sourceKey` was already present in `seenSourceKeys`.
+- Chooses the first non-empty `recipientIds` entry as the target row. Callers order recipients from most specific to broadest.
+- If multiple new flashable statuses target the same recipient in one pass, keeps the highest-priority kind by `FLASH_KIND_PRIORITY`: `input_required`, `failed`, `unread`, `in_progress`, `queued_messages`, `draft`.
+- Because seen keys are replaced instead of accumulated, a status that clears and later reappears can flash again.
+
+### `packages/app/src/components/sidebar/sidebar-status-flash.tsx`
+
+This component renders the row-level flash effect.
+
+Public surface:
+
+```ts
+interface SidebarStatusFlashSignal {
+  flashKey: string;
+  kind: SidebarEntryStatusKind;
+}
+
+function SidebarStatusFlash({ signal }: { signal?: SidebarStatusFlashSignal | null }): ReactNode;
+```
+
+Behavior:
+
+- Returns `null` when there is no signal or the signal's kind has no color style.
+- Uses `AccessibilityInfo.isReduceMotionEnabled()` and the `reduceMotionChanged` event to suppress animation when reduced motion is enabled.
+- Animates two absolutely positioned `Animated.View` glow layers with Reanimated shared progress.
+- The pulse sequence is four timed phases: up to full intensity, down to 0.42, back to 0.88, then out to 0 over a longer final easing.
+- Uses status colors from the theme palette:
+  - `input_required` -> amber
+  - `unread` -> green
+  - `failed` -> red
+- Does not flash `queued_messages`, `draft`, or `in_progress`.
+- The host row must provide `position: "relative"` and `overflow: "visible"` so the glow can extend beyond row bounds without receiving pointer events.
+
+### Sidebar List Integration
+
+`packages/app/src/components/sidebar-workspace-list.tsx` adds the local `useSidebarStatusFlashSignals(candidates)` hook:
+
+- Keeps a ref of previously seen source keys.
+- Calls `resolveSidebarStatusFlashes` whenever the candidate list changes.
+- Converts each triggered recipient into a `SidebarStatusFlashSignal` with a monotonically increasing `flashKey`, ensuring a row can replay the animation for repeated events.
+
+Candidate construction rules:
+
+- Workspace aggregate candidates use `sourceKey = "workspace-aggregate:<workspaceKey>:<kind>:<count>"`, so count increases can trigger a new aggregate flash.
+- Collapsed projects receive workspace aggregate flashes for their hidden workspace rows.
+- Expanded projects route aggregate flashes for collapsed workspaces to the workspace row instead.
+- Embedded tab candidates use `sourceKey = "tab:<workspaceKey>:<tabId>:<kind>"`, so each tab/kind flashes once while present.
+- A visible embedded tab status flashes that tab row.
+- A hidden embedded tab status flashes the closest visible ancestor tab row when one exists.
+- Hidden embedded tab statuses do not fall through to project/workspace from `buildEmbeddedTabStatusFlashCandidates`; aggregate workspace/project flashes are handled separately by the project block candidate pass.
+
+`ProjectHeaderRow`, `WorkspaceRowInner`, and `EmbeddedWorkspaceTabRow` wrap their row content in a flash host and render `SidebarStatusFlash` before the press target so the glow sits behind the row.
+
 ## Embedded Tab Ordering And Tree Building
 
 ### `packages/app/src/components/sidebar/embedded-tabs-order.ts`
@@ -586,6 +714,69 @@ Implementation details:
 #### `combineOwnAndDescendantSummaries(ownSummary, descendantSummaries)`
 
 Combines descendant propagated counts via `combineSidebarTabStatusSummaries`, then adds the row's own bucket counts, draft counts, and entry counts back on top so a parent row reflects both itself and its subtree.
+
+### `packages/app/src/utils/sidebar-embedded-tab-visibility.ts`
+
+This utility owns the recent-count filtering for embedded tab tree rows.
+
+Public surface:
+
+```ts
+interface SidebarRecentVisibilityRow {
+  item: {
+    tab: { tabId: string };
+    forceShown: boolean;
+  };
+  statusSummary: SidebarTabStatusSummary;
+}
+
+function applyRecentTreeRowCount<Row extends SidebarRecentVisibilityRow>(input: {
+  rows: readonly Row[];
+  recentCount: number | "all";
+}): Row[];
+```
+
+Behavior:
+
+- `"all"` returns a shallow copy of every row.
+- Numeric counts start with the first `recentCount` rows.
+- Any row with `item.forceShown` is appended if it was outside the initial slice.
+- Any row with a flashable status kind (`input_required`, `unread`, or `failed`) is also appended if it was outside the initial slice.
+- Duplicate rows are prevented by `tabId`.
+
+This is what keeps newly attention-worthy hidden tabs visible long enough for the sidebar to show their status and/or flash.
+
+### `packages/app/src/utils/sidebar-status-tab-line.ts`
+
+This utility builds the subtitle line rendered under embedded status-group tab rows.
+
+Public surface:
+
+```ts
+interface SidebarStatusTabLine {
+  projectKey: string;
+  projectName: string;
+  iconDataUri: string | null;
+  kind?: "project" | "workspace";
+  workspaceKind?: SidebarWorkspaceEntry["workspaceKind"];
+}
+
+function buildStatusTabLine(input: {
+  lineKind: "project" | "workspace";
+  project: Pick<SidebarProjectEntry, "projectKey" | "projectName">;
+  workspace: Pick<
+    SidebarWorkspaceEntry,
+    "workspaceKey" | "workspaceKind" | "name" | "currentBranch"
+  >;
+  iconDataUri: string | null;
+  workspaceTitleSource: WorkspaceTitleSource;
+}): SidebarStatusTabLine;
+```
+
+Behavior:
+
+- For `lineKind: "project"`, returns the project key/name/icon and marks `kind: "project"`.
+- For `lineKind: "workspace"`, returns the workspace key, resolves the display label through `resolveSidebarWorkspacePrimaryLabel`, clears `iconDataUri`, marks `kind: "workspace"`, and includes `workspaceKind` so the row can render the appropriate workspace icon.
 
 ## Workspace Tab Close Hook
 
@@ -701,7 +892,7 @@ Sequentially closes every recorded descendant for `parentTabId`, stopping and re
 
 ### `packages/app/src/hooks/sidebar-workspaces-view-model.ts`
 
-The sidebar workspace view model now supports explicit workspace sorting while preserving manual ordering as the persisted/default behavior.
+The sidebar workspace view model now supports explicit project/workspace sorting and reusable show-last limiting while preserving manual ordering as the persisted/default behavior.
 
 #### `SidebarWorkspaceEntry`
 
@@ -742,6 +933,17 @@ Workspace status urgency rank:
 
 Name tiebreaking uses `localeCompare` with `{ numeric: true, sensitivity: "base" }`, then falls back to `workspaceKey`.
 
+#### `sortSidebarProjects({ projects, sortMode })`
+
+Sorts a project list and returns a fresh array unless the mode is manual:
+
+- `"manual"` returns the original array so persisted project drag order remains authoritative.
+- `"created"` sorts by the oldest non-null workspace `createdAt` in each project, descending.
+- `"lastUpdated"` sorts by the newest workspace activity timestamp in each project, descending.
+- `"status"` sorts by the most urgent workspace status rank in each project, then project last-updated descending, then project name.
+
+Empty projects sort as `done` for status ranking and `0` for created/updated timestamps. Name tiebreaking uses the same numeric/base `localeCompare` policy as workspaces, then falls back to `projectKey`.
+
 #### `sortSidebarWorkspaceProjects({ projects, sortMode })`
 
 Sorts workspaces within each project by delegating to `sortSidebarWorkspaces`. In manual mode it returns the original `projects` array by identity so persisted drag order remains the source of truth.
@@ -753,6 +955,15 @@ Sorts workspaces within each project by delegating to `sortSidebarWorkspaces`. I
 - In non-manual modes, hydrates each structural workspace row from the session workspace map before sorting so sort decisions use current timestamps/status.
 - Subscribes to `agents` and pending create attempts only for status sort, because those are only needed for effective status.
 - Continues writing missing project/workspace keys into the manual order store from the unsorted `baseProjects`, so switching back to manual preserves the user's order.
+
+#### `applySidebarShowLastCount({ items, showLastCount, showAll, forceIncludeKey, getKey })`
+
+Applies the Project/Workspace **Show last** preference:
+
+- `"all"` or `showAll: true` returns every item and does not ask the caller to render a visibility toggle.
+- Numeric counts take the first N items from the already-sorted/manual list.
+- If `forceIncludeKey` points to an item outside that first slice, that item is appended so the active project/workspace remains visible.
+- `shouldShowVisibilityToggle` is true only when the numeric limit hides at least one original item.
 
 ### `packages/app/src/components/sidebar/sidebar-workspace-row-visibility.ts`
 
@@ -845,16 +1056,24 @@ Key behavior:
 - Reads workspace tab layouts and pane state.
 - Builds embedded tab rows for each workspace.
 - Applies per-server tab sort and recent-count preferences.
+- Applies per-server project sort and show-last preferences in `ProjectModeList`.
 - Applies per-server workspace sort preferences in `useSidebarWorkspacesList`.
+- Applies per-server workspace show-last preferences inside each project and inside status-group buckets.
 - Applies manual order merges through `mergeEmbeddedVisibleTabOrder`.
 - Supports workspace collapse/expand and auto-collapse behavior.
 - Supports status-mode grouping via `SidebarStatusWorkspaceList`.
 - Supports drag/drop where available.
+- Renders project and workspace lists through `SidebarShowAllToggle` when a show-last limit hides rows.
+- Keeps the active project/workspace visible beyond a show-last limit by force-including the selected key.
 - Uses `SidebarWorkspaceRowContent` for workspace row presentation and `SidebarEntryRowContent` for embedded tab rows.
 - Wraps embedded tab rows in the shared `InfoHoverCard` on desktop web, while native and compact layouts keep rendering the row without hover-card chrome.
 - Provides context menu actions for workspace and embedded tabs.
 - Treats non-main-pane active tabs as forced-visible embedded rows so split panes stay reachable from the sidebar.
+- Treats embedded tab rows with flashable status as visible even when they fall past the recent-tab limit.
 - Renders workspace rows through a `DraggableList` only when `workspaceSortMode === "manual"`; created/lastUpdated/status modes render a static list so drag gestures cannot rewrite a derived sort order.
+- Renders project rows through a `DraggableList` only when `projectSortMode === "manual"`; created/lastUpdated/status modes render a static list.
+- Allows the selected workspace's status-summary badges to act as a toggle into status grouping; when the active project is selected in status grouping, the project block renders status-scoped content instead of the normal workspace list.
+- Adds `useSidebarStatusFlashSignals` plus project/workspace/tab flash hosts so newly flashable statuses pulse on the closest visible sidebar row.
 - Uses `findActiveSidebarWorkspaceRevealTarget` whenever the route points at a workspace. The containing project is expanded, or becomes the only expanded project when `autoCollapseProjects` is enabled. The workspace is uncollapsed, or becomes the only expanded workspace when sidebar-layout `autoCollapseWorkspaces` is enabled.
 - Tracks the last auto-revealed workspace key to avoid repeatedly rewriting collapsed-section state for the same active workspace.
 - Uses a three-state row highlight model (`"idle"`, `"active"`, `"selected"`) so project/workspace ancestors can show a subdued active background while directly selected rows and embedded active tabs keep the stronger selected background.
@@ -870,6 +1089,8 @@ interface EmbeddedTabProjectLine {
   projectKey: string;
   projectName: string;
   iconDataUri: string | null;
+  kind?: "project" | "workspace";
+  workspaceKind?: SidebarWorkspaceEntry["workspaceKind"];
 }
 
 interface StatusTabWorkspaceRow {
@@ -900,10 +1121,12 @@ interface StatusTabWorkspaceGroup {
 `SidebarStatusProjectWorkspaceTabs` renders `SidebarVerticalWorkspaceTabs` for a workspace inside one status bucket with:
 
 - `statusBucketFilter` set to the group bucket.
-- `projectLine` set to the workspace's project key/name/icon data.
+- `projectLine` set with `buildStatusTabLine`.
+- `lineKind: "project"` in global status-tab grouping so the subtitle names the project.
+- `lineKind: "workspace"` in project-scoped status grouping so the subtitle names the workspace.
 - `limitRecentTabs={false}` so a status bucket shows every matching embedded tab instead of applying the recent-tab limit.
 
-`ProjectLineIcon` renders the project icon at 10 px in embedded tab subtitles. It uses the real project icon when available and otherwise falls back to `projectIconPlaceholderLabelFromDisplayName(projectName)`.
+`ProjectLineIcon` renders a 10 px subtitle icon. Project lines use the real project icon when available and otherwise fall back to `projectIconPlaceholderLabelFromDisplayName(projectName)`. Workspace lines render the workspace-kind icon with a quiet surface background.
 
 #### `useSidebarTabStatusSummaries`
 
@@ -931,11 +1154,36 @@ Added `ProjectContextMenuContent` — a `ContextMenuContent` panel mirroring the
 
 The active-workspace reveal effect also calls `rememberProjectWorkspaceSelection(projectKey, workspaceId)` whenever a project/workspace reveal target is available. When a collapsed project is reopened while `autoCollapseProjects` is enabled, `handleToggleProjectCollapsed(project)` looks up the remembered workspace id for that project, verifies it still exists in the current `project.workspaces`, calls `onWorkspacePress?.()`, and navigates to the remembered workspace before returning. The handler receives the whole `SidebarProjectEntry` so it can perform that lookup without re-deriving project contents from global state.
 
+`ProjectModeList` now also:
+
+- Reads `projectSortMode`, `projectShowLastCount`, `workspaceShowLastCount`, and `setGroupMode` from `useSidebarViewStore`.
+- Resets `showAllProjects` whenever the server id or project show-last count changes.
+- Uses `applySidebarShowLastCount` to limit visible projects and force-include the selected project.
+- Renders `SidebarShowAllToggle` after the project list when a numeric project limit hides rows.
+- Switches to status grouping with `setGroupMode(serverId, "status")` and exits with `setGroupMode(serverId, "project")`; those callbacks are passed down to project/workspace rows.
+
+`ProjectBlock` now also:
+
+- Resets its per-project `showAllWorkspaces` state whenever the project key or workspace show-last count changes.
+- Uses `applySidebarShowLastCount` to limit visible workspaces and force-include the selected workspace.
+- Renders `SidebarShowAllToggle` after that project's workspace rows when a numeric workspace limit hides rows.
+- Builds project/workspace flash candidates from aggregate tab summaries and collapsed project/workspace state.
+- Treats `groupMode === "status" && active` as project-scoped status mode. In that state, the project remains expanded but renders `ProjectScopedStatusContent` instead of the normal workspace list.
+- When a project header is pressed while project-scoped status mode is active, exits status mode instead of toggling collapse.
+
+`ProjectScopedStatusContent` renders status-grouped content for only one project:
+
+- In sidebar tab layout, it calls `useSidebarStatusTabWorkspaceGroups({ projects: [project], serverId })` and renders `SidebarStatusTabGroups` with `lineKind="workspace"`.
+- In other layouts, it calls `useStatusModeWorkspaceEntries({ projects: [project], serverId })` and renders an embedded `SidebarStatusWorkspaceList`.
+- Passes `statusSummaryToggleActiveWorkspaceKey` and `onStatusSummaryTogglePress` so the selected workspace's status badges can switch back out of status mode.
+
 #### `WorkspaceRowRightGroup` / `WorkspaceRowActionSlot`
 
 - Workspace rows now query `usePendingCheckoutBranchActionIds` using the workspace directory.
 - Workspace rows call `getWorkspaceRowRightVisibility` to decide which right-side content should occupy the stable trailing slot.
 - Workspace/project status badges and leading status dots call the status-summary helpers with `excludeKinds: ["draft"]`, so draft-only embedded tab state stays local to the tab row instead of bubbling up into the parent workspace/project row.
+- `WorkspaceRowRightGroup`, `WorkspaceRowActionSlot`, and `WorkspaceRowTrailingMeta` accept `statusSummaryToggleActive` and `onStatusSummaryPress`.
+- When `onStatusSummaryPress` is present, `WorkspaceRowTrailingMeta` wraps the status badges in `StatusSummaryToggleButton`, stops press propagation, and exposes the action as a button with labels for switching into or out of status grouping.
 - Trailing metadata is split into:
   - `WorkspaceRowTrailingMeta` for diff stat / PR hint / status badges / VC operation badges.
   - `WorkspaceRowActionControls` for hover-visible create-tab and kebab actions.
@@ -944,6 +1192,7 @@ The active-workspace reveal effect also calls `rememberProjectWorkspaceSelection
 - `WorkspaceRowTrailingMeta` always renders its row contents; visibility is handled by the slot base wrapper.
 - `WorkspaceRowActionControls` returns null when there are no create-tab/menu/kebab controls, and otherwise renders only the overlay row content. Visibility is handled by the slot overlay wrapper.
 - When branch-operation badges are visible, they replace diff/status trailing metadata for that row unless a collapsed status summary or shortcut badge has priority.
+- `WorkspaceRowInner` accepts `flashSignal` and renders `SidebarStatusFlash` inside the row wrapper so collapsed-workspace aggregate flashes appear behind the workspace row.
 
 #### `EmbeddedWorkspaceTabs`
 
@@ -957,7 +1206,9 @@ Implementation details:
 - Sorts with `sortSidebarTabItems`.
 - Converts the sorted rows into a visible tree with `buildSidebarEmbeddedTabTreeRows`.
 - Optionally filters tree rows by `statusBucketFilter`, using the aggregate row summary to decide which bucket a row belongs to.
-- Applies `useVisibleEmbeddedTabRows`, which wraps `applyRecentTreeRowCount` and limits visible rows by top-level tree position while force-including pinned/active rows. The limit is skipped when `limitRecentTabs` is false or the user has toggled "show all".
+- Applies `useVisibleEmbeddedTabRows`, which wraps `applyRecentTreeRowCount` and limits visible rows by top-level tree position while force-including pinned/active rows and rows with flashable statuses. The limit is skipped when `limitRecentTabs` is false or the user has toggled "show all".
+- Builds tab-level flash candidates with `buildEmbeddedTabStatusFlashCandidates`, passing all embedded items, the currently visible rows, per-tab summaries, and `parentTabIdByTabId`.
+- Resolves tab row flash signals through `useSidebarStatusFlashSignals` and passes the matching `tab:<workspaceKey>:<tabId>` signal into each rendered row.
 - Persists parent expansion state through `useSidebarCollapsedSectionsStore(...expandedParentTabKeys...)`.
 - Uses `useWorkspaceTabClose` with both `orderedTabIds` and `parentTabIdByTabId`.
 - Disables manual drag sorting whenever a status bucket filter is active, even if the configured tab sort mode is `"manual"`, because filtered status groups are derived views rather than reorderable main-pane lists.
@@ -982,7 +1233,9 @@ Implementation details:
 - For non-agent tabs, hover info includes only the tab creation time and leaves update/prompt count empty.
 - Uses `useStoreWithEqualityFn` and `fast-deep-equal` so unchanged hover metadata does not rerender the row.
 - `EmbeddedTabHoverCardContent` renders the tab label, presentation subtitle, absolute created time, recent-or-absolute updated time, and prompt count with `CalendarPlus`, `Clock3`, and `MessageCircle` rows. Each metadata row is omitted when its value is unavailable.
+- Appends `SidebarEntryStatusExplainerRows` to the hover card so the row's status badges can be interpreted from the card.
 - The hover card closes while the row is being dragged, matching workspace hover-card behavior.
+- Accepts `flashSignal`, wraps the row in `styles.sidebarStatusFlashHost`, and renders `SidebarStatusFlash` behind the row before the `InfoHoverCard` trigger.
 
 #### Embedded tab menus and bulk close
 
@@ -1023,8 +1276,14 @@ The status-group list renders workspace rows grouped by `StatusBucket`. It is us
 Changes:
 
 - `SidebarStatusWorkspaceList` takes `workspaceSortMode` instead of project names and builds groups with `buildStatusGroups(workspaces, workspaceSortMode)`.
+- `SidebarStatusWorkspaceList` also takes `workspaceShowLastCount`, `statusSummaryToggleActiveWorkspaceKey`, `onStatusSummaryTogglePress`, and `embedded`.
+- Each status bucket applies `applySidebarShowLastCount` to its rows, force-including the active workspace and tracking per-bucket show-all state.
+- Per-bucket show-all state resets whenever the server id or workspace show-last count changes.
+- `StatusGroupVisibilityToggle` renders `SidebarShowAllToggle` under a bucket when the bucket limit hides rows.
+- In embedded mode, the list returns only the grouped content inside a local container so it can live under a project block without creating another scroll view.
 - The row props include `badgeMode` and a per-workspace `SidebarTabStatusSummary`.
 - In status badge mode, status summary badges can occupy the trailing slot for a row and suppress the workspace row's normal status loader/visual so the summary is not duplicated.
+- When the row's key matches `statusSummaryToggleActiveWorkspaceKey`, the status summary badges are rendered as the active toggle and call `onStatusSummaryTogglePress`.
 - In diff badge mode, workspace diff stats continue to occupy the trailing slot when there is no higher-priority shortcut, menu, status summary, or VC operation badge.
 - Pending checkout/branch operation badges still have priority over diff and status metadata, unless a shortcut or visible status summary has already claimed the slot.
 - `StatusWorkspaceRowWithMenu` changed from a `<>` fragment to a `<ContextMenu>` wrapper.
@@ -1340,6 +1599,7 @@ interface InfoHoverCardProps {
   accessibilityLabel: string;
   testID: string;
   isDragging?: boolean;
+  triggerStyle?: StyleProp<ViewStyle>;
   surfaceStyle?: StyleProp<ViewStyle>;
 }
 
@@ -1350,6 +1610,7 @@ Behavior:
 
 - Returns `children` unchanged on native platforms and compact form factors.
 - On non-compact web, wraps children in `InfoHoverCardDesktop`.
+- Applies optional `triggerStyle` to the measured trigger wrapper.
 - Measures the trigger with `measureInWindow`.
 - Measures the floating content from its layout callback.
 - Positions the card to the right of the trigger with a 4 px offset, flips it left when it would overflow the viewport, and clamps both axes to an 8 px screen padding.
@@ -1371,6 +1632,7 @@ Behavior:
 - Imports `formatAbsoluteDateTime` and `formatRecentOrAbsoluteDateTime` from `packages/app/src/utils/time.ts`.
 - Renders a non-copyable `InfoRow` for `workspace.createdAt` using a `CalendarPlus` icon and the localized `workspace.hoverCard.created` label.
 - Renders a non-copyable `InfoRow` for `workspace.activityAt` using a `Clock3` icon and the localized `workspace.hoverCard.updated` label.
+- Renders `SidebarEntryStatusExplainerRows` immediately after timestamps, before diff/PR/check metadata, with a slightly smaller icon slot and the same draft exclusions used by workspace/project badges.
 - Creation timestamps are always absolute.
 - Activity timestamps are relative for non-future timestamps newer than seven days and absolute for older or future timestamps.
 - The timestamp rows use muted icons/text, single-line truncation, and the existing hover-card row spacing.
@@ -1458,14 +1720,19 @@ The docs describe tab/archive semantics and the visual conventions used by the n
 New and updated tests include:
 
 - `packages/app/src/components/sidebar/embedded-tabs-order.test.ts`
+- `packages/app/src/components/sidebar/sidebar-display-preferences-menu.test.tsx`
 - `packages/app/src/components/sidebar/sidebar-entry-row.test.tsx`
+- `packages/app/src/components/sidebar-workspace-list.test.tsx`
 - `packages/app/src/components/sidebar/sidebar-workspace-row-content.test.tsx`
 - `packages/app/src/stores/sidebar-view-store.test.ts`
 - `packages/app/src/stores/workspace-layout-store.find-main-pane.test.ts`
 - `packages/app/src/stores/workspace-layout-store.test.ts`
 - `packages/app/src/utils/sidebar-active-ancestor-highlight.test.ts`
+- `packages/app/src/utils/sidebar-embedded-tab-visibility.test.ts`
 - `packages/app/src/utils/sidebar-embedded-tab-tree.test.ts`
+- `packages/app/src/utils/sidebar-status-flash.test.ts`
 - `packages/app/src/hooks/sidebar-status-view-model.test.ts`
+- `packages/app/src/hooks/sidebar-workspaces-view-model.test.ts`
 - `packages/app/src/utils/sidebar-tab-sort.test.ts`
 - `packages/app/src/utils/sidebar-tab-status-summary.test.ts`
 - `packages/app/src/utils/sidebar-shortcuts.test.ts`
@@ -1475,7 +1742,7 @@ New and updated tests include:
 - `packages/app/src/utils/time.test.ts`
 - navigation and collapsed-section store tests
 
-These cover ordering, nested tree construction, row rendering, persisted sidebar preferences, main-pane lookup, close-descendant sequencing, tab status summaries (including draft state and queued message counts), navigation behavior, and collapsed-section state.
+These cover ordering, nested tree construction, row rendering, sectioned sidebar display preferences, persisted sidebar preferences, show-last limiting, status flash routing, main-pane lookup, close-descendant sequencing, tab status summaries (including draft state, queued message counts, and flashable definitions), navigation behavior, and collapsed-section state.
 
 ## Verification
 
