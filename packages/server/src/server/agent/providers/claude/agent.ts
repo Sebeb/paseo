@@ -2528,6 +2528,33 @@ class ClaudeAgentSession implements AgentSession {
     };
   }
 
+  async duplicateConversation(): Promise<AgentPersistenceHandle | null> {
+    // The fork point is the last assistant message observed in the
+    // conversation; forking up to it copies the full history into a new
+    // session. With no assistant output yet there is nothing to copy — the
+    // duplicate starts fresh.
+    let lastAssistantMessageId: string | null = null;
+    for (let index = this.rewindTurnAnchors.length - 1; index >= 0; index -= 1) {
+      const assistantMessageId = this.rewindTurnAnchors[index]?.assistantMessageId;
+      if (assistantMessageId) {
+        lastAssistantMessageId = assistantMessageId;
+        break;
+      }
+    }
+    if (!lastAssistantMessageId || !this.claudeSessionId) {
+      return null;
+    }
+    const fork = await realClaudeRewindSdk.forkSession(this.claudeSessionId, {
+      upToMessageId: lastAssistantMessageId,
+    });
+    return {
+      provider: "claude",
+      sessionId: fork.sessionId,
+      nativeHandle: fork.sessionId,
+      metadata: { ...this.config },
+    };
+  }
+
   async revertFiles(input: { messageId: string }): Promise<void> {
     const messageId = await this.resolveClaudeMessageId(input.messageId);
     await revertClaudeFiles({

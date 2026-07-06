@@ -2241,6 +2241,28 @@ export class AgentManager {
     }
   }
 
+  async duplicateConversation(agentId: string): Promise<AgentPersistenceHandle | null> {
+    const agent = this.requireSessionAgent(agentId);
+    if (!agent.session.duplicateConversation) {
+      throw new Error(`Provider '${agent.provider}' does not support duplicating conversations`);
+    }
+    this.logger.info({ agentId, provider: agent.provider }, "agent.duplicate_conversation.start");
+    try {
+      const handle = await agent.session.duplicateConversation();
+      this.logger.info(
+        { agentId, provider: agent.provider, duplicatedSessionId: handle?.sessionId ?? null },
+        "agent.duplicate_conversation.complete",
+      );
+      return handle;
+    } catch (error) {
+      this.logger.warn(
+        { err: error, agentId, provider: agent.provider },
+        "agent.duplicate_conversation.failed",
+      );
+      throw error;
+    }
+  }
+
   async rewind(agentId: string, messageId: string, mode: RewindMode): Promise<void> {
     const agent = this.requireSessionAgent(agentId);
     const hadActiveRun =

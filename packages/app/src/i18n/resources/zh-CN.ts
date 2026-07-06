@@ -496,6 +496,7 @@ export const zhCN: TranslationResources = {
         copyResumeCommand: "复制恢复命令",
         copyAgentId: "复制 Agent ID",
         copyFilePath: "Copy file path",
+        duplicateChat: "复制聊天",
         rename: "重命名",
         closeAbove: "关闭上方标签",
         closeBelow: "关闭下方标签",
@@ -545,6 +546,7 @@ export const zhCN: TranslationResources = {
         reloadingAgent: "正在重新加载 Agent...",
         reloadedAgent: "已重新加载 Agent",
         failedToReloadAgent: "重新加载 Agent 失败",
+        failedToDuplicateChat: "复制聊天失败",
       },
       confirmations: {
         close: "关闭",

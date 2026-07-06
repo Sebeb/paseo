@@ -496,6 +496,7 @@ export const en = {
         copyResumeCommand: "Copy resume command",
         copyAgentId: "Copy agent id",
         copyFilePath: "Copy file path",
+        duplicateChat: "Duplicate chat",
         rename: "Rename",
         closeAbove: "Close tabs above",
         closeBelow: "Close tabs below",
@@ -545,6 +546,7 @@ export const en = {
         reloadingAgent: "Reloading agent...",
         reloadedAgent: "Reloaded agent",
         failedToReloadAgent: "Failed to reload agent",
+        failedToDuplicateChat: "Failed to duplicate chat",
       },
       confirmations: {
         close: "Close",
