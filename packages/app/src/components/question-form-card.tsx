@@ -1,16 +1,21 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
   TextInput,
   Pressable,
   ActivityIndicator,
+  NativeSyntheticEvent,
+  TextInputContentSizeChangeEventData,
+  useWindowDimensions,
   type PressableStateCallbackType,
 } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { Check, X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
+import { useComposerHeightMirror } from "@/composer/input/height-mirror";
+import { resolveMaxInputHeight } from "@/composer/input/sizing";
 import type { PendingPermission } from "@/types/shared";
 import type { AgentPermissionResponse } from "@getpaseo/protocol/agent-types";
 import { isWeb } from "@/constants/platform";
@@ -33,6 +38,7 @@ interface QuestionFormCardProps {
 }
 
 const IS_WEB = isWeb;
+const OTHER_INPUT_MIN_HEIGHT = 46;
 
 function getQuestionInputPlaceholder({
   question,
@@ -268,6 +274,29 @@ interface QuestionOtherInputProps {
   onSubmit: () => void;
 }
 
+function getTextInputNativeElement(
+  current: TextInput | (TextInput & { getNativeRef?: () => unknown }) | null,
+): HTMLElement | null {
+  if (!current) return null;
+  const handle = current as TextInput & { getNativeRef?: () => unknown };
+  const native = typeof handle.getNativeRef === "function" ? handle.getNativeRef() : current;
+  return native instanceof HTMLElement ? native : null;
+}
+
+function computeOtherInputHeightStyle(inputHeight: number, maxInputHeight: number) {
+  if (IS_WEB) {
+    return {
+      height: inputHeight,
+      minHeight: OTHER_INPUT_MIN_HEIGHT,
+      maxHeight: maxInputHeight,
+    };
+  }
+  return {
+    minHeight: OTHER_INPUT_MIN_HEIGHT,
+    maxHeight: maxInputHeight,
+  };
+}
+
 function QuestionOtherInput({
   qIndex,
   accessibilityLabel,
@@ -278,16 +307,59 @@ function QuestionOtherInput({
   onSubmit,
 }: QuestionOtherInputProps) {
   const { theme } = useUnistyles();
+  const { height: windowHeight } = useWindowDimensions();
+  const maxInputHeight = resolveMaxInputHeight(windowHeight);
+  const [inputHeight, setInputHeight] = useState(OTHER_INPUT_MIN_HEIGHT);
+  const inputHeightRef = useRef(OTHER_INPUT_MIN_HEIGHT);
+  const inputRef = useRef<TextInput | (TextInput & { getNativeRef?: () => unknown }) | null>(null);
+  const webTextareaRef = useRef<HTMLElement | null>(null);
+
+  const setBoundedInputHeight = useCallback(
+    (nextHeight: number) => {
+      const bounded = Math.max(OTHER_INPUT_MIN_HEIGHT, Math.min(maxInputHeight, nextHeight));
+      if (Math.abs(inputHeightRef.current - bounded) < 1) return;
+      inputHeightRef.current = bounded;
+      setInputHeight(bounded);
+    },
+    [maxInputHeight],
+  );
+
+  useLayoutEffect(() => {
+    if (IS_WEB) {
+      webTextareaRef.current = getTextInputNativeElement(inputRef.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    setBoundedInputHeight(inputHeightRef.current);
+  }, [setBoundedInputHeight]);
+
+  useComposerHeightMirror({
+    value,
+    textareaRef: webTextareaRef,
+    minHeight: OTHER_INPUT_MIN_HEIGHT,
+    maxHeight: maxInputHeight,
+    onHeight: setBoundedInputHeight,
+  });
+
   const handleChange = useCallback(
     (text: string) => {
       onChange(qIndex, text);
     },
     [onChange, qIndex],
   );
+  const handleContentSizeChange = useCallback(
+    (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
+      if (IS_WEB) return;
+      setBoundedInputHeight(event.nativeEvent.contentSize.height);
+    },
+    [setBoundedInputHeight],
+  );
   const otherInputStyle = useMemo(
     () =>
       [
         styles.otherInput,
+        computeOtherInputHeightStyle(inputHeight, maxInputHeight),
         {
           borderColor: value.length > 0 ? theme.colors.borderAccent : theme.colors.border,
           color: theme.colors.foreground,
@@ -297,6 +369,8 @@ function QuestionOtherInput({
       ] as const,
     [
       value.length,
+      inputHeight,
+      maxInputHeight,
       theme.colors.borderAccent,
       theme.colors.border,
       theme.colors.foreground,
@@ -305,6 +379,7 @@ function QuestionOtherInput({
   );
   return (
     <TextInput
+      ref={inputRef}
       // @ts-expect-error - outlineStyle is web-only
       style={otherInputStyle}
       accessibilityLabel={accessibilityLabel}
@@ -313,6 +388,10 @@ function QuestionOtherInput({
       value={value}
       onChangeText={handleChange}
       onSubmitEditing={onSubmit}
+      multiline
+      scrollEnabled={IS_WEB ? inputHeight >= maxInputHeight : true}
+      onContentSizeChange={handleContentSizeChange}
+      textAlignVertical="top"
       editable={!isResponding}
       blurOnSubmit={false}
     />
