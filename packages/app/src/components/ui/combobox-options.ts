@@ -7,13 +7,26 @@ export interface ComboboxOptionModel {
   label: string;
   description?: string;
   kind?: ComboboxOptionKind;
+  validatedSearchText?: {
+    kind: "uuid";
+    fields: string[];
+  };
 }
 
 const DESCRIPTION_FALLBACK_TIER = 99;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuidSearch(search: string): boolean {
+  return UUID_PATTERN.test(search);
+}
 
 function scoreOption(opt: ComboboxOptionModel, search: string): MatchScore | null {
   const best = scoreTextFields(search, [opt.label, opt.id]);
   if (best) return best;
+  if (opt.validatedSearchText?.kind === "uuid" && isUuidSearch(search)) {
+    const validatedSearchScore = scoreTextFields(search, opt.validatedSearchText.fields);
+    if (validatedSearchScore) return validatedSearchScore;
+  }
   if (!opt.description) return null;
   const descriptionScore = scoreTextFields(search, [opt.description]);
   if (!descriptionScore) return null;

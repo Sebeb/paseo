@@ -131,6 +131,40 @@ describe("filterAndRankComboboxOptions", () => {
     const result = filterAndRankComboboxOptions(items, "gpt54");
     expect(result.map((o) => o.id)).toEqual(["gpt-5.4"]);
   });
+
+  it("matches UUID-gated search text for a valid UUID query", () => {
+    const items = [
+      { id: "agent-tab-a", label: "Agent", description: "Agent" },
+      {
+        id: "agent-tab-b",
+        label: "Agent",
+        description: "Agent",
+        validatedSearchText: {
+          kind: "uuid" as const,
+          fields: ["00112233-4455-4677-8899-aabbccddeeff"],
+        },
+      },
+    ];
+
+    const result = filterAndRankComboboxOptions(items, "00112233-4455-4677-8899-aabbccddeeff");
+    expect(result.map((o) => o.id)).toEqual(["agent-tab-b"]);
+  });
+
+  it("does not check UUID-gated search text for invalid UUID query syntax", () => {
+    const items = [
+      {
+        id: "agent-tab",
+        label: "Agent",
+        description: "Agent",
+        validatedSearchText: {
+          kind: "uuid" as const,
+          fields: ["00112233-4455-4677-8899-aabbccddeeff"],
+        },
+      },
+    ];
+
+    expect(filterAndRankComboboxOptions(items, "00112233-4455-4677-zzzz-aabbccddeeff")).toEqual([]);
+  });
 });
 
 describe("combobox above-search ordering", () => {

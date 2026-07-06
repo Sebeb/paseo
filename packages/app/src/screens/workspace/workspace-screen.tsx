@@ -806,7 +806,6 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
         options={tabSwitcherOptions}
         value={activeTabKey}
         onSelect={onSelectSwitcherTab}
-        searchable={false}
         title={t("workspace.tabs.switcher.title")}
         searchPlaceholder={t("workspace.tabs.switcher.searchPlaceholder")}
         open={isOpen}
@@ -2404,6 +2403,14 @@ function WorkspaceScreenContent({
         id: tab.key,
         label: getFallbackTabOptionLabel(tab, tabFallbackLabels),
         description: getFallbackTabOptionDescription(tab, tabFallbackLabels),
+        ...(tab.target.kind === "agent"
+          ? {
+              validatedSearchText: {
+                kind: "uuid" as const,
+                fields: [tab.target.agentId],
+              },
+            }
+          : {}),
       })),
     [tabFallbackLabels, tabs],
   );
