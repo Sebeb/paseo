@@ -8,6 +8,8 @@ import {
   writePaseoConfigForEdit,
   type ProjectConfigRpcError,
 } from "../../../utils/paseo-config-file.js";
+import { getProjectIcon } from "../../../utils/project-icon.js";
+import type { PaseoConfigRaw } from "@getpaseo/protocol/messages";
 
 export interface ProjectConfigSessionHost {
   emit(msg: SessionOutboundMessage): void;
@@ -88,9 +90,10 @@ export class ProjectConfigSession {
       { repoRoot, requestId: msg.requestId, outcome: "write_attempt" },
       "Writing project config",
     );
+    const config = await withProjectColorFromIcon(repoRoot, msg.config);
     const result = writePaseoConfigForEdit({
       repoRoot,
-      config: msg.config,
+      config,
       expectedRevision: msg.expectedRevision,
     });
     if (!result.ok) {
@@ -164,6 +167,26 @@ export class ProjectConfigSession {
     }
     return null;
   }
+}
+
+async function withProjectColorFromIcon(
+  repoRoot: string,
+  config: PaseoConfigRaw,
+): Promise<PaseoConfigRaw> {
+  const result: Record<string, unknown> = { ...config };
+  const iconPath = typeof config.icon === "string" ? config.icon.trim() : "";
+  if (iconPath.length === 0) {
+    delete result.color;
+    return result as PaseoConfigRaw;
+  }
+
+  const icon = await getProjectIcon(repoRoot, { iconPath });
+  if (icon?.color) {
+    result.color = icon.color;
+  } else {
+    delete result.color;
+  }
+  return result as PaseoConfigRaw;
 }
 
 function canonicalizeConfigRoot(repoRoot: string): string {

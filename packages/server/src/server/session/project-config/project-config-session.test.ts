@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import pino from "pino";
+import sharp from "sharp";
 import { ProjectConfigSession, type ProjectConfigSessionHost } from "./project-config-session.js";
 import type { PersistedProjectRecord } from "../../workspace-registry.js";
 import type { SessionOutboundMessage } from "../../messages.js";
@@ -170,6 +171,45 @@ describe("ProjectConfigSession", () => {
           repoRoot,
           ok: true,
           config: { worktree: { setup: "npm ci" } },
+          revision: expect.objectContaining({
+            mtimeMs: expect.any(Number),
+            size: expect.any(Number),
+          }),
+        },
+      },
+    ]);
+  });
+
+  test("write derives project color from the configured icon edge", async () => {
+    const repoRoot = makeRoot();
+    await sharp({
+      create: {
+        width: 16,
+        height: 16,
+        channels: 4,
+        background: "#12aabb",
+      },
+    })
+      .png()
+      .toFile(join(repoRoot, "icon.png"));
+    const { subsystem, emitted } = makeSubsystem([projectRecord(repoRoot)]);
+
+    await subsystem.handleWriteProjectConfigRequest({
+      type: "write_project_config_request",
+      requestId: "write-icon-1",
+      repoRoot,
+      config: { icon: "icon.png" },
+      expectedRevision: null,
+    });
+
+    expect(emitted).toEqual([
+      {
+        type: "write_project_config_response",
+        payload: {
+          requestId: "write-icon-1",
+          repoRoot,
+          ok: true,
+          config: { icon: "icon.png", color: "#12aabb" },
           revision: expect.objectContaining({
             mtimeMs: expect.any(Number),
             size: expect.any(Number),

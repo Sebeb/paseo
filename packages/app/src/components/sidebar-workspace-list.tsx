@@ -87,6 +87,7 @@ import {
   parseHostWorkspaceRouteFromPathname,
 } from "@/utils/host-routes";
 import {
+  resolveProjectActivationWorkspace,
   useSidebarWorkspaceEntry,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
@@ -218,6 +219,7 @@ import {
   combineSidebarTabStatusSummaries,
   createEmptySidebarTabStatusSummary,
   getPrimarySidebarEntryStatusKind,
+  getVisibleSidebarEntryStatusKinds,
   summarizeSidebarTabs,
   type SidebarEntryStatusKind,
   type SidebarTabStatusSummary,
@@ -4633,6 +4635,7 @@ function ProjectBlock({
   activeWorkspaceSelection,
   workspaceKeysForAutoCollapse,
   workspaceSortMode,
+  showExpandedProjectStatusSummary,
 }: {
   project: SidebarProjectEntry;
   collapsed: boolean;
@@ -4657,6 +4660,7 @@ function ProjectBlock({
   activeWorkspaceSelection: ActiveWorkspaceSelection | null;
   workspaceKeysForAutoCollapse: readonly string[];
   workspaceSortMode: SidebarWorkspaceSortMode;
+  showExpandedProjectStatusSummary: boolean;
 }) {
   const rowModel = useMemo(
     () =>
@@ -4677,8 +4681,10 @@ function ProjectBlock({
     workspaces: project.workspaces,
     enabled: collapsed || badgeMode === "status",
   });
+  const shouldShowProjectStatusSummary =
+    badgeMode === "status" && (collapsed || showExpandedProjectStatusSummary);
   const projectStatusSummary = useMemo(() => {
-    if (!collapsed) {
+    if (!shouldShowProjectStatusSummary) {
       return null;
     }
     return combineSidebarTabStatusSummaries(
@@ -4686,7 +4692,10 @@ function ProjectBlock({
         (workspace) => tabStatusSummaries.get(workspace.workspaceKey) ?? EMPTY_TAB_STATUS_SUMMARY,
       ),
     );
-  }, [collapsed, project.workspaces, tabStatusSummaries]);
+  }, [project.workspaces, shouldShowProjectStatusSummary, tabStatusSummaries]);
+  const hasVisibleProjectStatusSummary = projectStatusSummary
+    ? getVisibleSidebarEntryStatusKinds(projectStatusSummary).length > 0
+    : false;
   const projectLeadingStatusKind =
     badgeMode === "status" || !projectStatusSummary
       ? null
@@ -4857,7 +4866,7 @@ function ProjectBlock({
         iconDataUri={iconDataUri}
         workspace={null}
         statusSummary={projectStatusSummary}
-        showStatusSummary={badgeMode === "status" && collapsed}
+        showStatusSummary={hasVisibleProjectStatusSummary}
         leadingStatusKind={projectLeadingStatusKind}
         highlightState={getProjectAncestorHighlighted(active)}
         chevron={rowModel.chevron}
@@ -4917,7 +4926,8 @@ function areProjectBlockDataPropsEqual(
     previous.showShortcutBadges === next.showShortcutBadges &&
     previous.shortcutIndexByWorkspaceKey === next.shortcutIndexByWorkspaceKey &&
     previous.creatingWorkspaceIds === next.creatingWorkspaceIds &&
-    previous.workspaceKeysForAutoCollapse === next.workspaceKeysForAutoCollapse
+    previous.workspaceKeysForAutoCollapse === next.workspaceKeysForAutoCollapse &&
+    previous.showExpandedProjectStatusSummary === next.showExpandedProjectStatusSummary
   );
 }
 
@@ -5272,15 +5282,13 @@ function ProjectModeList({
       const projectKey = project.projectKey;
       if (autoCollapseProjects && collapsedProjectKeys.has(projectKey)) {
         setOnlyProjectExpanded(projectKey, projectKeysForAutoCollapse);
-        const rememberedWorkspaceId = lastSelectedWorkspaceIdByProjectKey[projectKey];
-        const rememberedWorkspace = rememberedWorkspaceId
-          ? (project.workspaces.find(
-              (workspace) => workspace.workspaceId === rememberedWorkspaceId,
-            ) ?? null)
-          : null;
-        if (rememberedWorkspace) {
+        const targetWorkspace = resolveProjectActivationWorkspace({
+          project,
+          lastSelectedWorkspaceIdByProjectKey,
+        });
+        if (targetWorkspace) {
           onWorkspacePress?.();
-          navigateToWorkspace(rememberedWorkspace.serverId, rememberedWorkspace.workspaceId);
+          navigateToWorkspace(targetWorkspace.serverId, targetWorkspace.workspaceId);
         }
         return;
       }
@@ -5405,6 +5413,7 @@ function ProjectModeList({
           activeWorkspaceSelection={activeWorkspaceSelection}
           workspaceKeysForAutoCollapse={workspaceKeysForAutoCollapse}
           workspaceSortMode={workspaceSortMode}
+          showExpandedProjectStatusSummary={autoCollapseProjects}
         />
       );
     },
@@ -5412,6 +5421,7 @@ function ProjectModeList({
       collapsedProjectKeys,
       activeWorkspaceSelection,
       workspaceSortMode,
+      autoCollapseProjects,
       handleWorktreeCreated,
       handleWorkspaceReorder,
       handleToggleProjectCollapsed,

@@ -61,10 +61,13 @@ export interface ProjectIcon {
   data: string;
   mimeType: string;
   path?: string;
+  color?: string;
 }
 
 const MAX_SOURCE_ICON_SIZE = 10 * 1024 * 1024;
 const NORMALIZED_ICON_SIZE = 96;
+const EDGE_SAMPLE_WIDTH = 4;
+const MIN_VISIBLE_ALPHA = 32;
 const MAX_ICON_CACHE_ENTRIES = 256;
 const PROJECT_ICON_OUTPUT_MIME_TYPE = "image/png";
 const projectIconCache = new Map<string, ProjectIcon>();
@@ -165,6 +168,87 @@ async function normalizeIconBuffer(sourceBuffer: Buffer, sourceMimeType: string)
     })
     .png()
     .toBuffer();
+}
+
+function colorComponentToHex(value: number): string {
+  return Math.max(0, Math.min(255, Math.round(value)))
+    .toString(16)
+    .padStart(2, "0");
+}
+
+function rgbToHex(color: { r: number; g: number; b: number }): string {
+  return `#${colorComponentToHex(color.r)}${colorComponentToHex(color.g)}${colorComponentToHex(
+    color.b,
+  )}`;
+}
+
+function quantizeComponent(value: number): number {
+  return Math.round(value / 16) * 16;
+}
+
+function edgePixelWeight(x: number, y: number, width: number, height: number): number {
+  const distanceToEdge = Math.min(x, y, width - 1 - x, height - 1 - y);
+  return EDGE_SAMPLE_WIDTH - distanceToEdge;
+}
+
+export async function deriveProjectIconEdgeColor(iconBuffer: Buffer): Promise<string | null> {
+  const image = sharp(iconBuffer, { animated: false, limitInputPixels: 128_000_000 }).ensureAlpha();
+  const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
+  if (info.width <= 0 || info.height <= 0 || info.channels < 4) {
+    return null;
+  }
+
+  const sampleWidth = Math.min(EDGE_SAMPLE_WIDTH, Math.ceil(Math.min(info.width, info.height) / 2));
+  const buckets = new Map<
+    string,
+    { count: number; weightedCount: number; r: number; g: number; b: number }
+  >();
+
+  for (let y = 0; y < info.height; y += 1) {
+    for (let x = 0; x < info.width; x += 1) {
+      const distanceToEdge = Math.min(x, y, info.width - 1 - x, info.height - 1 - y);
+      if (distanceToEdge >= sampleWidth) {
+        continue;
+      }
+
+      const offset = (y * info.width + x) * info.channels;
+      const alpha = data[offset + 3] ?? 0;
+      if (alpha < MIN_VISIBLE_ALPHA) {
+        continue;
+      }
+
+      const r = data[offset] ?? 0;
+      const g = data[offset + 1] ?? 0;
+      const b = data[offset + 2] ?? 0;
+      const key = `${quantizeComponent(r)},${quantizeComponent(g)},${quantizeComponent(b)}`;
+      const weight = edgePixelWeight(x, y, info.width, info.height);
+      const existing = buckets.get(key) ?? { count: 0, weightedCount: 0, r: 0, g: 0, b: 0 };
+      existing.count += weight;
+      existing.weightedCount += weight * alpha;
+      existing.r += r * weight * alpha;
+      existing.g += g * weight * alpha;
+      existing.b += b * weight * alpha;
+      buckets.set(key, existing);
+    }
+  }
+
+  let selected: { count: number; weightedCount: number; r: number; g: number; b: number } | null =
+    null;
+  for (const bucket of buckets.values()) {
+    if (!selected || bucket.count > selected.count) {
+      selected = bucket;
+    }
+  }
+
+  if (!selected || selected.weightedCount <= 0) {
+    return null;
+  }
+
+  return rgbToHex({
+    r: selected.r / selected.weightedCount,
+    g: selected.g / selected.weightedCount,
+    b: selected.b / selected.weightedCount,
+  });
 }
 
 function getProjectIconCacheKey(
@@ -523,10 +607,12 @@ export async function getProjectIcon(
 
     const buffer = await readFile(candidate.fullPath);
     const normalizedBuffer = await normalizeIconBuffer(buffer, sourceMimeType);
+    const color = await deriveProjectIconEdgeColor(normalizedBuffer);
     const icon = {
       data: normalizedBuffer.toString("base64"),
       mimeType: PROJECT_ICON_OUTPUT_MIME_TYPE,
       path: candidate.relativePath,
+      ...(color ? { color } : {}),
     };
     writeCachedProjectIcon(cacheKey, icon);
     return icon;

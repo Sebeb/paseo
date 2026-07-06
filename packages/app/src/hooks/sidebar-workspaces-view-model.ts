@@ -73,6 +73,23 @@ export interface SidebarWorkspacePlacementModel {
   projectNamesByKey: Map<string, string>;
 }
 
+export function resolveProjectActivationWorkspace(input: {
+  project: SidebarProjectEntry;
+  lastSelectedWorkspaceIdByProjectKey: Record<string, string>;
+}): SidebarWorkspaceEntry | null {
+  const rememberedWorkspaceId =
+    input.lastSelectedWorkspaceIdByProjectKey[input.project.projectKey]?.trim() ?? "";
+  if (rememberedWorkspaceId) {
+    const rememberedWorkspace = input.project.workspaces.find(
+      (workspace) => workspace.workspaceId === rememberedWorkspaceId,
+    );
+    if (rememberedWorkspace) {
+      return rememberedWorkspace;
+    }
+  }
+  return input.project.workspaces[0] ?? null;
+}
+
 export interface SidebarStatusWorkspaceSession {
   serverId: string;
   workspaces: Map<string, WorkspaceDescriptor>;
