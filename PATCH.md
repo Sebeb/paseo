@@ -4,7 +4,7 @@ Branch: `feat/pin-user-inputs`
 
 Base: `origin/main`
 
-Anchor commit: ba85bd0382a6cb7db42b6656419aec614562a232 — feat(app): gate pinned prompts around tall composer
+Anchor commit: 91831c7187f06f5dbca57451516f234555f2e6c0 — fix(app): refine pinned input geometry
 
 ## Purpose
 
@@ -134,8 +134,9 @@ Selection rules:
 4. Select the latest user-message candidate whose real bottom is above that pinned threshold.
 5. Return `null` if no candidate has crossed the pinned threshold.
 6. Return `null` if the selected candidate's response zone is no longer relevant.
-7. Compute `translateY` from the next candidate's top edge when that next prompt enters the pinned region.
-8. Return the selected user message, source coordinates, and `translateY`.
+7. Return `null` when the top half of the viewport contains any user prompt other than the selected candidate; if the selected candidate is the only visible user prompt in that top-half region, pinning is still allowed.
+8. Compute `translateY` from the next candidate's top edge when that next prompt enters the pinned region.
+9. Return the selected user message, source coordinates, and `translateY`.
 
 This prevents duplicated prompts while the original is near the overlay, keeps the pinned prompt tied to its response zone, and lets the next prompt physically push it out of the way.
 
@@ -148,13 +149,16 @@ This prevents duplicated prompts while the original is near the overlay, keeps t
 Key behavior:
 
 - Tracks stream item elements by id so mounted rows can provide real `offsetTop`/height data.
-- Combines measured geometries for mounted items with estimated geometries for virtualized history.
+- Combines measured geometries for mounted items with measured-or-estimated geometries for virtualized history.
+- For mounted elements, prefers `getBoundingClientRect()` relative to the stream content element so transformed or virtualized rows report their visual position rather than a stale offset parent position.
+- Falls back to `offsetTop`/`offsetHeight`, virtualizer measurement cache entries, and `estimateStreamItemHeight(...)` when DOM rectangles are unavailable or unusable.
 - Calls `collectPinnedUserInputCandidatesFromGeometries` and `selectPinnedUserInput`.
 - Uses scroll position and viewport height to determine `viewportTop` and `viewportBottom`.
 - Updates the pinned state on scroll, layout, measurement changes, and stream updates.
 - Provides source coordinates back to the shared stream view.
+- Wraps the scroll container, pinned overlay, and custom scrollbar overlay in a relative flex viewport frame so the absolute overlay anchors to the chat viewport instead of an incidental parent.
 
-The web path also accounts for virtualized history by using estimated stream item tops when the source prompt is not mounted.
+The web path also accounts for virtualized history by using measured virtual row geometry when a row is mounted and estimated stream item tops when the source prompt is not mounted.
 
 ### Native Strategy
 
@@ -204,6 +208,23 @@ Implementation details:
 Message rendering was adjusted to support the pinned prompt presentation without changing the normal message layout.
 
 The changes allow the same user-message content to be rendered in a pinned context with styling appropriate for the overlay.
+
+Additional pinned-context behavior:
+
+- `UserMessageBubbleContent` accepts `imageThumbnailSize` and `showLiteralTruncationMarker` options while preserving the default full-size, selectable sent-message rendering path.
+- `PinnedUserMessage` uses at most three text lines for text-only prompts, two lines when image previews are present, and one line when file attachments are present.
+- Pinned message text uses `ellipsizeMode="clip"` with an explicit trailing `...` marker rendered over the clipped text once `onTextLayout` confirms the text exceeded the line limit.
+- Pinned image attachments render with small square thumbnails so image-heavy prompts fit inside the overlay.
+
+### `packages/app/src/components/attachment-pill.tsx`
+
+`AttachmentThumbnail` now accepts `size?: "default" | "small"`.
+
+Implementation details:
+
+- The default size remains the existing 48-by-48 thumbnail used in composer and normal message attachment trays.
+- The small size is 24-by-24 and is used by pinned user messages.
+- Placeholder thumbnails apply the same selected size as real image thumbnails so loading or unavailable previews do not change pinned overlay geometry.
 
 ## Settings And Persistence
 
@@ -257,7 +278,9 @@ Adds focused unit tests for pure selection behavior:
 
 - Disabled feature returns `null`.
 - A prompt is selected when its response is visible and the original input is offscreen.
-- Selection returns `null` when any real user prompt is visible.
+- A prompt may remain selected when it is the only user prompt visible in the viewport's top half.
+- Selection returns `null` when a different user prompt is visible in the viewport's top half.
+- Selection returns `null` when both the active prompt and another prompt are visible in the viewport's top half.
 - The visible response closest to the viewport bottom wins.
 - No visible response returns `null`.
 - Estimated candidates group assistant responses under the preceding user message.
@@ -265,7 +288,7 @@ Adds focused unit tests for pure selection behavior:
 
 ### Web Strategy Tests
 
-`packages/app/src/agent-stream/strategy-web.test.tsx` adds coverage around the web strategy integration, including scroll and measurement-driven pinned state.
+`packages/app/src/agent-stream/strategy-web.test.tsx` adds coverage around the web strategy integration, including scroll and measurement-driven pinned state. It also verifies that a mounted virtualized row's actual pixel rectangle is used before pinning, so a visible prompt is not incorrectly pinned from height estimates alone.
 
 ## Verification
 
