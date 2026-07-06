@@ -54,6 +54,7 @@ import {
   resolveCreateAgentTitles,
   resolveFirstAgentPromptTitle,
 } from "./agent/create-agent-title.js";
+import { generateAgentTitleFromFirstAgentContext } from "./agent-title-generator.js";
 import { respondToAgentPermission } from "./agent/permission-response.js";
 import type { VoiceCallerContext, VoiceSpeakHandler } from "./voice-types.js";
 import type { ScriptHealthState } from "./script-health-monitor.js";
@@ -2436,7 +2437,7 @@ export class Session {
           initialTitle: workspacePromptTitle,
         },
       );
-      const createdDirectoryWorkspaceForAgent = !createdWorktree && !msg.workspaceId;
+      const isFirstAgentInWorkspace = !(await this.workspaceHasAnyAgent(workspaceId));
 
       const { snapshot, liveSnapshot } = await createAgentCommand(
         {
@@ -2467,16 +2468,19 @@ export class Session {
         },
       );
       createdAgentId = snapshot.id;
+      if (!createdWorktree && msg.workspaceId && isFirstAgentInWorkspace) {
+        await this.writeInitialWorkspaceTitleIfUntitled(workspaceId, workspacePromptTitle);
+      }
       await this.agentUpdates.forwardLiveAgent(snapshot);
-      if (createdDirectoryWorkspaceForAgent && trimmedPrompt) {
-        this.workspaceAutoName.scheduleForDirectory(
-          {
-            workspaceId,
-            cwd: createAgentConfig.cwd,
-            firstAgentContext,
-          },
-          { currentSelection: this.getFocusedAgentSelectionForCwd(createAgentConfig.cwd) },
-        );
+      if (trimmedPrompt || (attachments && attachments.length > 0)) {
+        this.scheduleAutoNameAgentTitleFromContext({
+          agentId: snapshot.id,
+          workspaceId,
+          cwd: createAgentConfig.cwd,
+          firstAgentContext,
+          updateWorkspaceTitle: isFirstAgentInWorkspace,
+          preferNativeTitle: this.agentManager.supportsNativeThreadTitle(snapshot.id),
+        });
       }
       this.createAgentLifecycleDispatch.registerAutoArchiveIfRequested({
         autoArchive,
@@ -3273,6 +3277,121 @@ export class Session {
       legacyWorktreeName,
       firstAgentContext,
     );
+  }
+
+  // Generated names may replace the prompt title set at creation, but not a user
+  // rename that landed while the async generator was running.
+  private async applyGeneratedWorkspaceTitle(
+    workspaceId: string,
+    input: { title: string; branch?: string | null; promptTitle?: string | null },
+  ): Promise<void> {
+    const current = await this.workspaceRegistry.get(workspaceId);
+    if (!current) {
+      return;
+    }
+    let title = current.title;
+    if (!title || (input.promptTitle && title === input.promptTitle)) {
+      title = input.title;
+    }
+    await this.workspaceRegistry.upsert({
+      ...current,
+      title,
+      ...(input.branch ? { branch: input.branch } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  private async workspaceHasAnyAgent(workspaceId: string): Promise<boolean> {
+    if (this.agentManager.listAgents().some((agent) => agent.workspaceId === workspaceId)) {
+      return true;
+    }
+    const storedAgents = await this.agentStorage.list();
+    return storedAgents.some(
+      (agent) => agent.workspaceId === workspaceId && agent.internal !== true,
+    );
+  }
+
+  private scheduleAutoNameAgentTitleFromContext(input: {
+    agentId: string;
+    workspaceId: string;
+    cwd: string;
+    firstAgentContext: FirstAgentContext;
+    updateWorkspaceTitle: boolean;
+    preferNativeTitle: boolean;
+  }): void {
+    setTimeout(() => {
+      void this.maybeAutoNameAgentTitleFromContext(input).catch((error) => {
+        this.sessionLogger.warn({ err: error, cwd: input.cwd }, "Failed to auto-name agent title");
+      });
+    }, 0);
+  }
+
+  private async maybeAutoNameAgentTitleFromContext(input: {
+    agentId: string;
+    workspaceId: string;
+    cwd: string;
+    firstAgentContext: FirstAgentContext;
+    updateWorkspaceTitle: boolean;
+    preferNativeTitle: boolean;
+  }): Promise<void> {
+    const nativeTitle = input.preferNativeTitle
+      ? await this.waitForNativeAgentTitle(input.agentId)
+      : null;
+    const title =
+      nativeTitle ??
+      (await generateAgentTitleFromFirstAgentContext({
+        agentManager: this.agentManager,
+        cwd: input.cwd,
+        workspaceGitService: this.workspaceGitService,
+        providerSnapshotManager: this.providerSnapshotManager,
+        daemonConfig: this.readStructuredGenerationDaemonConfig(),
+        currentSelection: this.getFocusedAgentSelectionForCwd(input.cwd),
+        firstAgentContext: input.firstAgentContext,
+        logger: this.sessionLogger,
+      }));
+    if (!title) {
+      return;
+    }
+    await this.agentManager.setTitle(input.agentId, title);
+    if (input.updateWorkspaceTitle) {
+      await this.applyGeneratedWorkspaceTitle(input.workspaceId, {
+        title,
+        promptTitle: resolveFirstAgentPromptTitle(input.firstAgentContext),
+      });
+      await this.emitWorkspaceUpdateForWorkspaceId(input.workspaceId);
+    }
+  }
+
+  private async waitForNativeAgentTitle(agentId: string): Promise<string | null> {
+    const delaysMs = [0, 500, 1_000, 2_000];
+    for (const delayMs of delaysMs) {
+      if (delayMs > 0) {
+        await new Promise((done) => setTimeout(done, delayMs));
+      }
+      const title = await this.agentManager.refreshNativeThreadTitle(agentId);
+      if (title) {
+        return title;
+      }
+    }
+    return null;
+  }
+
+  private async writeInitialWorkspaceTitleIfUntitled(
+    workspaceId: string,
+    title: string | null,
+  ): Promise<void> {
+    if (!title) {
+      return;
+    }
+    const current = await this.workspaceRegistry.get(workspaceId);
+    if (!current || current.title) {
+      return;
+    }
+    await this.workspaceRegistry.upsert({
+      ...current,
+      title,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   private isPathWithinRoot(rootPath: string, candidatePath: string): boolean {
