@@ -2918,6 +2918,11 @@ const stylesheet = StyleSheet.create((theme) => ({
   streamItemInner: {
     width: "100%",
   },
+  layoutProbeContainer: {
+    width: "100%",
+    marginTop: 0,
+    marginBottom: 0,
+  },
   layoutProbeOuter: {
     marginTop: 0,
     marginBottom: 0,
@@ -3343,20 +3348,24 @@ function StreamLayoutProbe({
 }: {
   onReport: (input: { breakoutOffset: number; contentWidth: number }) => void;
 }) {
-  const breakoutOffsetRef = useRef<number | null>(null);
+  const containerWidthRef = useRef<number | null>(null);
   const contentWidthRef = useRef<number | null>(null);
   const flushLayoutMetrics = useCallback(() => {
-    if (breakoutOffsetRef.current == null || contentWidthRef.current == null) {
+    const containerWidth = containerWidthRef.current;
+    const contentWidth = contentWidthRef.current;
+    if (containerWidth == null || contentWidth == null) {
       return;
     }
-    onReport({
-      breakoutOffset: breakoutOffsetRef.current,
-      contentWidth: contentWidthRef.current,
-    });
+    // Derive the breakout from the pane's own width rather than the centered wrapper's x
+    // offset: on web, onLayout is ResizeObserver-backed and won't fire when the wrapper is
+    // clamped at MAX_CONTENT_WIDTH and only its x position shifts as the pane resizes.
+    const cappedWrapperWidth = Math.min(containerWidth, MAX_CONTENT_WIDTH);
+    const breakoutOffset = Math.max(0, (containerWidth - cappedWrapperWidth) / 2);
+    onReport({ breakoutOffset, contentWidth });
   }, [onReport]);
-  const handleOuterLayout = useCallback(
+  const handleContainerLayout = useCallback(
     (event: LayoutChangeEvent) => {
-      breakoutOffsetRef.current = Math.max(0, event.nativeEvent.layout.x);
+      containerWidthRef.current = Math.max(0, event.nativeEvent.layout.width);
       flushLayoutMetrics();
     },
     [flushLayoutMetrics],
@@ -3368,6 +3377,7 @@ function StreamLayoutProbe({
     },
     [flushLayoutMetrics],
   );
+  const probeContainerStyle = useMemo(() => [stylesheet.layoutProbeContainer], []);
   const probeOuterStyle = useMemo(
     () => [stylesheet.streamItemWrapper, stylesheet.layoutProbeOuter],
     [],
@@ -3377,8 +3387,10 @@ function StreamLayoutProbe({
     [],
   );
   return (
-    <View pointerEvents="none" style={probeOuterStyle} onLayout={handleOuterLayout}>
-      <View style={probeInnerStyle} onLayout={handleInnerLayout} />
+    <View pointerEvents="none" style={probeContainerStyle} onLayout={handleContainerLayout}>
+      <View style={probeOuterStyle}>
+        <View style={probeInnerStyle} onLayout={handleInnerLayout} />
+      </View>
     </View>
   );
 }
