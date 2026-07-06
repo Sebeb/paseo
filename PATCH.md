@@ -1,23 +1,30 @@
-# Patch Summary: Embedded Workspace Tabs In Sidebar
+# Patch Summary: Single Project Sidebar View And Embedded Workspace Tabs
 
-Branch: `feat/sidebar-workspace-tabs`
+Branch: `feat/single-project-view`
 
 Base: `origin/main`
 
-Anchor commit: 7a87367b75486fed3c2b862638ecb11618d5aaa0 — feat(sidebar-tabs): add status hover summaries
+Anchor commit: 65b45175cdcf52cf983434df85ecc99ccc29a043 — feat(sidebar): pulse status glow on project selector capsules
 
 ## Purpose
 
-This branch redesigns the sidebar so workspace tabs can be shown and controlled directly under each workspace. It adds sidebar-specific tab ordering, recent tab filtering, status badges, grouping controls, tab-close cleanup, and layout state needed for embedded tab presentation.
+This branch redesigns the sidebar around project-first navigation. It adds an optional single-project view with a horizontal project selector, keeps workspace tabs available inside sidebar workspace rows, and expands sidebar display preferences so projects, workspaces, and embedded tabs each have their own ordering and visibility controls.
 
-The branch is intentionally grouped because the sidebar list, workspace layout store, tab close behavior, status summaries, and sidebar preferences depend on each other.
+The branch is intentionally grouped because the single-project selector, embedded tab tree, workspace layout store, tab close behavior, status summaries, project icons, and sidebar preferences all depend on the same project/workspace view model.
 
 ## User-Facing Changes
 
 - Adds embedded workspace tabs inside sidebar workspace rows.
+- Adds a single-project sidebar view toggle. When enabled in project grouping mode, the sidebar shows only one project's workspaces and adds a horizontal project-selector rail above them.
+- Adds project-selector capsules with real/fallback project icons, dominant icon background colors, hover cards, status badges, drag reordering in manual project sort mode, selected-size animation, and status-increase glow pulses for failed / needs-input / attention counts.
+- Persists the selected single-project view project, falls back to the active workspace's project or the first visible project, and updates the selected project when explicit active-workspace navigation moves to another project.
 - Adds sidebar grouping controls for:
   - project/status grouping
+  - project sort mode (manual, created, lastUpdated, **status**)
+  - project show-last count
+  - single-project view
   - workspace title source
+  - workspace show-last count
   - auto-collapse projects
   - auto-collapse workspaces
   - workspace sort mode (manual, created, lastUpdated, **status**)
@@ -40,6 +47,8 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Shows pending branch-operation badges on workspace rows while checkout-store git actions such as pull/push/merge/create-PR are running.
 - Uses the current sidebar sort order for close-successor selection and keyboard tab cycling, instead of falling back to pane insertion order.
 - Adds non-manual workspace sorting by creation time, last activity, or status urgency; manual workspace drag/drop remains available only in manual sort mode.
+- Adds non-manual project sorting by earliest child workspace creation time, newest child activity, or highest child workspace status urgency; manual project drag/drop remains available only in manual sort mode.
+- Adds show-last visibility limits for projects and workspaces, with a "show all / show less" toggle and forced inclusion of the selected project/workspace when it falls outside the visible slice.
 - Auto-reveals the active workspace row by expanding its project, respecting project auto-collapse, and either expanding only the active workspace in workspace auto-collapse mode or uncollapsing that workspace in normal mode.
 - Remembers the last selected workspace inside each project and navigates back to it when reopening an auto-collapsed project.
 - Replaces desktop agent tab tooltips with detail cards and adds matching embedded-sidebar tab hover cards showing the tab label, short agent id/subtitle, created/updated timestamps, and prompt count.
@@ -50,6 +59,8 @@ The branch is intentionally grouped because the sidebar list, workspace layout s
 - Workspace and project rows suppress draft-only status dots/badges so a typed draft in an embedded tab does not make the whole workspace or project look active; embedded tab rows still show draft status directly.
 - Parent embedded tab rows keep their normal tab icon visible at rest, swap the leading slot to the expand/collapse chevron only on hover/touch/compact layouts, and show a small collapsed-subtree count before the label when descendants are hidden.
 - Project, workspace, and embedded-tab hover cards include status explainer rows so status dots can be interpreted without opening the tab or workspace.
+- Lets a workspace row's status-summary control switch the active project into scoped status content, then switch back to project grouping from the scoped status view.
+- Adds a Home button to the sidebar footer and lets the workspaces header title show the selected project name while single-project view is active.
 
 ## Restored Main Polish
 
@@ -70,73 +81,129 @@ These details were previously implemented on `main`, then lost when this feature
 
 ### `packages/app/src/stores/sidebar-view-store.ts`
 
-This new persisted zustand store owns sidebar-specific display preferences.
+This persisted zustand store owns sidebar display preferences across project, workspace, and embedded-tab surfaces.
 
 #### Types
 
 - `SidebarGroupMode = "project" | "status"`
-- `SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated" | "status"`
-- `SidebarWorkspaceSortMode = SidebarEmbeddedTabSortMode`
-- `SidebarEmbeddedRecentTabCount = 3 | 5 | 10 | "all"`
+- `SidebarSortMode = "manual" | "created" | "lastUpdated" | "status"`
+- `SidebarProjectSortMode = SidebarSortMode`
+- `SidebarWorkspaceSortMode = SidebarSortMode`
+- `SidebarEmbeddedTabSortMode = SidebarSortMode`
+- `SidebarShowLastCount = 3 | 5 | 10 | "all"`
+- `SidebarProjectShowLastCount = SidebarShowLastCount`
+- `SidebarWorkspaceShowLastCount = SidebarShowLastCount`
+- `SidebarEmbeddedRecentTabCount = SidebarShowLastCount`
 - `SidebarBadgeMode = "diff" | "status" | "none"`
+- `SidebarTabBarBadgeMode = "status" | "none"`
 
 #### Normalizers
 
-##### `normalizeTabSortMode(value)`
+##### `normalizeGroupMode(value)`
 
-Returns a valid tab sort mode:
+Returns `"project"` or `"status"`, falling back to `"project"`.
 
-- accepts `"created"`, `"lastUpdated"`, `"manual"`, and `"status"`
-- falls back to `"manual"`
+##### `normalizeSortMode(value)`
 
-##### `normalizeRecentTabCount(value)`
+Returns `"created"`, `"lastUpdated"`, `"manual"`, or `"status"`, falling back to `"manual"`.
 
-Returns a valid recent tab count:
+##### `normalizeShowLastCount(value, fallback)`
 
-- accepts `3`, `5`, `10`, and `"all"`
-- falls back to `5`
+Returns `3`, `5`, `10`, or `"all"`, using the supplied fallback when persisted data is invalid. Project and workspace show-last preferences default to `"all"`; embedded recent-tab count defaults to `5`.
 
 ##### `normalizeBadgeMode(value)`
 
-Returns a valid badge mode:
+Returns `"status"`, `"none"`, or `"diff"`, falling back to `"status"`.
 
-- accepts `"status"`, `"none"`, and `"diff"`
-- falls back to `"status"`
+##### `normalizeTabBarBadgeMode(value)`
+
+Returns `"status"` or `"none"`, falling back to `"status"`.
+
+##### `normalizeRecord(value, normalize)`
+
+Reads string-keyed preference maps, trims keys, drops empty keys, and normalizes every value through the provided normalizer.
+
+##### `readLegacyGroupMode(persistedState)`
+
+Looks at legacy `groupModeByServerId` data from the old storage key. If any host was in `"status"` mode, the migrated global `groupMode` becomes `"status"`; otherwise it becomes `"project"`.
+
+##### `migrateSidebarViewState(persistedState)`
+
+Builds a full `SidebarViewPersistedState` from current or legacy persisted data:
+
+- non-record input becomes the default persisted state
+- legacy per-host group modes seed both `groupMode` and `groupModeByServerId`
+- `singleProjectViewEnabled` and `singleProjectViewProjectKey` are preserved only when not migrating from legacy group-mode storage, so old per-host grouping never accidentally enables single-project view
+- `hostFilter` is preserved only when it is a string
+- project/workspace/tab sort maps, show-last maps, badge maps, and collapse booleans are normalized independently
 
 #### Store Methods
+
+##### `setGroupMode(serverIdOrMode, mode?)`
+
+Two call shapes are supported:
+
+- `setGroupMode(mode)` sets the global fallback group mode.
+- `setGroupMode(serverId, mode)` stores a per-server override after trimming the server id; empty ids are ignored.
+
+##### `setSingleProjectViewEnabled(enabled)`
+
+Stores the global single-project view toggle. The UI only applies it while effective group mode is `"project"`.
+
+##### `setSingleProjectViewProjectKey(projectKey)`
+
+Stores the selected single-project view project key or `null`.
+
+##### `setHostFilter(serverId)` / `reconcileHostFilter(serverIds)`
+
+Stores a host filter for sidebar data, and clears it when the stored host id is no longer present in the available host ids.
 
 ##### `getGroupMode(serverId)`
 
 - Trims the server id.
 - Returns `"project"` for empty server ids.
-- Returns a stored mode for the server or `"project"` by default.
+- Returns a per-server override when present, otherwise the global `groupMode`.
 
-##### `setGroupMode(serverId, mode)`
+##### `getProjectSortMode(serverId)` / `setProjectSortMode(serverId, mode)`
 
 - Trims the server id.
 - Ignores empty ids.
-- Stores the selected mode by server id.
-
-##### `getEmbeddedTabSortMode(serverId)` / `setEmbeddedTabSortMode(serverId, mode)`
-
-- Store and read per-server tab sort mode.
-- Always normalize values through `normalizeTabSortMode`.
+- Store and read per-server project sort mode through `normalizeSortMode`.
 
 ##### `getWorkspaceSortMode(serverId)` / `setWorkspaceSortMode(serverId, mode)`
 
-- Store and read per-server workspace sort mode.
-- Use the same value space and normalization as embedded tab sort mode: `"manual"`, `"created"`, `"lastUpdated"`, and `"status"`.
+- Store and read per-server workspace sort mode through `normalizeSortMode`.
 - Empty server ids read as `"manual"` and are ignored on write.
+
+##### `getEmbeddedTabSortMode(serverId)` / `setEmbeddedTabSortMode(serverId, mode)`
+
+- Store and read per-server embedded-tab sort mode through `normalizeSortMode`.
+- Empty server ids read as `"manual"` and are ignored on write.
+
+##### `getProjectShowLastCount(serverId)` / `setProjectShowLastCount(serverId, count)`
+
+- Store and read per-server project visibility limits.
+- Empty server ids read as `"all"` and are ignored on write.
+
+##### `getWorkspaceShowLastCount(serverId)` / `setWorkspaceShowLastCount(serverId, count)`
+
+- Store and read per-server workspace visibility limits.
+- Empty server ids read as `"all"` and are ignored on write.
 
 ##### `getEmbeddedRecentTabCount(serverId)` / `setEmbeddedRecentTabCount(serverId, count)`
 
 - Store and read per-server recent tab count.
-- Always normalize values through `normalizeRecentTabCount`.
+- Empty server ids read as `5` and are ignored on write.
 
 ##### `getBadgeMode(serverId)` / `setBadgeMode(serverId, mode)`
 
 - Store and read per-server badge mode.
-- Always normalize values through `normalizeBadgeMode`.
+- Empty server ids read as `"status"` and are ignored on write.
+
+##### `getTabBarBadgeMode(serverId)` / `setTabBarBadgeMode(serverId, mode)`
+
+- Store and read per-server tab-bar badge mode.
+- Empty server ids read as `"status"` and are ignored on write.
 
 ##### `setAutoCollapseWorkspaces(enabled)`
 
@@ -148,74 +215,120 @@ Returns a valid badge mode:
 
 #### Persistence
 
-The store persists to `AsyncStorage` under `sidebar-group-mode`. It partializes only the preference maps, `autoCollapseProjects`, and `autoCollapseWorkspaces`, not derived getter/setter functions.
+The store persists to `AsyncStorage` under `sidebar-view` with version `3`. `createSidebarViewStorage` falls back to the legacy `sidebar-group-mode` key only when the new key is empty, allowing existing users' group-mode preferences to migrate once.
 
-Persisted preference maps are:
+Persisted scalar values:
 
-- `groupModeByServerId`
-- `workspaceSortModeByServerId`
-- `embeddedTabSortModeByServerId`
-- `embeddedRecentTabCountByServerId`
-- `badgeModeByServerId`
-
-Persisted global toggles are:
-
+- `groupMode`
+- `singleProjectViewEnabled`
+- `singleProjectViewProjectKey`
+- `hostFilter`
 - `autoCollapseProjects`
 - `autoCollapseWorkspaces`
+
+Persisted preference maps:
+
+- `groupModeByServerId`
+- `projectSortModeByServerId`
+- `workspaceSortModeByServerId`
+- `embeddedTabSortModeByServerId`
+- `projectShowLastCountByServerId`
+- `workspaceShowLastCountByServerId`
+- `embeddedRecentTabCountByServerId`
+- `badgeModeByServerId`
+- `tabBarBadgeModeByServerId`
+
+Only persisted fields are partialized; methods and derived helpers are recreated by the zustand initializer.
 
 ## Sidebar Grouping Selector
 
 ### `packages/app/src/components/sidebar/sidebar-grouping-selector.tsx`
 
-This replaces the narrower display preferences menu with a broader sidebar controls menu.
+This replaces the old display preferences menu with a broader sidebar controls menu organized into collapsible sections.
 
 #### `SidebarGroupingSelector`
 
 Implementation details:
 
 - Reads app settings and sidebar view store state.
-- Reads current group mode, workspace sort mode, tab sort mode, recent count, badge mode, project auto-collapse state, and workspace auto-collapse state.
-- Writes per-server preferences only when `serverId` is non-null.
-- Shows embedded-tab controls only when `settings.tabLayoutMode !== "horizontal"`.
-- Shows the workspace auto-collapse toggle only for the sidebar tab layout; the project auto-collapse toggle is always available from the sidebar controls.
-- Uses `closeOnSelect = !showTabControls` so simple grouping closes the menu, while multi-control embedded tab settings can stay open.
-- Preserves the current `workspaceTitleSource` setting by writing through `updateSettings`.
+- Reads the current group mode for the active server, but uses the store's global fallback when no per-server override exists.
+- Keeps one expanded display section in local state: `"projects"`, `"workspaces"`, or `"tabs"`.
+- Defaults the expanded section to `"workspaces"`.
+- Hides the `"tabs"` section unless `settings.tabLayoutMode === "sidebar"`; if the tabs section was open and tab layout changes away from sidebar, it switches back to `"workspaces"`.
+- Keeps menu selections open by using `closeOnSelect={false}` throughout the preference controls.
+- Writes per-server sort/show/badge preferences only when `serverId` is non-null.
 
-The workspace sort menu includes the same four options as tab sorting: Manual, Created, Last Updated, and **Status**. Status sorts workspaces by urgency, with recency and name as tiebreakers.
+Top-level menu content:
 
-The tab sort mode menu includes four options: Manual, Created, Last Updated, and **Status** (sorts by most urgent status, with recency as a tiebreaker).
+- **Group by**: Project or Status.
+- **Sidebar badge**: Diff, Status, or None.
+- **Projects** section.
+- **Workspaces** section.
+- **Tabs** section, only for sidebar tab layout.
 
-The top-level menu includes two persistent toggle items:
+`ProjectPreferencesSection`:
 
-- **Auto collapse projects** toggles `autoCollapseProjects` and keeps the menu open.
-- **Auto collapse workspaces** toggles `autoCollapseWorkspaces`, keeps the menu open, and is only rendered while the app uses sidebar tab layout.
+- Reads effective group mode, per-server project sort mode, per-server project show-last count, global project auto-collapse state, and global single-project view toggle.
+- Sort options are Manual, Created, Last updated, and Status. Status sorts projects by the highest-urgency child workspace, then child activity, then project name.
+- Show-last options are 3, 5, 10, and All.
+- Shows the **Single project view** toggle only while group mode is `"project"`.
+- Shows **Auto collapse** for projects and stores it globally.
+
+`WorkspacePreferencesSection`:
+
+- Reads per-server workspace sort mode, per-server workspace show-last count, global workspace auto-collapse state, and app `workspaceTitleSource`.
+- Sort options are Manual, Created, Last updated, and Status. Status sorts workspaces by urgency, then recency, then name.
+- Show-last options are 3, 5, 10, and All.
+- The title-source controls write through `updateSettings({ workspaceTitleSource })`.
+- Shows **Auto collapse** for workspaces and stores it globally.
+
+`SidebarTabDisplayPreferencesMenuItems`:
+
+- Reads per-server embedded-tab sort mode and recent-tab count.
+- Reuses the same Manual / Created / Last updated / Status sort menu.
+- Optionally hides the recent-tab count group through `showRecentTabCount={false}` for surfaces that only need tab sorting.
 
 #### Menu Item Components
 
 The selector defines typed item components for:
 
+- project sort mode
+- project show-last count
+- single-project view
 - workspace title source
 - group mode
 - workspace sort mode
+- workspace show-last count
 - tab sort mode
 - recent tab count
 - badge mode
 
-Each component creates a stable `handleSelect` callback that passes its typed value back to the parent.
+Shared building blocks:
+
+- `PreferenceGroup` renders a muted section label.
+- `PreferenceMenuItem<T>` builds a typed `DropdownMenuItem`, marks the selected value, and passes the typed value back through a stable callback.
+- `DisplayPreferenceSection` renders an accessible section header with chevron state and a content container only when expanded.
 
 ## Left Sidebar Shell
 
 ### `packages/app/src/components/left-sidebar.tsx`
 
-The left sidebar now coordinates the workspace/project list and the optional vertical workspace tab rail.
+The left sidebar coordinates the workspace/project list, single-project view selection, and the optional vertical workspace tab rail.
 
 Behavior:
 
 - Reads `settings.tabLayoutMode` and treats `"vertical"` on non-compact layouts as a mode where workspace tab content must remain mounted even when the project/workspace list is closed.
 - Calls `useSidebarWorkspacesList` when compact, when the main sidebar is open, or when the desktop vertical tab rail is visible.
-- Replaces `SidebarDisplayPreferencesMenu` with `SidebarGroupingSelector`, so one header/menu controls grouping, title source, workspace sorting, tab sorting, recent tab count, badge mode, and collapse preferences.
+- Replaces `SidebarDisplayPreferencesMenu` with `SidebarGroupingSelector`, so one header/menu controls grouping, project sorting, project show-last count, single-project view, workspace title source, workspace sorting, workspace show-last count, tab sorting, recent tab count, badge mode, and collapse preferences.
+- Reads `singleProjectViewEnabled` and `singleProjectViewProjectKey` from `useSidebarViewStore`.
+- Enables single-project view only when the effective group mode is `"project"` and the single-project setting is true.
+- Resolves the selected project through `resolveSingleProjectViewProject({ projects, activeWorkspaceSelection, storedProjectKey })`.
+- Syncs the stored single-project key to explicit active-workspace navigation: when a route selection moves to a workspace in another project, a ref prevents repeated writes for the same `serverId:workspaceId`, then the active project key is stored.
+- Shows the selected project name as the workspaces header title while single-project view is active.
+- Passes `singleProjectViewEnabled`, `selectedSingleProject`, and `handleSingleProjectSelect(projectKey)` into the sidebar list.
 - Removes the global "new workspace" header/footer action from the sidebar shell.
 - Moves the sessions/history action into the footer and marks it active when the current route is the sessions route.
+- Adds a Home footer action alongside sessions, add-project, and settings.
 - Passes active workspace selection and sidebar badge mode into the desktop sidebar so `SidebarVerticalWorkspaceTabs` can render only the vertical tab rail while the workspace/project list is closed.
 - Uses a separate persisted `verticalTabsSidebarWidth` for the vertical tab rail instead of reusing the normal project/workspace sidebar width.
 
@@ -701,7 +814,7 @@ Sequentially closes every recorded descendant for `parentTabId`, stopping and re
 
 ### `packages/app/src/hooks/sidebar-workspaces-view-model.ts`
 
-The sidebar workspace view model now supports explicit workspace sorting while preserving manual ordering as the persisted/default behavior.
+The sidebar workspace view model supports explicit project/workspace sorting, structural placeholder rows, persisted manual order, and show-last visibility limiting.
 
 #### `SidebarWorkspaceEntry`
 
@@ -711,6 +824,27 @@ Adds data needed by sort and visibility decisions:
 - `activityAt: Date | null`
 - `statusBucket: SidebarStateBucket`
 - `statusEnteredAt: Date | null`
+
+#### `SidebarProjectEntry`
+
+Carries project metadata and the child workspaces used by sorting and single-project rendering:
+
+- `projectKey`, `projectName`, `projectKind`, `iconWorkingDir`
+- optional `hosts` and `canCreateWorktree`
+- `workspaces: SidebarWorkspaceEntry[]`
+
+#### `buildSidebarProjectsFromStructure({ serverId, projects })`
+
+Builds sidebar project rows from `WorkspaceStructureProject[]` by converting each structure project into a host-project shape and filling a default host when the structure has no hosts. Workspaces become structural placeholder entries until hydrated session workspace descriptors are available.
+
+#### `buildSidebarProjectsFromHostProjects({ projects })`
+
+Creates sidebar project rows from host-project list items:
+
+- preserves project order from the host-project model
+- resolves every workspace key into `{ serverId, workspaceId, workspaceKey }`
+- supports already-prefixed `serverId:workspaceId` keys and legacy unprefixed workspace ids
+- creates structural workspace entries with conservative defaults such as `statusBucket: "done"`, null timestamps, no diff/PR metadata, and the project icon working directory as project root
 
 #### `createSidebarWorkspaceEntry(...)`
 
@@ -746,13 +880,67 @@ Name tiebreaking uses `localeCompare` with `{ numeric: true, sensitivity: "base"
 
 Sorts workspaces within each project by delegating to `sortSidebarWorkspaces`. In manual mode it returns the original `projects` array by identity so persisted drag order remains the source of truth.
 
+#### `sortSidebarProjects({ projects, sortMode })`
+
+Sorts project rows and returns a fresh array for non-manual modes:
+
+- `"manual"` returns the original `projects` array by identity.
+- `"created"` sorts by the earliest non-null child workspace `createdAt`, descending.
+- `"lastUpdated"` sorts by the newest child workspace `activityAt ?? createdAt ?? statusEnteredAt`, descending.
+- `"status"` sorts by the best child workspace urgency rank, then newest child workspace activity, then project name.
+- Empty projects sort with the `"done"` status rank and timestamp `0`.
+
+Project name tiebreaking uses the same numeric/base-sensitivity `localeCompare` as workspace sorting, then falls back to `projectKey`.
+
+#### `applySidebarShowLastCount({ items, showLastCount, showAll, forceIncludeKey, getKey })`
+
+Limits visible projects/workspaces for the "Show last" preferences:
+
+- `"all"` or `showAll: true` returns a shallow copy of every item and no visibility toggle.
+- Numeric counts slice the first N already-sorted items.
+- `forceIncludeKey` appends the matching item when it would otherwise be hidden, so the active project/workspace remains visible.
+- `shouldShowVisibilityToggle` is true only when the numeric count hides at least one item.
+
 #### `useSidebarWorkspacesList(...)`
 
 - Reads `getWorkspaceSortMode(serverId)` from `useSidebarViewStore`.
+- Reads `getProjectSortMode(serverId)` from `useSidebarViewStore`.
 - In manual mode, returns the host-project structure order and relies on `useSidebarOrderStore` for persisted drag order.
-- In non-manual modes, hydrates each structural workspace row from the session workspace map before sorting so sort decisions use current timestamps/status.
-- Subscribes to `agents` and pending create attempts only for status sort, because those are only needed for effective status.
+- In non-manual project or workspace modes, hydrates each structural workspace row from the session workspace map before sorting so sort decisions use current timestamps/status.
+- Subscribes to `agents` and pending create attempts only when project or workspace status sort is active, because those are only needed for effective status.
+- Applies stored manual project/workspace order before derived sorting, so switching sort modes does not discard manual order.
+- Sorts workspaces inside projects with `sortSidebarWorkspaceProjects`, then sorts projects with `sortSidebarProjects`.
 - Continues writing missing project/workspace keys into the manual order store from the unsorted `baseProjects`, so switching back to manual preserves the user's order.
+
+### `packages/app/src/stores/sidebar-order-store.ts`
+
+Manual project/workspace order is persisted independently from derived sort preferences.
+
+State shape:
+
+- `projectOrderByServerId: Record<string, string[]>`
+- `workspaceOrderByServerAndProject: Record<string, string[]>`
+
+Scope rules:
+
+- Project order is keyed by trimmed server id.
+- Workspace order is keyed by `${serverId}::${projectKey}`.
+- Workspace keys are normalized to the `serverId:workspaceId` form.
+- Empty scope ids are ignored.
+- Order arrays trim keys, drop empty keys, and de-duplicate while preserving first occurrence.
+
+Methods:
+
+- `getProjectOrder(serverId)` / `setProjectOrder(serverId, keys)`
+- `getWorkspaceOrder(serverId, projectKey)` / `setWorkspaceOrder(serverId, projectKey, keys)`
+
+Persistence:
+
+- Stored under `sidebar-project-workspace-order`.
+- Store version is `2`.
+- `migrateSidebarOrderState` accepts the old global `projectOrder`, old `workspaceOrderByProject`, and newer per-server maps.
+- Legacy global project order is copied to every discovered server id, where discovered server ids come from existing project-order maps and workspace-order scopes.
+- Legacy workspace orders are split by workspace-key server prefix and written into `${serverId}::${projectKey}` scopes.
 
 ### `packages/app/src/components/sidebar/sidebar-workspace-row-visibility.ts`
 
@@ -838,14 +1026,15 @@ Adds the compact git-operation badges shown on workspace rows when checkout acti
 
 ### `packages/app/src/components/sidebar-workspace-list.tsx`
 
-The sidebar list now supports nested embedded tabs under workspace rows, subtree status aggregation, workspace git-operation badges, workspace sorting, active-row reveal, and full embedded-tab context menus.
+The sidebar list now supports single-project view, nested embedded tabs under workspace rows, subtree status aggregation, workspace git-operation badges, project/workspace sorting, active-row reveal, show-last visibility limits, scoped status content, and full embedded-tab context menus.
 
 Key behavior:
 
 - Reads workspace tab layouts and pane state.
 - Builds embedded tab rows for each workspace.
 - Applies per-server tab sort and recent-count preferences.
-- Applies per-server workspace sort preferences in `useSidebarWorkspacesList`.
+- Applies per-server project and workspace sort preferences in `useSidebarWorkspacesList`.
+- Applies project and workspace show-last limits through `applySidebarShowLastCount`, with local show-all state reset when the relevant count or server changes.
 - Applies manual order merges through `mergeEmbeddedVisibleTabOrder`.
 - Supports workspace collapse/expand and auto-collapse behavior.
 - Supports status-mode grouping via `SidebarStatusWorkspaceList`.
@@ -855,9 +1044,75 @@ Key behavior:
 - Provides context menu actions for workspace and embedded tabs.
 - Treats non-main-pane active tabs as forced-visible embedded rows so split panes stay reachable from the sidebar.
 - Renders workspace rows through a `DraggableList` only when `workspaceSortMode === "manual"`; created/lastUpdated/status modes render a static list so drag gestures cannot rewrite a derived sort order.
+- Renders project rows through a `DraggableList` only when `projectSortMode === "manual"`; created/lastUpdated/status modes render a static list.
 - Uses `findActiveSidebarWorkspaceRevealTarget` whenever the route points at a workspace. The containing project is expanded, or becomes the only expanded project when `autoCollapseProjects` is enabled. The workspace is uncollapsed, or becomes the only expanded workspace when sidebar-layout `autoCollapseWorkspaces` is enabled.
 - Tracks the last auto-revealed workspace key to avoid repeatedly rewriting collapsed-section state for the same active workspace.
 - Uses a three-state row highlight model (`"idle"`, `"active"`, `"selected"`) so project/workspace ancestors can show a subdued active background while directly selected rows and embedded active tabs keep the stronger selected background.
+
+### `packages/app/src/utils/sidebar-single-project-view.ts`
+
+`resolveSingleProjectViewProject({ projects, activeWorkspaceSelection, storedProjectKey })` chooses the project displayed in single-project view:
+
+- Uses the stored project key when it still exists in the current project list.
+- Otherwise uses the project containing the active workspace selection.
+- Otherwise falls back to the first visible project.
+- Returns `null` when no projects are available.
+
+`orderSingleProjectViewProjects({ projects, selectedProjectKey })` returns a copy with the selected project moved to the front and every other project kept in original order. If no selected project is supplied or the key is stale, it returns a shallow copy of the input order.
+
+`getProjectStatusCountsFromStatuses({ workspaceKeys, statusByWorkspaceKey })` counts only the actionable selector statuses:
+
+- `failed`
+- `needsInput` from the `needs_input` workspace bucket
+- `attention`
+
+It deliberately ignores `running`, `done`, and missing workspace status entries.
+
+#### Single-project view rendering
+
+`ProjectModeList` receives `singleProjectViewEnabled`, `singleProjectViewProject`, and `onSingleProjectSelected` from the sidebar shell.
+
+When a selected single-project view project exists:
+
+- A `SidebarProjectSelectorBar` is rendered above the project list.
+- The main list renders `SingleProjectWorkspaceBody` instead of project blocks.
+- The selected project's workspaces appear without a project header.
+- Empty selected projects render an empty spacer rather than the full "No projects yet" state.
+- Manual workspace sorting still uses `DraggableList`; non-manual workspace sorts render static rows.
+- Workspace rows still use the normal shortcut badges, status summaries, context menus, and drag handles.
+
+When single-project view is enabled but no selected project exists, the normal empty-project sidebar state is used.
+
+`SidebarProjectSelectorBar`:
+
+- Renders a horizontal `ScrollView` containing a `SortableInlineList`.
+- Uses `manualSortEnabled={projectSortMode === "manual"}` so selector capsules can be reordered only when project sort is manual.
+- Delegates manual reorder to the same `handleProjectDragEnd` path as the full project list.
+- Gets project icon presentation from `useProjectIconPresentationByProjectKey`.
+- Gets per-project status counts from hydrated workspace statuses via `useStatusModeWorkspaceEntries`.
+
+`ProjectSelectorCapsule`:
+
+- Uses `InfoHoverCard` with `placement="bottom"` to show project name and shortened icon working directory.
+- Renders the real project icon through `ProjectIconView`, or a project-name fallback initial.
+- Uses the optional project icon `backgroundColor` as the capsule background; otherwise falls back to a neutral sidebar surface.
+- Animates selected state between the idle and selected capsule sizes with Reanimated timing unless reduced motion is enabled.
+- Marks `accessibilityState.selected` when it is the selected project.
+- Shows compact status badges in failed, needs-input, attention order, with counts capped at `9+`.
+- Tracks previous status counts and starts a glow pulse when any failed / needs-input / attention count increases.
+- The glow uses red, amber, or green styles matching the bucket that increased, with outer and core animated layers that fade and scale through a short sequence.
+
+#### Scoped project status content
+
+Inside project-group mode, an active project row can temporarily show status-grouped content without leaving the project context:
+
+- `WorkspaceRowItem` receives `statusSummaryToggleActive={groupMode === "status"}` and an `onStatusSummaryPress` only for the currently selected workspace row.
+- Pressing the active workspace's status-summary control calls `setGroupMode(serverId, "status")`.
+- If the active project is in status mode, `ProjectBlock` renders `ProjectScopedStatusContent` instead of normal child workspace rows.
+- Pressing the active status toggle again calls `setGroupMode(serverId, "project")`.
+- In sidebar tab layout, scoped status content renders `SidebarStatusTabGroups` for just that project and labels embedded rows with workspace names (`lineKind="workspace"`).
+- In other tab layouts, scoped status content renders `SidebarStatusWorkspaceList` for just that project's hydrated workspaces.
+- Scoped status mode reuses collapsed status-group keys and workspace show-last settings.
 
 #### Status-mode embedded tab grouping
 
@@ -870,6 +1125,8 @@ interface EmbeddedTabProjectLine {
   projectKey: string;
   projectName: string;
   iconDataUri: string | null;
+  kind?: "project" | "workspace";
+  workspaceKind?: SidebarWorkspaceEntry["workspaceKind"];
 }
 
 interface StatusTabWorkspaceRow {
@@ -903,7 +1160,14 @@ interface StatusTabWorkspaceGroup {
 - `projectLine` set to the workspace's project key/name/icon data.
 - `limitRecentTabs={false}` so a status bucket shows every matching embedded tab instead of applying the recent-tab limit.
 
-`ProjectLineIcon` renders the project icon at 10 px in embedded tab subtitles. It uses the real project icon when available and otherwise falls back to `projectIconPlaceholderLabelFromDisplayName(projectName)`.
+`ProjectLineIcon` renders subtitle-leading icons at 10 px. For `kind: "project"` it uses the real project icon when available and otherwise falls back to `projectIconPlaceholderLabelFromDisplayName(projectName)`. For `kind: "workspace"` it renders `WorkspaceLineIcon`, mapping `local_checkout` to monitor, `worktree` to git-folder, and other workspace kinds to folder.
+
+### `packages/app/src/utils/sidebar-status-tab-line.ts`
+
+`buildStatusTabLine({ lineKind, project, workspace, iconDataUri, workspaceTitleSource })` creates the subtitle line rendered under status-group embedded tabs:
+
+- `lineKind: "project"` uses the project key/name/icon and marks `kind: "project"`.
+- `lineKind: "workspace"` uses the workspace key as the line key, resolves the display name through `resolveSidebarWorkspacePrimaryLabel`, drops icon data, marks `kind: "workspace"`, and includes the workspace kind so the subtitle icon can match the workspace type.
 
 #### `useSidebarTabStatusSummaries`
 
@@ -1076,7 +1340,7 @@ interface BuildStatusSidebarShortcutModelInput {
 
 It passes `workspaceSortMode` to `buildStatusGroups`, so keyboard shortcuts for status grouping follow the same per-bucket ordering visible in the sidebar.
 
-### `packages/app/src/screens/workspace/workspace-shortcut-targets-subscriber.tsx`
+### `packages/app/src/components/workspace-shortcut-targets-subscriber.tsx`
 
 The shortcut target subscriber now reads the per-server workspace sort mode from `useSidebarViewStore` and passes it into `buildStatusSidebarShortcutModel` when sidebar grouping is status. This keeps numeric shortcut targets aligned with manual/created/last-updated/status ordering.
 
@@ -1249,7 +1513,7 @@ Added `embeddedMainPaneId?: string | null` prop to `SplitContainerProps`.
 
 When `embeddedMainPaneId` equals the current pane's id, the pane's tab row (`WorkspaceDesktopTabsRow`) is suppressed entirely. This allows the workspace screen to hide the redundant tab row for the primary pane while the sidebar shows it instead.
 
-## Protocol And Workspace Metadata
+## Protocol, Workspace Metadata, And Project Icons
 
 ### `packages/protocol/src/messages.ts`
 
@@ -1260,6 +1524,14 @@ createdAt?: string;
 ```
 
 The schema keeps the field optional for old daemons. The field carries a `COMPAT(workspaceCreatedAt)` comment noting that the optional gate was added in `v0.1.102` and can be removed when the compatibility floor reaches that version.
+
+`ProjectIconSchema` also accepts:
+
+```ts
+backgroundColor?: string;
+```
+
+The field is optional because older daemons still return only `{ data, mimeType }`. New clients use it only as presentation metadata for project selector capsules.
 
 ### `packages/server/src/server/session.ts`
 
@@ -1272,6 +1544,51 @@ The worktree creation response also uses `result.workspace.createdAt` as `status
 Adds coverage that legacy workspace descriptors without `createdAt` still parse successfully and expose `createdAt` as `undefined`.
 
 The client-side sidebar uses this metadata for creation-time workspace sorting while preserving backward compatibility with older daemons.
+
+### `packages/server/src/utils/project-icon.ts`
+
+Project icon lookup now returns an optional `backgroundColor` alongside icon data:
+
+```ts
+interface ProjectIcon {
+  data: string;
+  mimeType: string;
+  backgroundColor?: string;
+}
+```
+
+Behavior:
+
+- `getProjectIcon(projectDir)` still finds the best icon, enforces size and square-dimension limits, base64-encodes the file, and returns `null` for invalid/unreadable icons.
+- For PNG icons only, `extractProjectIconBackgroundColor(buffer, mimeType)` decodes the image and calls `pickDominantEdgeColor`.
+- Edge-color extraction ignores transparent pixels, weights colors by visible edge presence, averages RGB values per selected bucket, and returns a hex color.
+- Non-PNG icons keep the old shape with no background color.
+
+### `packages/app/src/hooks/use-project-icon-query.ts`
+
+Adds a presentation adapter:
+
+```ts
+interface ProjectIconPresentation {
+  dataUri: string | null;
+  backgroundColor: string | null;
+}
+```
+
+- `projectIconToDataUri(icon)` keeps the existing `data:${mimeType};base64,...` conversion.
+- `projectIconToPresentation(icon)` returns both `dataUri` and `backgroundColor`, defaulting each to `null` when unavailable.
+
+### `packages/app/src/projects/project-icons.ts`
+
+Adds `useProjectIconPresentationByProjectKey({ projects })` for selector capsules.
+
+Behavior:
+
+- De-duplicates project icon requests by `serverId:cwd`, just like `useProjectIconDataByProjectKey`.
+- Requests icons only when the host runtime has a connected client and the working directory is non-empty.
+- Uses `projectIconToPresentation` as the React Query selector.
+- Builds a stable signature from `dataUri` and `backgroundColor` to avoid replacing arrays/maps when query data did not semantically change.
+- Returns a map from `projectKey` to `{ dataUri, backgroundColor }`, using `{ dataUri: null, backgroundColor: null }` for missing/empty directories.
 
 ## Panel Store Width State
 
@@ -1340,6 +1657,8 @@ interface InfoHoverCardProps {
   accessibilityLabel: string;
   testID: string;
   isDragging?: boolean;
+  placement?: "right" | "bottom";
+  triggerStyle?: StyleProp<ViewStyle>;
   surfaceStyle?: StyleProp<ViewStyle>;
 }
 
@@ -1350,11 +1669,15 @@ Behavior:
 
 - Returns `children` unchanged on native platforms and compact form factors.
 - On non-compact web, wraps children in `InfoHoverCardDesktop`.
+- Defaults `placement` to `"right"`; project selector capsules pass `"bottom"`.
+- Uses a tiny module-level hover-card store so only one hover card is active at a time. Replacing one visible card with another uses an instant enter transition instead of fading in again.
 - Measures the trigger with `measureInWindow`.
 - Measures the floating content from its layout callback.
-- Positions the card to the right of the trigger with a 4 px offset, flips it left when it would overflow the viewport, and clamps both axes to an 8 px screen padding.
+- For `"right"` placement, positions the card to the right of the trigger with a 4 px offset, flips it left when it would overflow the viewport, and clamps both axes to an 8 px screen padding.
+- For `"bottom"` placement, centers the card below the trigger with a 4 px offset and clamps to the same display bounds.
 - Renders through `Portal` using the current bottom-sheet host when present.
 - Uses `FloatingSurface` with 80 ms fade-in/fade-out animation, `accessibilityRole="menu"`, the supplied accessibility label, the supplied `testID`, and optional caller-provided `surfaceStyle`.
+- Accepts optional `triggerStyle` on the trigger wrapper.
 - Uses `useHoverSafeZone` so moving between the trigger, the bridge, and the card content does not immediately close the card.
 - Uses a 100 ms close grace timer, cancels that timer when the pointer re-enters the safe zone, and clears timers on unmount.
 - Suppresses and closes the card while `isDragging` is true.
@@ -1436,10 +1759,21 @@ Adds sidebar/tab preference strings in:
 - `packages/app/src/i18n/resources/en.ts`
 - `packages/app/src/i18n/resources/es.ts`
 - `packages/app/src/i18n/resources/fr.ts`
+- `packages/app/src/i18n/resources/ja.ts`
+- `packages/app/src/i18n/resources/pt-BR.ts`
 - `packages/app/src/i18n/resources/ru.ts`
 - `packages/app/src/i18n/resources/zh-CN.ts`
 
-Also adds workspace hover-card timestamp labels in the same locale files:
+Also adds or verifies sidebar project-list and workspace visibility strings:
+
+- `sidebar.actions.home`
+- `sidebar.project.empty.*`
+- `sidebar.project.confirmations.*`
+- `sidebar.project.toasts.*`
+- `sidebar.workspace.embeddedTabs.showAll`
+- `sidebar.workspace.embeddedTabs.showLess`
+
+Workspace hover-card timestamp labels in the same locale files:
 
 - `workspace.hoverCard.created`
 - `workspace.hoverCard.updated`
@@ -1459,23 +1793,31 @@ New and updated tests include:
 
 - `packages/app/src/components/sidebar/embedded-tabs-order.test.ts`
 - `packages/app/src/components/sidebar/sidebar-entry-row.test.tsx`
+- `packages/app/src/components/sidebar-workspace-list-visibility.test.ts`
+- `packages/app/src/components/sidebar-workspace-list.test.tsx`
 - `packages/app/src/components/sidebar/sidebar-workspace-row-content.test.tsx`
+- `packages/app/src/stores/sidebar-order-store.test.ts`
 - `packages/app/src/stores/sidebar-view-store.test.ts`
 - `packages/app/src/stores/workspace-layout-store.find-main-pane.test.ts`
 - `packages/app/src/stores/workspace-layout-store.test.ts`
+- `packages/app/src/utils/sidebar-single-project-view.test.ts`
 - `packages/app/src/utils/sidebar-active-ancestor-highlight.test.ts`
 - `packages/app/src/utils/sidebar-embedded-tab-tree.test.ts`
 - `packages/app/src/hooks/sidebar-status-view-model.test.ts`
+- `packages/app/src/hooks/sidebar-workspaces-view-model.test.ts`
 - `packages/app/src/utils/sidebar-tab-sort.test.ts`
 - `packages/app/src/utils/sidebar-tab-status-summary.test.ts`
 - `packages/app/src/utils/sidebar-shortcuts.test.ts`
 - `packages/app/src/workspace-tabs/agent-visibility.test.ts`
 - `packages/app/src/workspace-tabs/tab-navigation.test.ts`
 - `packages/app/src/screens/workspace/workspace-tab-close-tree.test.ts`
+- `packages/protocol/src/messages.test.ts`
+- `packages/protocol/src/messages.workspaces.test.ts`
+- `packages/server/src/utils/project-icon.test.ts`
 - `packages/app/src/utils/time.test.ts`
 - navigation and collapsed-section store tests
 
-These cover ordering, nested tree construction, row rendering, persisted sidebar preferences, main-pane lookup, close-descendant sequencing, tab status summaries (including draft state and queued message counts), navigation behavior, and collapsed-section state.
+These cover ordering, show-last visibility, single-project selection helpers, project selector status counts, nested tree construction, row rendering, persisted sidebar preferences, manual order migration, main-pane lookup, close-descendant sequencing, tab status summaries (including draft state and queued message counts), project icon metadata, protocol compatibility, navigation behavior, and collapsed-section state.
 
 ## Verification
 
@@ -1488,3 +1830,5 @@ The hook ran:
 - `npm run typecheck` across workspaces.
 
 All passed for each implementation commit.
+
+This `PATCH.md` refresh did not run lint/typecheck/tests; the `patch-md` skill explicitly documents only the branch and does not run verification commands.
