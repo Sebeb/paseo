@@ -4,7 +4,7 @@ Branch: `feat/message-schedule-popup`
 
 Base: `origin/main`
 
-Anchor commit: f50072c55d8c871eb5ecc1d2f8d300db0f7540d3 — feat(schedule): edit scheduled composer messages and fail out-of-credit turns
+Anchor commit: cbfeb1e27231aa610d33f11f6cca53714c49a71c — feat(app): schedule draft composer messages
 
 ## Composer Schedule Send UI
 
@@ -13,9 +13,11 @@ Anchor commit: f50072c55d8c871eb5ecc1d2f8d300db0f7540d3 — feat(schedule): edit
 **Files**
 
 - `packages/app/src/composer/index.tsx`
+- `packages/app/src/composer/draft/workspace-tab.tsx`
 - `packages/app/src/composer/input/input.tsx`
 - `packages/app/src/composer/schedule-send.ts`
 - `packages/app/src/composer/schedule-send.test.ts`
+- `packages/client/src/daemon-client.ts`
 
 **Public surface**
 
@@ -24,15 +26,20 @@ Anchor commit: f50072c55d8c871eb5ecc1d2f8d300db0f7540d3 — feat(schedule): edit
   - `{ type: "at"; date: Date }`
   - `{ type: "in-hours"; hours: number }`
   - `{ type: "credit-refresh"; providerId: string | null }`
+- `ScheduleSendTarget` aliases `CreateScheduleOptions["target"]`, so the composer can schedule either into an existing agent (`self`/`agent`) or a `new-agent` target.
 - `ScheduleCreditRefreshResolution` is `{ runAt: Date | null; disabledReason: string | null }`.
 - `resolveCreditRefreshTime(view, activeProviderId, now = new Date())` returns the latest future reset for an exhausted usage window belonging to the active provider, or a disabled reason when usage is unavailable.
 - `dateToOneShotCron(date)` returns `{ expression: string; timezone: string }`, using a five-field cron expression of `minute hour day-of-month month day-of-week` and the local `Intl.DateTimeFormat().resolvedOptions().timeZone` fallbacking to `UTC`.
-- `createScheduledComposerMessage(input)` accepts `{ client, agentId, text, attachments, mode, providerUsageView, encodeImages }` and creates the daemon schedule.
+- `createScheduledComposerMessage(input)` accepts `{ client, target, text, attachments, mode, providerUsageView, encodeImages }` and creates the daemon schedule.
+- `ComposerProps.scheduleSendTarget?: ScheduleSendTarget | null` lets non-agent composer surfaces provide an explicit schedule destination. When omitted, existing agent composers default to `{ type: "self", agentId }`.
+- `CreateScheduleOptions.target.new-agent.config.featureValues?: AgentSessionConfig["featureValues"]` allows scheduled draft-agent creation to preserve selected feature toggles.
 
 **Behavior**
 
 - `Composer` reads `serverInfo.features.scheduledComposerMessages` from `useSessionStore`; a `COMPAT(scheduledComposerMessages)` comment marks the v0.1.105 gate for removal after 2027-01-06.
-- When the gate passes and the composer has trimmed text or selected attachments, `Composer` renders `ScheduleSendControl` through `MessageInput.afterSendContent`, visually attaching the small chevron trigger to the submit area.
+- `Composer` resolves a schedule target by preferring an explicit `scheduleSendTarget` prop, defaulting to `{ type: "self", agentId }` when an existing agent is loaded, and otherwise disabling schedule send.
+- When the gate passes, the composer has trimmed text or selected attachments, the daemon client exists, the daemon is connected, and a schedule target is available, `Composer` renders `ScheduleSendControl` through `MessageInput.afterSendContent`, visually attaching the small chevron trigger to the submit area.
+- `WorkspaceDraftAgentTab` builds a `new-agent` schedule target for draft-agent composers when both a selected provider and working directory are available. The config is produced with `buildWorkspaceDraftAgentConfig` and preserves the draft provider, cwd, selected or auto-submit mode override, effective model, effective thinking option, and feature values before passing the target into `Composer`.
 - `ScheduleSendControl` manages local open state, selected mode, hours text, date/time text, and an inline error string. It defaults to `"in-hours"` with `3` hours, and initializes the absolute date/time input one hour in the future.
 - On compact form factors or native, the control opens an `AdaptiveModalSheet` with snap points `["55%", "85%"]` and test id `schedule-send-sheet`. On desktop web, it opens a `DropdownMenuContent` above and aligned to the end with width `320` and test id `schedule-send-menu`.
 - The trigger has accessibility role `button`, label `Schedule send`, test id `schedule-send-trigger`, and uses the `ChevronDown` icon.
@@ -40,7 +47,7 @@ Anchor commit: f50072c55d8c871eb5ecc1d2f8d300db0f7540d3 — feat(schedule): edit
   - `At a set time`, backed by a text input storing a local datetime string. Invalid dates disable scheduling for this mode and display `Invalid time`.
   - `In hours`, backed by a number-pad input. Non-digits are stripped, and the resolved hours value is at least `1`.
   - `On credit refresh`, enabled only when `resolveCreditRefreshTime` can compute a future reset for the active provider.
-- Credit refresh scheduling reads provider usage via `useProviderUsage(serverId, { enabled: canShowScheduleSend })`. The active provider comes from the current agent state selector.
+- Credit refresh scheduling reads provider usage via `useProviderUsage(serverId, { enabled: canShowScheduleSend })`. The active provider is the new-agent target provider for draft-agent scheduling and the current agent provider for existing-agent scheduling.
 - `resolveCreditRefreshTime` returns disabled reasons for no active provider, loading usage, usage errors, missing provider entries, or a provider with no exhausted window that has a future reset. It treats a usage window as exhausted when `remainingPct === 0` or `usedPct === 100`, ignores missing/invalid/past `resetsAt` values, and chooses the latest future reset time among exhausted windows.
 - Submitting a schedule validates the selected mode, sets `isSchedulingMessage`, clears any send error, and calls `createScheduledComposerMessage`. On success it clears the composer text, clears selected attachments, resets GitHub auto-attach suppression, deletes sent attachment blobs through the existing attachment cleanup path, and calls `clearDraft("sent")`. The schedule popup closes only after the promise resolves.
 - Scheduling errors are caught by `ScheduleSendControl` and shown inline. Empty messages and attachmentless messages throw `Enter a message to schedule`; past resolved run times throw `Choose a future time`; unavailable credit refresh scheduling throws the disabled reason.
@@ -51,11 +58,11 @@ Anchor commit: f50072c55d8c871eb5ecc1d2f8d300db0f7540d3 — feat(schedule): edit
   - `images: <encoded images>`
   - `attachments: <non-image AgentAttachment[]>`
   - `cadence: { type: "cron", expression, timezone }`
-  - `target: { type: "self", agentId }`
+  - `target: <input target>`
   - `maxRuns: 1`
   - `runOnCreate: false`
 - `dateToOneShotCron` intentionally includes the target date's day-of-week as well as day-of-month/month, matching the server's existing cron shape for one-shot schedule creation.
-- Tests cover choosing the latest future exhausted credit reset, creating a one-shot `agent-message` schedule with encoded images and uploaded-file attachments, and cron expression formatting.
+- Tests cover choosing the latest future exhausted credit reset, creating a one-shot `agent-message` schedule with encoded images and uploaded-file attachments, scheduling a message that creates a new agent, and cron expression formatting.
 
 ## Scheduled Composer Message Editing
 
