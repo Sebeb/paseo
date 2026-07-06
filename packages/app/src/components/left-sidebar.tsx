@@ -14,7 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useShallow } from "zustand/shallow";
+import { useStoreWithEqualityFn } from "zustand/traditional";
 import {
   Pressable,
   StyleSheet as RNStyleSheet,
@@ -180,29 +180,62 @@ interface DesktopSidebarProps extends SidebarSharedProps {
   handleViewMore: () => void;
 }
 
+interface SidebarMessageStatusQueueState {
+  queuedCounts: ReadonlyMap<string, number>;
+  agentWorkspaceKeys: ReadonlyMap<string, string>;
+}
+
+function selectSidebarMessageStatusQueueState(
+  state: ReturnType<typeof useSessionStore.getState>,
+): SidebarMessageStatusQueueState {
+  const queuedCounts = new Map<string, number>();
+  const agentWorkspaceKeys = new Map<string, string>();
+  for (const [serverId, session] of Object.entries(state.sessions)) {
+    for (const agent of session.agents.values()) {
+      if (!agent.workspaceId) continue;
+      const workspaceKey = `${serverId}:${agent.workspaceId}`;
+      agentWorkspaceKeys.set(buildAgentWorkspaceLookupKey(serverId, agent.id), workspaceKey);
+    }
+    for (const [agentId, messages] of session.queuedMessages.entries()) {
+      const workspaceKey = agentWorkspaceKeys.get(buildAgentWorkspaceLookupKey(serverId, agentId));
+      if (!workspaceKey || messages.length === 0) continue;
+      queuedCounts.set(workspaceKey, (queuedCounts.get(workspaceKey) ?? 0) + messages.length);
+    }
+  }
+  return { queuedCounts, agentWorkspaceKeys };
+}
+
+function areSidebarMessageStatusQueueStatesEqual(
+  left: SidebarMessageStatusQueueState,
+  right: SidebarMessageStatusQueueState,
+): boolean {
+  return (
+    areMapsEqual(left.queuedCounts, right.queuedCounts) &&
+    areMapsEqual(left.agentWorkspaceKeys, right.agentWorkspaceKeys)
+  );
+}
+
+function areMapsEqual<Value>(
+  left: ReadonlyMap<string, Value>,
+  right: ReadonlyMap<string, Value>,
+): boolean {
+  if (left === right) return true;
+  if (left.size !== right.size) return false;
+  for (const [key, leftValue] of left) {
+    if (!right.has(key) || !Object.is(leftValue, right.get(key))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function useMessageStatusCountsByWorkspace(
   schedules: ReturnType<typeof useSchedules>["schedules"],
 ): ReadonlyMap<string, number> {
-  const queueState = useSessionStore(
-    useShallow((state) => {
-      const queuedCounts = new Map<string, number>();
-      const agentWorkspaceKeys = new Map<string, string>();
-      for (const [serverId, session] of Object.entries(state.sessions)) {
-        for (const agent of session.agents.values()) {
-          if (!agent.workspaceId) continue;
-          const workspaceKey = `${serverId}:${agent.workspaceId}`;
-          agentWorkspaceKeys.set(buildAgentWorkspaceLookupKey(serverId, agent.id), workspaceKey);
-        }
-        for (const [agentId, messages] of session.queuedMessages.entries()) {
-          const workspaceKey = agentWorkspaceKeys.get(
-            buildAgentWorkspaceLookupKey(serverId, agentId),
-          );
-          if (!workspaceKey || messages.length === 0) continue;
-          queuedCounts.set(workspaceKey, (queuedCounts.get(workspaceKey) ?? 0) + messages.length);
-        }
-      }
-      return { queuedCounts, agentWorkspaceKeys };
-    }),
+  const queueState = useStoreWithEqualityFn(
+    useSessionStore,
+    selectSidebarMessageStatusQueueState,
+    areSidebarMessageStatusQueueStatesEqual,
   );
 
   return useMemo(() => {
