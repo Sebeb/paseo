@@ -175,6 +175,51 @@ macOS can reject Electron Framework at launch with a dyld "Library not loaded"
 crash because the app executable and framework mapping do not have matching Team
 IDs under ad-hoc signing.
 
+### Local macOS desktop build
+
+Use the `build-mac` project script from the scripts menu, or run
+`./scripts/build-local-mac.sh` from the checkout root. Both paths are the same:
+`paseo.json` points `build-mac` at that wrapper.
+
+The wrapper builds only the mac desktop app. It runs the root `build:desktop`
+script with Electron Builder constrained to `--mac`, `--publish never`, ad-hoc
+certificate discovery disabled, hardened runtime disabled, and notarization
+disabled:
+
+```bash
+CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:desktop -- --mac --publish never -c.mac.hardenedRuntime=false -c.mac.notarize=false
+```
+
+That root script still does the prerequisites for a packaged desktop app:
+
+- Rebuilds app-facing shared packages and exports the Expo web renderer with
+  `PASEO_WEB_PLATFORM=electron`.
+- Rebuilds the server and CLI packages so the packaged daemon and bundled CLI
+  use current declarations and compiled output.
+- Runs Electron Builder for mac only, producing the arm64 DMG and ZIP under
+  `packages/desktop/release`.
+
+Local unsigned builds have a few gotchas:
+
+- Run the build from the checkout you want to package. Worktree builds write
+  artifacts into that worktree's `packages/desktop/release`, not the source
+  checkout under `~/Documents/Paseo`.
+- Do not use release commands or publish flags for this local build. Release
+  builds are signed/notarized and can publish/update manifests.
+- Keep the local build ad-hoc and non-notarized. `spctl` rejection is expected;
+  the useful check is that `codesign` reports `Signature=adhoc`,
+  `TeamIdentifier=not set`, and no `runtime` flag for both `Paseo.app` and
+  `Electron Framework`.
+- Electron Builder can leave `release/mac-arm64` incomplete after DMG creation.
+  The wrapper deletes and rehydrates that directory from the final ZIP so
+  `release/mac-arm64/Paseo.app` always matches the ZIP contents.
+- The wrapper verifies that the packaged zsh shell integration exists at
+  `Paseo.app/Contents/Resources/app.asar.unpacked/node_modules/@getpaseo/server/dist/server/terminal/shell-integration/zsh/.zshenv`.
+- After every successful build and verification pass, the wrapper reveals the
+  unpacked `Paseo.app` in Finder.
+- Do not launch the packaged app as a verification step unless you intentionally
+  want it to interact with the packaged desktop daemon on port `6767`.
+
 ### Daemon logs
 
 Check `$PASEO_HOME/daemon.log` for daemon logs. The default level is `info`; set
