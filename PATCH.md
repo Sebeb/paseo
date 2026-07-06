@@ -4,7 +4,7 @@ Branch: `feat/collapse-thinking`
 
 Base: `origin/main`
 
-Anchor commit: 3a77cec9cd5a257ccc154900fa32de473b347e71 — feat(collapse-thinking): preserve thinking progress metadata
+Anchor commit: aa751e1632a2606b5991a89c89b973eef09033fc — feat(collapse-thinking): preserve active expansion state
 
 ## Purpose
 
@@ -141,6 +141,19 @@ Implementation details:
 - Increments `toolCallCount` for `tool_call` items.
 - Ignores todo-list and other groupable non-message items for the count summary.
 
+#### `resolveExpandedThinkingGroupIds({ groups, expandedByGroupId, behavior })`
+
+Normalizes the per-group expansion-state map before rendering.
+
+Implementation details:
+
+- Returns the input map unchanged for every mode except `"completed-and-active"`.
+- In `"completed-and-active"` mode, returns a lazily cloned `Map<string, boolean>` only when it needs to synthesize missing state.
+- Walks groups in render order and preserves any existing explicit state for a group id.
+- If a group is missing explicit state but its status peer exists, copies that peer's state. Status peers share the same stable id prefix and differ only by `:active` versus `:final`, so an active group becoming completed or a completed group becoming active preserves the user's expansion choice.
+- If neither the group nor its status peer has explicit state, initializes the group from the previous group's resolved expansion state. If there is no previous group, falls back to `group.defaultExpanded`.
+- Tracks the most recent resolved state while walking, so later thinking groups in the same active turn start consistently expanded or collapsed with the earlier active thinking group instead of snapping back to the default.
+
 #### `getThinkingGroupPreviewMessages(items)`
 
 Builds preview text records for thinking-message items.
@@ -236,6 +249,7 @@ The stream view now:
 - Shows preview text for collapsed active groups when allowed by `shouldShowThinkingGroupPreview`.
 - Adds an invisible accessible press target over the bottom half of a collapsed preview; pressing it expands the group without requiring the user to move back to the header.
 - Shows active/completed duration text in collapsed group headers using `turnTiming.runningStartedAt` and `turnTiming.byAssistantId`.
+- Resolves thinking-group expansion state through `resolveExpandedThinkingGroupIds` before rendering. A memoized resolved map is used for row props, and an effect writes synthesized expansion entries back into local state when groups or collapse behavior change.
 - Handles scroll/anchor behavior when a group is expanded.
 - Passes both `gapBelow` and `marginTop` into `StreamItemWrapper` for collapsed thinking groups. Expanded groups keep the existing spacing. Collapsed completed groups between a user message and assistant response call `getCollapsedThinkingGroupSpacing` so the visible gap above and below the collapsed pill is symmetrical.
 - `StreamItemWrapper` accepts an optional `marginTop` prop and includes it with `marginBottom` in the wrapper style.
@@ -363,6 +377,8 @@ Adds coverage for:
 - Keeping trailing live assistant text inside the active running group until completion.
 - Handling active running turns.
 - Default-expanded behavior for active groups under `"completed"`.
+- Resolving expansion state for `"completed-and-active"` groups by copying active/final peer state and carrying the previous group's resolved state into later active groups.
+- Leaving the expansion map untouched for `"completed"` mode, where active groups still use `defaultExpanded` rather than copied sibling state.
 - Count generation for messages and tool calls.
 - Preview-message generation.
 - Preview visibility rules.
