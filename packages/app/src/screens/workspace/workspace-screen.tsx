@@ -446,6 +446,7 @@ function getFallbackTabOptionDescription(
 }
 
 interface MobileWorkspaceTabSwitcherProps {
+  switcherEnabled: boolean;
   tabs: WorkspaceTabDescriptor[];
   activeTabKey: string;
   activeTab: WorkspaceTabDescriptor | null;
@@ -762,6 +763,7 @@ function MobileWorkspaceTabOption({
 }
 
 const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
+  switcherEnabled,
   tabs,
   activeTabKey,
   activeTab,
@@ -861,35 +863,50 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
 
   return (
     <View style={styles.mobileTabsRow} testID="workspace-tabs-row">
-      <Pressable
-        ref={anchorRef}
-        testID="workspace-tab-switcher-trigger"
-        accessibilityRole="button"
-        accessibilityLabel={t("workspace.tabs.switcher.trigger", { count: tabs.length })}
-        style={switcherTriggerStyle}
-        onPress={handleOpenSwitcher}
-      >
-        <View style={styles.switcherTriggerLeft}>
-          <MobileActiveTabTrigger
-            activeTab={activeTab}
-            normalizedServerId={normalizedServerId}
-            normalizedWorkspaceId={normalizedWorkspaceId}
-          />
+      {switcherEnabled ? (
+        <Pressable
+          ref={anchorRef}
+          testID="workspace-tab-switcher-trigger"
+          accessibilityRole="button"
+          accessibilityLabel={t("workspace.tabs.switcher.trigger", { count: tabs.length })}
+          style={switcherTriggerStyle}
+          onPress={handleOpenSwitcher}
+        >
+          <View style={styles.switcherTriggerLeft}>
+            <MobileActiveTabTrigger
+              activeTab={activeTab}
+              normalizedServerId={normalizedServerId}
+              normalizedWorkspaceId={normalizedWorkspaceId}
+            />
+          </View>
+          <ThemedChevronDown size={14} uniProps={mutedColorMapping} />
+        </Pressable>
+      ) : (
+        <View style={styles.switcherTrigger}>
+          <View style={styles.switcherTriggerLeft}>
+            <MobileActiveTabTrigger
+              activeTab={activeTab}
+              normalizedServerId={normalizedServerId}
+              normalizedWorkspaceId={normalizedWorkspaceId}
+            />
+          </View>
         </View>
-        <ThemedChevronDown size={14} uniProps={mutedColorMapping} />
-      </Pressable>
+      )}
 
-      <Combobox
-        options={tabSwitcherOptions}
-        value={activeTabKey}
-        onSelect={onSelectSwitcherTab}
-        title={t("workspace.tabs.switcher.title")}
-        searchPlaceholder={t("workspace.tabs.switcher.searchPlaceholder")}
-        open={isOpen}
-        onOpenChange={setIsOpen}
-        anchorRef={anchorRef}
-        renderOption={renderTabOption}
-      />
+      {switcherEnabled ? (
+        <Combobox
+          options={tabSwitcherOptions}
+          value={activeTabKey}
+          onSelect={onSelectSwitcherTab}
+          searchable={false}
+          title={t("workspace.tabs.switcher.title")}
+          searchPlaceholder={t("workspace.tabs.switcher.searchPlaceholder")}
+          open={isOpen}
+          onOpenChange={setIsOpen}
+          anchorRef={anchorRef}
+          renderOption={renderTabOption}
+        />
+      ) : null}
     </View>
   );
 });
@@ -2537,9 +2554,15 @@ function useWorkspaceCheckoutStatus(input: {
   return { checkoutQuery, isCheckoutStatusLoading };
 }
 
-function useDesktopEmbeddedTabsEnabled(isMobile: boolean): boolean {
+function useWorkspaceTabLayoutModeState(isMobile: boolean): {
+  embeddedTabsEnabled: boolean;
+  mobileTabSwitcherEnabled: boolean;
+} {
   const { settings: appSettings } = useAppSettings();
-  return appSettings.tabLayoutMode !== "horizontal" && !isMobile;
+  return {
+    embeddedTabsEnabled: appSettings.tabLayoutMode !== "horizontal" && !isMobile,
+    mobileTabSwitcherEnabled: appSettings.tabLayoutMode !== "sidebar",
+  };
 }
 
 function getWorkspaceTabNavigationSortMode(input: {
@@ -2581,7 +2604,8 @@ function WorkspaceScreenContent({
   const _insets = useSafeAreaInsets();
   const toast = useToast();
   const isMobile = useIsCompactFormFactor();
-  const embeddedTabsEnabled = useDesktopEmbeddedTabsEnabled(isMobile);
+  const { embeddedTabsEnabled, mobileTabSwitcherEnabled } =
+    useWorkspaceTabLayoutModeState(isMobile);
   const isFocusModeEnabled = usePanelStore((state) => state.desktop.focusModeEnabled);
 
   const normalizedServerId = useMemo(() => trimNonEmpty(decodeSegment(serverId)) ?? "", [serverId]);
@@ -4788,6 +4812,7 @@ function WorkspaceScreenContent({
 
       {isMobile ? (
         <MobileWorkspaceTabSwitcher
+          switcherEnabled={mobileTabSwitcherEnabled}
           tabs={tabs}
           activeTabKey={activeTabKey}
           activeTab={activeTabDescriptor}
