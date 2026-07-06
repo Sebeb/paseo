@@ -16,6 +16,7 @@ import {
   buildSidebarProjectsFromHostProjects,
   computeSidebarOrderUpdates,
   deriveSidebarLoadingState,
+  sortSidebarProjects,
   sortSidebarWorkspaceProjects,
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
@@ -216,18 +217,25 @@ export function useSidebarWorkspacesList(options?: {
   const workspaceSortMode = useSidebarViewStore((state) =>
     isActive && serverId ? state.getWorkspaceSortMode(serverId) : "manual",
   );
+  const projectSortMode = useSidebarViewStore((state) =>
+    isActive && serverId ? state.getProjectSortMode(serverId) : "manual",
+  );
+  const needsHydratedWorkspaceEntries =
+    workspaceSortMode !== "manual" || projectSortMode !== "manual";
   const workspaceMap = useSessionStore((state) =>
-    workspaceSortMode !== "manual" && isActive && serverId
+    needsHydratedWorkspaceEntries && isActive && serverId
       ? state.sessions[serverId]?.workspaces
       : undefined,
   );
   const agents = useSessionStore((state) =>
-    workspaceSortMode === "status" && isActive && serverId
+    (workspaceSortMode === "status" || projectSortMode === "status") && isActive && serverId
       ? state.sessions[serverId]?.agents
       : undefined,
   );
   const pendingCreateAttempts = useCreateFlowStore((state) =>
-    workspaceSortMode === "status" && isActive ? state.pendingByDraftId : undefined,
+    (workspaceSortMode === "status" || projectSortMode === "status") && isActive
+      ? state.pendingByDraftId
+      : undefined,
   );
 
   const connectionStatus = useSyncExternalStore(
@@ -259,28 +267,46 @@ export function useSidebarWorkspacesList(options?: {
   }, [hostProjects, serverId]);
 
   const projects = useMemo(() => {
-    if (!serverId || workspaceSortMode === "manual" || baseProjects.length === 0) {
+    if (!serverId || baseProjects.length === 0) {
       return baseProjects;
     }
 
-    return sortSidebarWorkspaceProjects({
-      projects: baseProjects.map((project) => ({
-        ...project,
-        workspaces: project.workspaces.map((placedWorkspace) => {
-          const workspace = workspaceMap?.get(placedWorkspace.workspaceId);
-          return workspace
-            ? createSidebarWorkspaceEntry({
-                serverId,
-                workspace,
-                pendingCreateAttempts,
-                agents,
-              })
-            : placedWorkspace;
-        }),
-      })),
+    const hydratedProjects = needsHydratedWorkspaceEntries
+      ? baseProjects.map((project) => ({
+          ...project,
+          workspaces: project.workspaces.map((placedWorkspace) => {
+            const workspace = workspaceMap?.get(placedWorkspace.workspaceId);
+            return workspace
+              ? createSidebarWorkspaceEntry({
+                  serverId,
+                  workspace,
+                  pendingCreateAttempts,
+                  agents,
+                })
+              : placedWorkspace;
+          }),
+        }))
+      : baseProjects;
+
+    const workspaceSortedProjects = sortSidebarWorkspaceProjects({
+      projects: hydratedProjects,
       sortMode: workspaceSortMode,
     });
-  }, [agents, baseProjects, pendingCreateAttempts, serverId, workspaceMap, workspaceSortMode]);
+
+    return sortSidebarProjects({
+      projects: workspaceSortedProjects,
+      sortMode: projectSortMode,
+    });
+  }, [
+    agents,
+    baseProjects,
+    needsHydratedWorkspaceEntries,
+    pendingCreateAttempts,
+    projectSortMode,
+    serverId,
+    workspaceMap,
+    workspaceSortMode,
+  ]);
 
   useEffect(() => {
     if (!serverId) {

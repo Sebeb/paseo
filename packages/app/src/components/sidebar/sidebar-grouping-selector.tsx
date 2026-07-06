@@ -1,7 +1,7 @@
-import { useCallback } from "react";
-import { Text, View, type PressableStateCallbackType } from "react-native";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { Settings2 } from "lucide-react-native";
+import { ChevronDown, ChevronRight, Settings2 } from "lucide-react-native";
 import type { Theme } from "@/styles/theme";
 import {
   DropdownMenu,
@@ -17,33 +17,34 @@ import {
   type SidebarEmbeddedRecentTabCount,
   type SidebarEmbeddedTabSortMode,
   type SidebarGroupMode,
+  type SidebarProjectShowLastCount,
+  type SidebarProjectSortMode,
+  type SidebarShowLastCount,
+  type SidebarSortMode,
+  type SidebarWorkspaceShowLastCount,
   type SidebarWorkspaceSortMode,
 } from "@/stores/sidebar-view-store";
 import { isWeb as platformIsWeb } from "@/constants/platform";
 
 const ThemedSettings2 = withUnistyles(Settings2);
-const filterColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const ThemedChevronDown = withUnistyles(ChevronDown);
+const ThemedChevronRight = withUnistyles(ChevronRight);
+
+const iconColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const GROUP_MODE_ITEMS: Array<{ value: SidebarGroupMode; label: string }> = [
   { value: "project", label: "Project" },
   { value: "status", label: "Status" },
 ];
 
-const TAB_SORT_ITEMS: Array<{ value: SidebarEmbeddedTabSortMode; label: string }> = [
+const SORT_MODE_ITEMS: Array<{ value: SidebarSortMode; label: string }> = [
   { value: "manual", label: "Manual" },
   { value: "created", label: "Created" },
   { value: "lastUpdated", label: "Last updated" },
   { value: "status", label: "Status" },
 ];
 
-const WORKSPACE_SORT_ITEMS: Array<{ value: SidebarWorkspaceSortMode; label: string }> = [
-  { value: "manual", label: "Manual" },
-  { value: "created", label: "Created" },
-  { value: "lastUpdated", label: "Last updated" },
-  { value: "status", label: "Status" },
-];
-
-const RECENT_TAB_COUNT_ITEMS: Array<{ value: SidebarEmbeddedRecentTabCount; label: string }> = [
+const SHOW_LAST_COUNT_ITEMS: Array<{ value: SidebarShowLastCount; label: string }> = [
   { value: 3, label: "3" },
   { value: 5, label: "5" },
   { value: 10, label: "10" },
@@ -61,37 +62,24 @@ const WORKSPACE_TITLE_SOURCE_ITEMS: Array<{ value: WorkspaceTitleSource; label: 
   { value: "branch", label: "Branch name" },
 ];
 
+type DisplayPreferenceSectionId = "projects" | "workspaces" | "tabs";
+
 export function SidebarGroupingSelector({ serverId }: { serverId: string | null }) {
-  const { settings, updateSettings } = useAppSettings();
+  const { settings } = useAppSettings();
   const groupMode = useSidebarViewStore((state) =>
     serverId ? state.getGroupMode(serverId) : "project",
   );
-  const tabSortMode = useSidebarViewStore((state) =>
-    serverId ? state.getEmbeddedTabSortMode(serverId) : "manual",
-  );
-  const workspaceSortMode = useSidebarViewStore((state) =>
-    serverId ? state.getWorkspaceSortMode(serverId) : "manual",
-  );
-  const recentTabCount = useSidebarViewStore((state) =>
-    serverId ? state.getEmbeddedRecentTabCount(serverId) : 5,
-  );
-  const badgeMode = useSidebarViewStore((state) =>
-    serverId ? state.getBadgeMode(serverId) : "status",
-  );
-  const autoCollapseProjects = useSidebarViewStore((state) => state.autoCollapseProjects);
-  const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
   const setGroupMode = useSidebarViewStore((state) => state.setGroupMode);
-  const setWorkspaceSortMode = useSidebarViewStore((state) => state.setWorkspaceSortMode);
-  const setTabSortMode = useSidebarViewStore((state) => state.setEmbeddedTabSortMode);
-  const setRecentTabCount = useSidebarViewStore((state) => state.setEmbeddedRecentTabCount);
-  const setBadgeMode = useSidebarViewStore((state) => state.setBadgeMode);
-  const setAutoCollapseProjects = useSidebarViewStore((state) => state.setAutoCollapseProjects);
-  const setAutoCollapseWorkspaces = useSidebarViewStore((state) => state.setAutoCollapseWorkspaces);
-  const showTabControls = settings.tabLayoutMode !== "horizontal";
-  const showWorkspaceAutoCollapse = settings.tabLayoutMode === "sidebar";
-  const closeOnSelect = !showTabControls;
+  const [expandedSection, setExpandedSection] = useState<DisplayPreferenceSectionId>("workspaces");
+  const showTabsSection = settings.tabLayoutMode === "sidebar";
 
-  const handleSelect = useCallback(
+  useEffect(() => {
+    if (expandedSection === "tabs" && !showTabsSection) {
+      setExpandedSection("workspaces");
+    }
+  }, [expandedSection, showTabsSection]);
+
+  const handleGroupModeSelect = useCallback(
     (mode: SidebarGroupMode) => {
       if (!serverId) return;
       setGroupMode(serverId, mode);
@@ -99,52 +87,9 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
     [serverId, setGroupMode],
   );
 
-  const handleTabSortSelect = useCallback(
-    (mode: SidebarEmbeddedTabSortMode) => {
-      if (!serverId) return;
-      setTabSortMode(serverId, mode);
-    },
-    [serverId, setTabSortMode],
-  );
-
-  const handleWorkspaceSortSelect = useCallback(
-    (mode: SidebarWorkspaceSortMode) => {
-      if (!serverId) return;
-      setWorkspaceSortMode(serverId, mode);
-    },
-    [serverId, setWorkspaceSortMode],
-  );
-
-  const handleRecentTabCountSelect = useCallback(
-    (count: SidebarEmbeddedRecentTabCount) => {
-      if (!serverId) return;
-      setRecentTabCount(serverId, count);
-    },
-    [serverId, setRecentTabCount],
-  );
-
-  const handleBadgeModeSelect = useCallback(
-    (mode: SidebarBadgeMode) => {
-      if (!serverId) return;
-      setBadgeMode(serverId, mode);
-    },
-    [serverId, setBadgeMode],
-  );
-
-  const handleAutoCollapseProjectsSelect = useCallback(() => {
-    setAutoCollapseProjects(!autoCollapseProjects);
-  }, [autoCollapseProjects, setAutoCollapseProjects]);
-
-  const handleAutoCollapseWorkspacesSelect = useCallback(() => {
-    setAutoCollapseWorkspaces(!autoCollapseWorkspaces);
-  }, [autoCollapseWorkspaces, setAutoCollapseWorkspaces]);
-
-  const handleWorkspaceTitleSourceSelect = useCallback(
-    (source: WorkspaceTitleSource) => {
-      void updateSettings({ workspaceTitleSource: source });
-    },
-    [updateSettings],
-  );
+  const handleSectionPress = useCallback((section: DisplayPreferenceSectionId) => {
+    setExpandedSection(section);
+  }, []);
 
   const triggerStyle = useCallback(
     ({ hovered = false }: PressableStateCallbackType & { hovered?: boolean }) => [
@@ -162,129 +107,365 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
         accessibilityLabel="Sidebar grouping"
         testID="sidebar-grouping-selector"
       >
-        <ThemedSettings2 size={14} uniProps={filterColorMapping} />
+        <ThemedSettings2 size={14} uniProps={iconColorMapping} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" width={220} testID="sidebar-grouping-menu">
-        <DropdownMenuItem
-          testID="sidebar-auto-collapse-projects"
-          selected={autoCollapseProjects}
-          closeOnSelect={false}
-          onSelect={handleAutoCollapseProjectsSelect}
-        >
-          Auto collapse projects
-        </DropdownMenuItem>
-        {showWorkspaceAutoCollapse ? (
-          <DropdownMenuItem
-            testID="sidebar-auto-collapse-workspaces"
-            selected={autoCollapseWorkspaces}
-            closeOnSelect={false}
-            onSelect={handleAutoCollapseWorkspacesSelect}
-          >
-            Auto collapse workspaces
-          </DropdownMenuItem>
-        ) : null}
+      <DropdownMenuContent align="start" width={240} testID="sidebar-grouping-menu">
+        <PreferenceGroup label="Group by">
+          {GROUP_MODE_ITEMS.map((item) => (
+            <PreferenceMenuItem
+              key={item.value}
+              item={item}
+              testIDPrefix="sidebar-grouping"
+              isSelected={groupMode === item.value}
+              closeOnSelect={false}
+              onSelect={handleGroupModeSelect}
+            />
+          ))}
+        </PreferenceGroup>
         <DropdownMenuSeparator />
-        <View style={styles.menuHeader}>
-          <Text style={styles.menuHeaderLabel}>Group by</Text>
-        </View>
-        {GROUP_MODE_ITEMS.map((item) => (
-          <GroupModeMenuItem
-            key={item.value}
-            item={item}
-            isSelected={groupMode === item.value}
-            closeOnSelect={closeOnSelect}
-            onSelect={handleSelect}
-          />
-        ))}
-        {showTabControls ? (
-          <>
+        <SidebarBadgePreferenceMenuItems serverId={serverId} closeOnSelect={false} />
+        <DropdownMenuSeparator />
+        <DisplayPreferenceSection
+          id="projects"
+          title="Projects"
+          expanded={expandedSection === "projects"}
+          onPress={handleSectionPress}
+        >
+          <ProjectPreferencesSection serverId={serverId} />
+        </DisplayPreferenceSection>
+        <DropdownMenuSeparator />
+        <DisplayPreferenceSection
+          id="workspaces"
+          title="Workspaces"
+          expanded={expandedSection === "workspaces"}
+          onPress={handleSectionPress}
+        >
+          <WorkspacePreferencesSection serverId={serverId} />
+        </DisplayPreferenceSection>
+        {showTabsSection ? (
+          <Fragment>
             <DropdownMenuSeparator />
-            <View style={styles.menuHeader}>
-              <Text style={styles.menuHeaderLabel}>Workspace title</Text>
-            </View>
-            {WORKSPACE_TITLE_SOURCE_ITEMS.map((item) => (
-              <WorkspaceTitleSourceMenuItem
-                key={item.value}
-                item={item}
-                isSelected={settings.workspaceTitleSource === item.value}
-                closeOnSelect={false}
-                onSelect={handleWorkspaceTitleSourceSelect}
-              />
-            ))}
-            <DropdownMenuSeparator />
-            <View style={styles.menuHeader}>
-              <Text style={styles.menuHeaderLabel}>Workspaces sort</Text>
-            </View>
-            {WORKSPACE_SORT_ITEMS.map((item) => (
-              <WorkspaceSortMenuItem
-                key={item.value}
-                item={item}
-                isSelected={workspaceSortMode === item.value}
-                closeOnSelect={false}
-                onSelect={handleWorkspaceSortSelect}
-              />
-            ))}
-            <DropdownMenuSeparator />
-            <View style={styles.menuHeader}>
-              <Text style={styles.menuHeaderLabel}>Tab sort</Text>
-            </View>
-            {TAB_SORT_ITEMS.map((item) => (
-              <TabSortMenuItem
-                key={item.value}
-                item={item}
-                isSelected={tabSortMode === item.value}
-                closeOnSelect={false}
-                onSelect={handleTabSortSelect}
-              />
-            ))}
-            <DropdownMenuSeparator />
-            <View style={styles.menuHeader}>
-              <Text style={styles.menuHeaderLabel}>Recent tab count</Text>
-            </View>
-            {RECENT_TAB_COUNT_ITEMS.map((item) => (
-              <RecentTabCountMenuItem
-                key={String(item.value)}
-                item={item}
-                isSelected={recentTabCount === item.value}
-                closeOnSelect={false}
-                onSelect={handleRecentTabCountSelect}
-              />
-            ))}
-            <DropdownMenuSeparator />
-            <View style={styles.menuHeader}>
-              <Text style={styles.menuHeaderLabel}>Display info</Text>
-            </View>
-            {BADGE_MODE_ITEMS.map((item) => (
-              <BadgeModeMenuItem
-                key={item.value}
-                item={item}
-                isSelected={badgeMode === item.value}
-                closeOnSelect={false}
-                onSelect={handleBadgeModeSelect}
-              />
-            ))}
-          </>
+            <DisplayPreferenceSection
+              id="tabs"
+              title="Tabs"
+              expanded={expandedSection === "tabs"}
+              onPress={handleSectionPress}
+            >
+              <SidebarTabDisplayPreferencesMenuItems serverId={serverId} closeOnSelect={false} />
+            </DisplayPreferenceSection>
+          </Fragment>
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-function WorkspaceTitleSourceMenuItem({
+function ProjectPreferencesSection({ serverId }: { serverId: string | null }) {
+  const sortMode = useSidebarViewStore((state) =>
+    serverId ? state.getProjectSortMode(serverId) : "manual",
+  );
+  const showLastCount = useSidebarViewStore((state) =>
+    serverId ? state.getProjectShowLastCount(serverId) : "all",
+  );
+  const autoCollapseProjects = useSidebarViewStore((state) => state.autoCollapseProjects);
+  const setSortMode = useSidebarViewStore((state) => state.setProjectSortMode);
+  const setShowLastCount = useSidebarViewStore((state) => state.setProjectShowLastCount);
+  const setAutoCollapseProjects = useSidebarViewStore((state) => state.setAutoCollapseProjects);
+
+  const handleSortSelect = useCallback(
+    (mode: SidebarProjectSortMode) => {
+      if (!serverId) return;
+      setSortMode(serverId, mode);
+    },
+    [serverId, setSortMode],
+  );
+  const handleShowLastSelect = useCallback(
+    (count: SidebarProjectShowLastCount) => {
+      if (!serverId) return;
+      setShowLastCount(serverId, count);
+    },
+    [serverId, setShowLastCount],
+  );
+  const handleAutoCollapseSelect = useCallback(() => {
+    setAutoCollapseProjects(!autoCollapseProjects);
+  }, [autoCollapseProjects, setAutoCollapseProjects]);
+
+  return (
+    <>
+      <SortPreferenceGroup
+        selectedValue={sortMode}
+        testIDPrefix="sidebar-project-sort"
+        onSelect={handleSortSelect}
+      />
+      <DropdownMenuSeparator />
+      <ShowLastPreferenceGroup
+        selectedValue={showLastCount}
+        testIDPrefix="sidebar-project-show-last"
+        onSelect={handleShowLastSelect}
+      />
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        testID="sidebar-auto-collapse-projects"
+        selected={autoCollapseProjects}
+        closeOnSelect={false}
+        onSelect={handleAutoCollapseSelect}
+      >
+        Auto collapse
+      </DropdownMenuItem>
+    </>
+  );
+}
+
+function WorkspacePreferencesSection({ serverId }: { serverId: string | null }) {
+  const { settings, updateSettings } = useAppSettings();
+  const sortMode = useSidebarViewStore((state) =>
+    serverId ? state.getWorkspaceSortMode(serverId) : "manual",
+  );
+  const showLastCount = useSidebarViewStore((state) =>
+    serverId ? state.getWorkspaceShowLastCount(serverId) : "all",
+  );
+  const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
+  const setSortMode = useSidebarViewStore((state) => state.setWorkspaceSortMode);
+  const setShowLastCount = useSidebarViewStore((state) => state.setWorkspaceShowLastCount);
+  const setAutoCollapseWorkspaces = useSidebarViewStore((state) => state.setAutoCollapseWorkspaces);
+
+  const handleSortSelect = useCallback(
+    (mode: SidebarWorkspaceSortMode) => {
+      if (!serverId) return;
+      setSortMode(serverId, mode);
+    },
+    [serverId, setSortMode],
+  );
+  const handleShowLastSelect = useCallback(
+    (count: SidebarWorkspaceShowLastCount) => {
+      if (!serverId) return;
+      setShowLastCount(serverId, count);
+    },
+    [serverId, setShowLastCount],
+  );
+  const handleWorkspaceTitleSourceSelect = useCallback(
+    (source: WorkspaceTitleSource) => {
+      void updateSettings({ workspaceTitleSource: source });
+    },
+    [updateSettings],
+  );
+  const handleAutoCollapseSelect = useCallback(() => {
+    setAutoCollapseWorkspaces(!autoCollapseWorkspaces);
+  }, [autoCollapseWorkspaces, setAutoCollapseWorkspaces]);
+
+  return (
+    <>
+      <SortPreferenceGroup
+        selectedValue={sortMode}
+        testIDPrefix="sidebar-workspace-sort"
+        onSelect={handleSortSelect}
+      />
+      <DropdownMenuSeparator />
+      <ShowLastPreferenceGroup
+        selectedValue={showLastCount}
+        testIDPrefix="sidebar-workspace-show-last"
+        onSelect={handleShowLastSelect}
+      />
+      <DropdownMenuSeparator />
+      <PreferenceGroup label="Title">
+        {WORKSPACE_TITLE_SOURCE_ITEMS.map((item) => (
+          <PreferenceMenuItem
+            key={item.value}
+            item={item}
+            testIDPrefix="sidebar-workspace-title-source"
+            isSelected={settings.workspaceTitleSource === item.value}
+            closeOnSelect={false}
+            onSelect={handleWorkspaceTitleSourceSelect}
+          />
+        ))}
+      </PreferenceGroup>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        testID="sidebar-auto-collapse-workspaces"
+        selected={autoCollapseWorkspaces}
+        closeOnSelect={false}
+        onSelect={handleAutoCollapseSelect}
+      >
+        Auto collapse
+      </DropdownMenuItem>
+    </>
+  );
+}
+
+export function SidebarTabDisplayPreferencesMenuItems({
+  serverId,
+  showRecentTabCount = true,
+  closeOnSelect = false,
+}: {
+  serverId: string | null;
+  showRecentTabCount?: boolean;
+  closeOnSelect?: boolean;
+}) {
+  const sortMode = useSidebarViewStore((state) =>
+    serverId ? state.getEmbeddedTabSortMode(serverId) : "manual",
+  );
+  const recentTabCount = useSidebarViewStore((state) =>
+    serverId ? state.getEmbeddedRecentTabCount(serverId) : 5,
+  );
+  const setSortMode = useSidebarViewStore((state) => state.setEmbeddedTabSortMode);
+  const setRecentTabCount = useSidebarViewStore((state) => state.setEmbeddedRecentTabCount);
+
+  const handleSortSelect = useCallback(
+    (mode: SidebarEmbeddedTabSortMode) => {
+      if (!serverId) return;
+      setSortMode(serverId, mode);
+    },
+    [serverId, setSortMode],
+  );
+  const handleRecentTabCountSelect = useCallback(
+    (count: SidebarEmbeddedRecentTabCount) => {
+      if (!serverId) return;
+      setRecentTabCount(serverId, count);
+    },
+    [serverId, setRecentTabCount],
+  );
+
+  return (
+    <>
+      <SortPreferenceGroup
+        selectedValue={sortMode}
+        testIDPrefix="sidebar-tab-sort"
+        closeOnSelect={closeOnSelect}
+        onSelect={handleSortSelect}
+      />
+      {showRecentTabCount ? (
+        <Fragment>
+          <DropdownMenuSeparator />
+          <ShowLastPreferenceGroup
+            selectedValue={recentTabCount}
+            testIDPrefix="sidebar-recent-tab-count"
+            closeOnSelect={closeOnSelect}
+            onSelect={handleRecentTabCountSelect}
+          />
+        </Fragment>
+      ) : null}
+    </>
+  );
+}
+
+export function SidebarBadgePreferenceMenuItems({
+  serverId,
+  closeOnSelect = false,
+}: {
+  serverId: string | null;
+  closeOnSelect?: boolean;
+}) {
+  const badgeMode = useSidebarViewStore((state) =>
+    serverId ? state.getBadgeMode(serverId) : "status",
+  );
+  const setBadgeMode = useSidebarViewStore((state) => state.setBadgeMode);
+
+  const handleBadgeModeSelect = useCallback(
+    (mode: SidebarBadgeMode) => {
+      if (!serverId) return;
+      setBadgeMode(serverId, mode);
+    },
+    [serverId, setBadgeMode],
+  );
+
+  return (
+    <PreferenceGroup label="Sidebar badge">
+      {BADGE_MODE_ITEMS.map((item) => (
+        <PreferenceMenuItem
+          key={item.value}
+          item={item}
+          testIDPrefix="sidebar-badge-mode"
+          isSelected={badgeMode === item.value}
+          closeOnSelect={closeOnSelect}
+          onSelect={handleBadgeModeSelect}
+        />
+      ))}
+    </PreferenceGroup>
+  );
+}
+
+function SortPreferenceGroup({
+  selectedValue,
+  testIDPrefix,
+  closeOnSelect = false,
+  onSelect,
+}: {
+  selectedValue: SidebarSortMode;
+  testIDPrefix: string;
+  closeOnSelect?: boolean;
+  onSelect: (value: SidebarSortMode) => void;
+}) {
+  return (
+    <PreferenceGroup label="Sort by">
+      {SORT_MODE_ITEMS.map((item) => (
+        <PreferenceMenuItem
+          key={item.value}
+          item={item}
+          testIDPrefix={testIDPrefix}
+          isSelected={selectedValue === item.value}
+          closeOnSelect={closeOnSelect}
+          onSelect={onSelect}
+        />
+      ))}
+    </PreferenceGroup>
+  );
+}
+
+function ShowLastPreferenceGroup({
+  selectedValue,
+  testIDPrefix,
+  closeOnSelect = false,
+  onSelect,
+}: {
+  selectedValue: SidebarShowLastCount;
+  testIDPrefix: string;
+  closeOnSelect?: boolean;
+  onSelect: (value: SidebarShowLastCount) => void;
+}) {
+  return (
+    <PreferenceGroup label="Show last">
+      {SHOW_LAST_COUNT_ITEMS.map((item) => (
+        <PreferenceMenuItem
+          key={String(item.value)}
+          item={item}
+          testIDPrefix={testIDPrefix}
+          isSelected={selectedValue === item.value}
+          closeOnSelect={closeOnSelect}
+          onSelect={onSelect}
+        />
+      ))}
+    </PreferenceGroup>
+  );
+}
+
+function PreferenceGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <View style={styles.menuHeader}>
+        <Text style={styles.menuHeaderLabel}>{label}</Text>
+      </View>
+      {children}
+    </>
+  );
+}
+
+function PreferenceMenuItem<T extends string | number>({
   item,
+  testIDPrefix,
   isSelected,
   closeOnSelect,
   onSelect,
 }: {
-  item: { value: WorkspaceTitleSource; label: string };
+  item: { value: T; label: string };
+  testIDPrefix: string;
   isSelected: boolean;
   closeOnSelect: boolean;
-  onSelect: (source: WorkspaceTitleSource) => void;
+  onSelect: (value: T) => void;
 }) {
   const handleSelect = useCallback(() => onSelect(item.value), [item.value, onSelect]);
   return (
     <DropdownMenuItem
-      testID={`sidebar-workspace-title-source-${item.value}`}
+      testID={`${testIDPrefix}-${item.value}`}
       selected={isSelected}
       closeOnSelect={closeOnSelect}
       onSelect={handleSelect}
@@ -294,123 +475,47 @@ function WorkspaceTitleSourceMenuItem({
   );
 }
 
-function GroupModeMenuItem({
-  item,
-  isSelected,
-  closeOnSelect,
-  onSelect,
+function DisplayPreferenceSection({
+  id,
+  title,
+  expanded,
+  onPress,
+  children,
 }: {
-  item: { value: SidebarGroupMode; label: string };
-  isSelected: boolean;
-  closeOnSelect: boolean;
-  onSelect: (mode: SidebarGroupMode) => void;
+  id: DisplayPreferenceSectionId;
+  title: string;
+  expanded: boolean;
+  onPress: (section: DisplayPreferenceSectionId) => void;
+  children: ReactNode;
 }) {
-  const handleSelect = useCallback(() => onSelect(item.value), [item.value, onSelect]);
-  return (
-    <DropdownMenuItem
-      testID={`sidebar-grouping-${item.value}`}
-      selected={isSelected}
-      closeOnSelect={closeOnSelect}
-      onSelect={handleSelect}
-    >
-      {item.label}
-    </DropdownMenuItem>
+  const handlePress = useCallback(() => onPress(id), [id, onPress]);
+  const sectionHeaderStyle = useCallback(
+    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.sectionHeader,
+      (hovered || pressed || expanded) && styles.sectionHeaderActive,
+    ],
+    [expanded],
   );
-}
+  const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
 
-function TabSortMenuItem({
-  item,
-  isSelected,
-  closeOnSelect,
-  onSelect,
-}: {
-  item: { value: SidebarEmbeddedTabSortMode; label: string };
-  isSelected: boolean;
-  closeOnSelect: boolean;
-  onSelect: (mode: SidebarEmbeddedTabSortMode) => void;
-}) {
-  const handleSelect = useCallback(() => onSelect(item.value), [item.value, onSelect]);
   return (
-    <DropdownMenuItem
-      testID={`sidebar-tab-sort-${item.value}`}
-      selected={isSelected}
-      closeOnSelect={closeOnSelect}
-      onSelect={handleSelect}
-    >
-      {item.label}
-    </DropdownMenuItem>
-  );
-}
-
-function WorkspaceSortMenuItem({
-  item,
-  isSelected,
-  closeOnSelect,
-  onSelect,
-}: {
-  item: { value: SidebarWorkspaceSortMode; label: string };
-  isSelected: boolean;
-  closeOnSelect: boolean;
-  onSelect: (mode: SidebarWorkspaceSortMode) => void;
-}) {
-  const handleSelect = useCallback(() => onSelect(item.value), [item.value, onSelect]);
-  return (
-    <DropdownMenuItem
-      testID={`sidebar-workspace-sort-${item.value}`}
-      selected={isSelected}
-      closeOnSelect={closeOnSelect}
-      onSelect={handleSelect}
-    >
-      {item.label}
-    </DropdownMenuItem>
-  );
-}
-
-function RecentTabCountMenuItem({
-  item,
-  isSelected,
-  closeOnSelect,
-  onSelect,
-}: {
-  item: { value: SidebarEmbeddedRecentTabCount; label: string };
-  isSelected: boolean;
-  closeOnSelect: boolean;
-  onSelect: (count: SidebarEmbeddedRecentTabCount) => void;
-}) {
-  const handleSelect = useCallback(() => onSelect(item.value), [item.value, onSelect]);
-  return (
-    <DropdownMenuItem
-      testID={`sidebar-recent-tab-count-${item.value}`}
-      selected={isSelected}
-      closeOnSelect={closeOnSelect}
-      onSelect={handleSelect}
-    >
-      {item.label}
-    </DropdownMenuItem>
-  );
-}
-
-function BadgeModeMenuItem({
-  item,
-  isSelected,
-  closeOnSelect,
-  onSelect,
-}: {
-  item: { value: SidebarBadgeMode; label: string };
-  isSelected: boolean;
-  closeOnSelect: boolean;
-  onSelect: (mode: SidebarBadgeMode) => void;
-}) {
-  const handleSelect = useCallback(() => onSelect(item.value), [item.value, onSelect]);
-  return (
-    <DropdownMenuItem
-      testID={`sidebar-badge-mode-${item.value}`}
-      selected={isSelected}
-      closeOnSelect={closeOnSelect}
-      onSelect={handleSelect}
-    >
-      {item.label}
-    </DropdownMenuItem>
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={accessibilityState}
+        onPress={handlePress}
+        style={sectionHeaderStyle}
+        testID={`sidebar-display-section-${id}`}
+      >
+        <Text style={styles.sectionHeaderText}>{title}</Text>
+        {expanded ? (
+          <ThemedChevronDown size={14} uniProps={iconColorMapping} />
+        ) : (
+          <ThemedChevronRight size={14} uniProps={iconColorMapping} />
+        )}
+      </Pressable>
+      {expanded ? <View testID={`sidebar-display-section-${id}-content`}>{children}</View> : null}
+    </>
   );
 }
 
@@ -433,5 +538,24 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.medium,
     color: theme.colors.foregroundMuted,
+  },
+  sectionHeader: {
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+  },
+  sectionHeaderActive: {
+    backgroundColor: theme.colors.surface2,
+  },
+  sectionHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.normal,
   },
 }));

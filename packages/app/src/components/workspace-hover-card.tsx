@@ -137,6 +137,12 @@ function WorkspaceHoverCardContent({
           testID="hover-card-workspace-updated"
         />
       ) : null}
+      <SidebarEntryStatusExplainerRows
+        summary={statusSummary}
+        excludeKinds={statusExcludeKinds}
+        iconSlotSize={12}
+        testIDPrefix={`workspace-hover-card-status-${workspace.workspaceKey}`}
+      />
       {prHint || workspace.diffStat ? (
         <View style={styles.cardMetaRow}>
           {workspace.diffStat ? (
@@ -154,11 +160,6 @@ function WorkspaceHoverCardContent({
           <ChecksSummaryPressable checks={prHint.checks} url={prHint.url} />
         </>
       ) : null}
-      <SidebarEntryStatusExplainerRows
-        summary={statusSummary}
-        excludeKinds={statusExcludeKinds}
-        testIDPrefix={`workspace-hover-card-status-${workspace.workspaceKey}`}
-      />
     </>
   );
 }

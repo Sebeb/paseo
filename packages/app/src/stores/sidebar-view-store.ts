@@ -3,25 +3,39 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 export type SidebarGroupMode = "project" | "status";
-export type SidebarEmbeddedTabSortMode = "manual" | "created" | "lastUpdated" | "status";
-export type SidebarWorkspaceSortMode = SidebarEmbeddedTabSortMode;
-export type SidebarEmbeddedRecentTabCount = 3 | 5 | 10 | "all";
+export type SidebarSortMode = "manual" | "created" | "lastUpdated" | "status";
+export type SidebarEmbeddedTabSortMode = SidebarSortMode;
+export type SidebarWorkspaceSortMode = SidebarSortMode;
+export type SidebarProjectSortMode = SidebarSortMode;
+export type SidebarShowLastCount = 3 | 5 | 10 | "all";
+export type SidebarEmbeddedRecentTabCount = SidebarShowLastCount;
+export type SidebarWorkspaceShowLastCount = SidebarShowLastCount;
+export type SidebarProjectShowLastCount = SidebarShowLastCount;
 export type SidebarBadgeMode = "diff" | "status" | "none";
 
 interface SidebarViewStoreState {
   groupModeByServerId: Record<string, SidebarGroupMode>;
+  projectSortModeByServerId: Record<string, SidebarProjectSortMode>;
   workspaceSortModeByServerId: Record<string, SidebarWorkspaceSortMode>;
   embeddedTabSortModeByServerId: Record<string, SidebarEmbeddedTabSortMode>;
+  projectShowLastCountByServerId: Record<string, SidebarProjectShowLastCount>;
+  workspaceShowLastCountByServerId: Record<string, SidebarWorkspaceShowLastCount>;
   embeddedRecentTabCountByServerId: Record<string, SidebarEmbeddedRecentTabCount>;
   badgeModeByServerId: Record<string, SidebarBadgeMode>;
   autoCollapseProjects: boolean;
   autoCollapseWorkspaces: boolean;
   getGroupMode: (serverId: string) => SidebarGroupMode;
   setGroupMode: (serverId: string, mode: SidebarGroupMode) => void;
+  getProjectSortMode: (serverId: string) => SidebarProjectSortMode;
+  setProjectSortMode: (serverId: string, mode: SidebarProjectSortMode) => void;
   getWorkspaceSortMode: (serverId: string) => SidebarWorkspaceSortMode;
   setWorkspaceSortMode: (serverId: string, mode: SidebarWorkspaceSortMode) => void;
   getEmbeddedTabSortMode: (serverId: string) => SidebarEmbeddedTabSortMode;
   setEmbeddedTabSortMode: (serverId: string, mode: SidebarEmbeddedTabSortMode) => void;
+  getProjectShowLastCount: (serverId: string) => SidebarProjectShowLastCount;
+  setProjectShowLastCount: (serverId: string, count: SidebarProjectShowLastCount) => void;
+  getWorkspaceShowLastCount: (serverId: string) => SidebarWorkspaceShowLastCount;
+  setWorkspaceShowLastCount: (serverId: string, count: SidebarWorkspaceShowLastCount) => void;
   getEmbeddedRecentTabCount: (serverId: string) => SidebarEmbeddedRecentTabCount;
   setEmbeddedRecentTabCount: (serverId: string, count: SidebarEmbeddedRecentTabCount) => void;
   getBadgeMode: (serverId: string) => SidebarBadgeMode;
@@ -30,14 +44,17 @@ interface SidebarViewStoreState {
   setAutoCollapseWorkspaces: (enabled: boolean) => void;
 }
 
-function normalizeTabSortMode(value: unknown): SidebarEmbeddedTabSortMode {
+function normalizeSortMode(value: unknown): SidebarSortMode {
   return value === "created" || value === "lastUpdated" || value === "manual" || value === "status"
     ? value
     : "manual";
 }
 
-function normalizeRecentTabCount(value: unknown): SidebarEmbeddedRecentTabCount {
-  return value === 3 || value === 5 || value === 10 || value === "all" ? value : 5;
+function normalizeShowLastCount(
+  value: unknown,
+  fallback: SidebarShowLastCount,
+): SidebarShowLastCount {
+  return value === 3 || value === 5 || value === 10 || value === "all" ? value : fallback;
 }
 
 function normalizeBadgeMode(value: unknown): SidebarBadgeMode {
@@ -48,8 +65,11 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
   persist(
     (set, get) => ({
       groupModeByServerId: {},
+      projectSortModeByServerId: {},
       workspaceSortModeByServerId: {},
       embeddedTabSortModeByServerId: {},
+      projectShowLastCountByServerId: {},
+      workspaceShowLastCountByServerId: {},
       embeddedRecentTabCountByServerId: {},
       badgeModeByServerId: {},
       autoCollapseProjects: false,
@@ -69,10 +89,25 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
           },
         }));
       },
+      getProjectSortMode: (serverId) => {
+        const key = serverId.trim();
+        if (!key) return "manual";
+        return normalizeSortMode(get().projectSortModeByServerId[key]);
+      },
+      setProjectSortMode: (serverId, mode) => {
+        const key = serverId.trim();
+        if (!key) return;
+        set((state) => ({
+          projectSortModeByServerId: {
+            ...state.projectSortModeByServerId,
+            [key]: normalizeSortMode(mode),
+          },
+        }));
+      },
       getWorkspaceSortMode: (serverId) => {
         const key = serverId.trim();
         if (!key) return "manual";
-        return normalizeTabSortMode(get().workspaceSortModeByServerId[key]);
+        return normalizeSortMode(get().workspaceSortModeByServerId[key]);
       },
       setWorkspaceSortMode: (serverId, mode) => {
         const key = serverId.trim();
@@ -80,14 +115,14 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
         set((state) => ({
           workspaceSortModeByServerId: {
             ...state.workspaceSortModeByServerId,
-            [key]: normalizeTabSortMode(mode),
+            [key]: normalizeSortMode(mode),
           },
         }));
       },
       getEmbeddedTabSortMode: (serverId) => {
         const key = serverId.trim();
         if (!key) return "manual";
-        return normalizeTabSortMode(get().embeddedTabSortModeByServerId[key]);
+        return normalizeSortMode(get().embeddedTabSortModeByServerId[key]);
       },
       setEmbeddedTabSortMode: (serverId, mode) => {
         const key = serverId.trim();
@@ -95,14 +130,44 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
         set((state) => ({
           embeddedTabSortModeByServerId: {
             ...state.embeddedTabSortModeByServerId,
-            [key]: normalizeTabSortMode(mode),
+            [key]: normalizeSortMode(mode),
+          },
+        }));
+      },
+      getProjectShowLastCount: (serverId) => {
+        const key = serverId.trim();
+        if (!key) return "all";
+        return normalizeShowLastCount(get().projectShowLastCountByServerId[key], "all");
+      },
+      setProjectShowLastCount: (serverId, count) => {
+        const key = serverId.trim();
+        if (!key) return;
+        set((state) => ({
+          projectShowLastCountByServerId: {
+            ...state.projectShowLastCountByServerId,
+            [key]: normalizeShowLastCount(count, "all"),
+          },
+        }));
+      },
+      getWorkspaceShowLastCount: (serverId) => {
+        const key = serverId.trim();
+        if (!key) return "all";
+        return normalizeShowLastCount(get().workspaceShowLastCountByServerId[key], "all");
+      },
+      setWorkspaceShowLastCount: (serverId, count) => {
+        const key = serverId.trim();
+        if (!key) return;
+        set((state) => ({
+          workspaceShowLastCountByServerId: {
+            ...state.workspaceShowLastCountByServerId,
+            [key]: normalizeShowLastCount(count, "all"),
           },
         }));
       },
       getEmbeddedRecentTabCount: (serverId) => {
         const key = serverId.trim();
         if (!key) return 5;
-        return normalizeRecentTabCount(get().embeddedRecentTabCountByServerId[key]);
+        return normalizeShowLastCount(get().embeddedRecentTabCountByServerId[key], 5);
       },
       setEmbeddedRecentTabCount: (serverId, count) => {
         const key = serverId.trim();
@@ -110,7 +175,7 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
         set((state) => ({
           embeddedRecentTabCountByServerId: {
             ...state.embeddedRecentTabCountByServerId,
-            [key]: normalizeRecentTabCount(count),
+            [key]: normalizeShowLastCount(count, 5),
           },
         }));
       },
@@ -141,8 +206,11 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         groupModeByServerId: state.groupModeByServerId,
+        projectSortModeByServerId: state.projectSortModeByServerId,
         workspaceSortModeByServerId: state.workspaceSortModeByServerId,
         embeddedTabSortModeByServerId: state.embeddedTabSortModeByServerId,
+        projectShowLastCountByServerId: state.projectShowLastCountByServerId,
+        workspaceShowLastCountByServerId: state.workspaceShowLastCountByServerId,
         embeddedRecentTabCountByServerId: state.embeddedRecentTabCountByServerId,
         badgeModeByServerId: state.badgeModeByServerId,
         autoCollapseProjects: state.autoCollapseProjects,

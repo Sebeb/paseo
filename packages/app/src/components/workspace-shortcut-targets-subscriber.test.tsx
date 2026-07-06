@@ -25,6 +25,18 @@ vi.hoisted(() => {
   (globalThis as unknown as { __DEV__: boolean }).__DEV__ = false;
 });
 
+const pathnameState = vi.hoisted(() => ({
+  value: "/",
+}));
+
+vi.mock("expo-router", () => ({
+  router: {
+    dismissTo: vi.fn(),
+  },
+  useLocalSearchParams: () => ({}),
+  usePathname: () => pathnameState.value,
+}));
+
 function workspaceDescriptor(input: {
   id: string;
   name?: string;
@@ -74,6 +86,7 @@ describe("WorkspaceShortcutTargetsSubscriber", () => {
     useSidebarViewStore.setState({
       groupModeByServerId: {},
     });
+    pathnameState.value = "/";
 
     act(() => {
       useSessionStore.getState().initializeSession("srv", null as unknown as DaemonClient);
@@ -99,6 +112,7 @@ describe("WorkspaceShortcutTargetsSubscriber", () => {
     container = null;
     act(() => {
       useSessionStore.getState().clearSession("srv");
+      pathnameState.value = "/";
     });
   });
 
@@ -116,6 +130,7 @@ describe("WorkspaceShortcutTargetsSubscriber", () => {
   it("publishes status-mode shortcut targets in visual status order", async () => {
     act(() => {
       useSidebarViewStore.getState().setGroupMode("srv", "status");
+      pathnameState.value = "/h/srv/workspace/ws-needs-input";
       useSessionStore.getState().setWorkspaces(
         "srv",
         new Map([
@@ -173,10 +188,21 @@ describe("WorkspaceShortcutTargetsSubscriber", () => {
 
     expect(useKeyboardShortcutsStore.getState().sidebarShortcutWorkspaceTargets).toEqual([
       { serverId: "srv", workspaceId: "ws-needs-input" },
-      { serverId: "srv", workspaceId: "ws-running-new" },
-      { serverId: "srv", workspaceId: "ws-running-old" },
       { serverId: "srv", workspaceId: "ws-done" },
     ]);
+  });
+
+  it("publishes no status-mode shortcut targets without a selected project", async () => {
+    act(() => {
+      useSidebarViewStore.getState().setGroupMode("srv", "status");
+      pathnameState.value = "/";
+    });
+
+    await act(async () => {
+      root?.render(<WorkspaceShortcutTargetsSubscriber enabled={true} serverId="srv" />);
+    });
+
+    expect(useKeyboardShortcutsStore.getState().sidebarShortcutWorkspaceTargets).toEqual([]);
   });
 
   it("clears targets when disabled", async () => {

@@ -57,6 +57,7 @@ vi.mock("@/constants/layout", () => ({
 }));
 
 vi.mock("@/constants/platform", () => ({
+  isWeb: true,
   isNative: false,
 }));
 
@@ -199,8 +200,8 @@ describe("SidebarWorkspaceRowContent", () => {
     expect(queryByTestId("hidden-trailing-control")).toBeNull();
   });
 
-  it("lets trailing controls own the right context instead of stacking with the script icon", () => {
-    const { getByTestId, queryByTestId } = render(
+  it("renders script icons after trailing controls in the shared right context", () => {
+    const { container, getByTestId } = render(
       <SidebarWorkspaceRowContent
         workspace={createWorkspace({ hasRunningScripts: true })}
         scriptIconKind="service"
@@ -213,7 +214,32 @@ describe("SidebarWorkspaceRowContent", () => {
 
     expect(getByTestId("workspace-row-right")).not.toBeNull();
     expect(getByTestId("workspace-trailing-control")).not.toBeNull();
-    expect(queryByTestId("workspace-globe-icon")).toBeNull();
+    expect(getByTestId("workspace-globe-icon")).not.toBeNull();
+    expect(
+      Array.from(
+        container.querySelectorAll(
+          '[data-testid="workspace-trailing-control"], [data-testid="workspace-globe-icon"]',
+        ),
+      ).map((element) => element.getAttribute("data-testid")),
+    ).toEqual(["workspace-trailing-control", "workspace-globe-icon"]);
+  });
+
+  it("does not mount hidden trailing controls just to show a script icon", () => {
+    const { getByTestId, queryByTestId } = render(
+      <SidebarWorkspaceRowContent
+        workspace={createWorkspace({ hasRunningScripts: true })}
+        scriptIconKind="command"
+        isHovered={false}
+        isLoading={false}
+        hasTrailingContent={false}
+      >
+        <span data-testid="hidden-trailing-control" />
+      </SidebarWorkspaceRowContent>,
+    );
+
+    expect(getByTestId("workspace-row-right")).not.toBeNull();
+    expect(getByTestId("workspace-terminal-icon")).not.toBeNull();
+    expect(queryByTestId("hidden-trailing-control")).toBeNull();
   });
 
   it("centers trailing action overlays inside a fixed-height slot", () => {
