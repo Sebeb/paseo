@@ -7,7 +7,7 @@ export interface SidebarProjectStatusCounts {
   failed: number;
 }
 
-export function resolveSingleProjectViewProject(input: {
+export function resolveProjectSelectorRowProject(input: {
   projects: readonly SidebarProjectEntry[];
   activeWorkspaceSelection: ActiveWorkspaceSelection | null;
   storedProjectKey: string | null;
@@ -31,7 +31,7 @@ export function resolveSingleProjectViewProject(input: {
   return input.projects[0] ?? null;
 }
 
-export function orderSingleProjectViewProjects(input: {
+export function orderProjectSelectorRowProjects(input: {
   projects: readonly SidebarProjectEntry[];
   selectedProjectKey: string | null;
 }): SidebarProjectEntry[] {

@@ -39,8 +39,8 @@ describe("sidebar view store", () => {
   beforeEach(() => {
     useSidebarViewStore.setState({
       groupMode: "project",
-      singleProjectViewEnabled: false,
-      singleProjectViewProjectKey: null,
+      projectSelectorRowEnabled: false,
+      projectSelectorRowProjectKey: null,
       hostFilter: null,
       groupModeByServerId: {},
       workspaceSortModeByServerId: {},
@@ -153,28 +153,41 @@ describe("sidebar view store", () => {
       migrateSidebarViewState({
         groupMode: "status",
         hostFilter: "host-a",
-        singleProjectViewEnabled: true,
-        singleProjectViewProjectKey: "project-a",
+        projectSelectorRowEnabled: true,
+        projectSelectorRowProjectKey: "project-a",
         embeddedTabSortModeByServerId: { "host-a": "created" },
       }),
     ).toMatchObject({
       groupMode: "status",
       hostFilter: "host-a",
-      singleProjectViewEnabled: true,
-      singleProjectViewProjectKey: "project-a",
+      projectSelectorRowEnabled: true,
+      projectSelectorRowProjectKey: "project-a",
       embeddedTabSortModeByServerId: { "host-a": "created" },
     });
   });
 
-  it("stores single project view preferences independently from group mode", () => {
+  it("migrates pre-rename single project view fields to project selector row fields", () => {
+    expect(
+      migrateSidebarViewState({
+        groupMode: "project",
+        singleProjectViewEnabled: true,
+        singleProjectViewProjectKey: "project-a",
+      }),
+    ).toMatchObject({
+      projectSelectorRowEnabled: true,
+      projectSelectorRowProjectKey: "project-a",
+    });
+  });
+
+  it("stores project selector row preferences independently from group mode", () => {
     useSidebarViewStore.getState().setGroupMode("status");
-    useSidebarViewStore.getState().setSingleProjectViewEnabled(true);
-    useSidebarViewStore.getState().setSingleProjectViewProjectKey("project-a");
+    useSidebarViewStore.getState().setProjectSelectorRowEnabled(true);
+    useSidebarViewStore.getState().setProjectSelectorRowProjectKey("project-a");
 
     expect(useSidebarViewStore.getState()).toMatchObject({
       groupMode: "status",
-      singleProjectViewEnabled: true,
-      singleProjectViewProjectKey: "project-a",
+      projectSelectorRowEnabled: true,
+      projectSelectorRowProjectKey: "project-a",
     });
   });
 

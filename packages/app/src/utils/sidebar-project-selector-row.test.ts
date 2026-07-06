@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { SidebarProjectEntry } from "@/hooks/sidebar-workspaces-view-model";
 import {
   getProjectStatusCountsFromStatuses,
-  orderSingleProjectViewProjects,
-  resolveSingleProjectViewProject,
-} from "@/utils/sidebar-single-project-view";
+  orderProjectSelectorRowProjects,
+  resolveProjectSelectorRowProject,
+} from "@/utils/sidebar-project-selector-row";
 
 function project(projectKey: string, workspaceIds: string[]): SidebarProjectEntry {
   return {
@@ -26,12 +26,12 @@ function project(projectKey: string, workspaceIds: string[]): SidebarProjectEntr
   } as unknown as SidebarProjectEntry;
 }
 
-describe("single project sidebar view helpers", () => {
+describe("project selector row helpers", () => {
   it("uses the stored project when available so capsule clicks can switch project visibility", () => {
     const projects = [project("active-project", ["active-ws"]), project("manual-project", ["ws"])];
 
     expect(
-      resolveSingleProjectViewProject({
+      resolveProjectSelectorRowProject({
         projects,
         activeWorkspaceSelection: { serverId: "srv", workspaceId: "active-ws" },
         storedProjectKey: "manual-project",
@@ -43,7 +43,7 @@ describe("single project sidebar view helpers", () => {
     const projects = [project("first", ["one"]), project("active", ["two"])];
 
     expect(
-      resolveSingleProjectViewProject({
+      resolveProjectSelectorRowProject({
         projects,
         activeWorkspaceSelection: { serverId: "srv", workspaceId: "two" },
         storedProjectKey: null,
@@ -51,7 +51,7 @@ describe("single project sidebar view helpers", () => {
     ).toBe("active");
 
     expect(
-      resolveSingleProjectViewProject({
+      resolveProjectSelectorRowProject({
         projects,
         activeWorkspaceSelection: null,
         storedProjectKey: null,
@@ -63,7 +63,7 @@ describe("single project sidebar view helpers", () => {
     const projects = [project("a", []), project("b", []), project("c", [])];
 
     expect(
-      orderSingleProjectViewProjects({ projects, selectedProjectKey: "b" }).map(
+      orderProjectSelectorRowProjects({ projects, selectedProjectKey: "b" }).map(
         (entry) => entry.projectKey,
       ),
     ).toEqual(["b", "a", "c"]);

@@ -15,8 +15,8 @@ const SIDEBAR_VIEW_STORE_VERSION = 3;
 
 interface SidebarViewStoreState {
   groupMode: SidebarGroupMode;
-  singleProjectViewEnabled: boolean;
-  singleProjectViewProjectKey: string | null;
+  projectSelectorRowEnabled: boolean;
+  projectSelectorRowProjectKey: string | null;
   hostFilter: string | null;
   groupModeByServerId: Record<string, SidebarGroupMode>;
   workspaceSortModeByServerId: Record<string, SidebarWorkspaceSortMode>;
@@ -27,8 +27,8 @@ interface SidebarViewStoreState {
   autoCollapseProjects: boolean;
   autoCollapseWorkspaces: boolean;
   setGroupMode: (serverIdOrMode: string, mode?: SidebarGroupMode) => void;
-  setSingleProjectViewEnabled: (enabled: boolean) => void;
-  setSingleProjectViewProjectKey: (projectKey: string | null) => void;
+  setProjectSelectorRowEnabled: (enabled: boolean) => void;
+  setProjectSelectorRowProjectKey: (projectKey: string | null) => void;
   setHostFilter: (serverId: string | null) => void;
   reconcileHostFilter: (serverIds: readonly string[]) => void;
   getGroupMode: (serverId: string) => SidebarGroupMode;
@@ -48,8 +48,8 @@ interface SidebarViewStoreState {
 
 interface SidebarViewPersistedState {
   groupMode: SidebarGroupMode;
-  singleProjectViewEnabled: boolean;
-  singleProjectViewProjectKey: string | null;
+  projectSelectorRowEnabled: boolean;
+  projectSelectorRowProjectKey: string | null;
   hostFilter: string | null;
   groupModeByServerId: Record<string, SidebarGroupMode>;
   workspaceSortModeByServerId: Record<string, SidebarWorkspaceSortMode>;
@@ -120,18 +120,29 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
     normalizeGroupMode,
   );
   const legacyGroupMode = readLegacyGroupMode(persistedState);
+  // COMPAT(projectSelectorRow): the fields were persisted as
+  // singleProjectViewEnabled/singleProjectViewProjectKey before the rename;
+  // remove the fallbacks after 2027-01-06.
+  const persistedSelectorRowEnabled =
+    typeof persistedState.projectSelectorRowEnabled === "boolean"
+      ? persistedState.projectSelectorRowEnabled
+      : persistedState.singleProjectViewEnabled;
+  const persistedSelectorRowProjectKey =
+    typeof persistedState.projectSelectorRowProjectKey === "string"
+      ? persistedState.projectSelectorRowProjectKey
+      : persistedState.singleProjectViewProjectKey;
 
   return {
     groupMode:
       legacyGroupMode ??
       (isSidebarGroupMode(persistedState.groupMode) ? persistedState.groupMode : "project"),
-    singleProjectViewEnabled:
-      legacyGroupMode === null && typeof persistedState.singleProjectViewEnabled === "boolean"
-        ? persistedState.singleProjectViewEnabled
+    projectSelectorRowEnabled:
+      legacyGroupMode === null && typeof persistedSelectorRowEnabled === "boolean"
+        ? persistedSelectorRowEnabled
         : false,
-    singleProjectViewProjectKey:
-      legacyGroupMode === null && typeof persistedState.singleProjectViewProjectKey === "string"
-        ? persistedState.singleProjectViewProjectKey
+    projectSelectorRowProjectKey:
+      legacyGroupMode === null && typeof persistedSelectorRowProjectKey === "string"
+        ? persistedSelectorRowProjectKey
         : null,
     hostFilter: typeof persistedState.hostFilter === "string" ? persistedState.hostFilter : null,
     groupModeByServerId,
@@ -160,8 +171,8 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
 function createDefaultPersistedState(): SidebarViewPersistedState {
   return {
     groupMode: "project",
-    singleProjectViewEnabled: false,
-    singleProjectViewProjectKey: null,
+    projectSelectorRowEnabled: false,
+    projectSelectorRowProjectKey: null,
     hostFilter: null,
     groupModeByServerId: {},
     workspaceSortModeByServerId: {},
@@ -192,8 +203,8 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
   persist(
     (set, get) => ({
       groupMode: "project",
-      singleProjectViewEnabled: false,
-      singleProjectViewProjectKey: null,
+      projectSelectorRowEnabled: false,
+      projectSelectorRowProjectKey: null,
       hostFilter: null,
       groupModeByServerId: {},
       workspaceSortModeByServerId: {},
@@ -218,9 +229,9 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
           },
         }));
       },
-      setSingleProjectViewEnabled: (enabled) => set({ singleProjectViewEnabled: enabled }),
-      setSingleProjectViewProjectKey: (projectKey) =>
-        set({ singleProjectViewProjectKey: projectKey }),
+      setProjectSelectorRowEnabled: (enabled) => set({ projectSelectorRowEnabled: enabled }),
+      setProjectSelectorRowProjectKey: (projectKey) =>
+        set({ projectSelectorRowProjectKey: projectKey }),
       setHostFilter: (serverId) => set({ hostFilter: serverId }),
       reconcileHostFilter: (serverIds) =>
         set((state) => {
@@ -320,8 +331,8 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
       storage: createJSONStorage(createSidebarViewStorage),
       partialize: (state) => ({
         groupMode: state.groupMode,
-        singleProjectViewEnabled: state.singleProjectViewEnabled,
-        singleProjectViewProjectKey: state.singleProjectViewProjectKey,
+        projectSelectorRowEnabled: state.projectSelectorRowEnabled,
+        projectSelectorRowProjectKey: state.projectSelectorRowProjectKey,
         hostFilter: state.hostFilter,
         groupModeByServerId: state.groupModeByServerId,
         workspaceSortModeByServerId: state.workspaceSortModeByServerId,

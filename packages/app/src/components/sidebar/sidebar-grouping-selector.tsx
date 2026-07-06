@@ -77,10 +77,10 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
   );
   const autoCollapseProjects = useSidebarViewStore((state) => state.autoCollapseProjects);
   const autoCollapseWorkspaces = useSidebarViewStore((state) => state.autoCollapseWorkspaces);
-  const singleProjectViewEnabled = useSidebarViewStore((state) => state.singleProjectViewEnabled);
+  const projectSelectorRowEnabled = useSidebarViewStore((state) => state.projectSelectorRowEnabled);
   const setGroupMode = useSidebarViewStore((state) => state.setGroupMode);
-  const setSingleProjectViewEnabled = useSidebarViewStore(
-    (state) => state.setSingleProjectViewEnabled,
+  const setProjectSelectorRowEnabled = useSidebarViewStore(
+    (state) => state.setProjectSelectorRowEnabled,
   );
   const setWorkspaceSortMode = useSidebarViewStore((state) => state.setWorkspaceSortMode);
   const setAutoCollapseProjects = useSidebarViewStore((state) => state.setAutoCollapseProjects);
@@ -114,9 +114,9 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
     setAutoCollapseWorkspaces(!autoCollapseWorkspaces);
   }, [autoCollapseWorkspaces, setAutoCollapseWorkspaces]);
 
-  const handleSingleProjectViewSelect = useCallback(() => {
-    setSingleProjectViewEnabled(!singleProjectViewEnabled);
-  }, [setSingleProjectViewEnabled, singleProjectViewEnabled]);
+  const handleProjectSelectorRowToggle = useCallback(() => {
+    setProjectSelectorRowEnabled(!projectSelectorRowEnabled);
+  }, [setProjectSelectorRowEnabled, projectSelectorRowEnabled]);
 
   const handleWorkspaceTitleSourceSelect = useCallback(
     (source: WorkspaceTitleSource) => {
@@ -144,7 +144,7 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
         <ThemedSettings2 size={14} uniProps={filterColorMapping} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" width={220} testID="sidebar-grouping-menu">
-        {groupMode === "project" && singleProjectViewEnabled ? null : (
+        {groupMode === "project" && projectSelectorRowEnabled ? null : (
           <DropdownMenuItem
             testID="sidebar-auto-collapse-projects"
             selected={autoCollapseProjects}
@@ -179,12 +179,12 @@ export function SidebarGroupingSelector({ serverId }: { serverId: string | null 
         ))}
         {groupMode === "project" ? (
           <DropdownMenuItem
-            testID="sidebar-single-project-view"
-            selected={singleProjectViewEnabled}
+            testID="sidebar-project-selector-row"
+            selected={projectSelectorRowEnabled}
             closeOnSelect={false}
-            onSelect={handleSingleProjectViewSelect}
+            onSelect={handleProjectSelectorRowToggle}
           >
-            Single project view
+            Project selector row
           </DropdownMenuItem>
         ) : null}
         {showSidebarSpecificControls ? (

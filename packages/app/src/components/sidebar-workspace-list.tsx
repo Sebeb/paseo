@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { deriveProjectIconColor } from "@/utils/project-icon-color";
-import { orderSingleProjectViewProjects } from "@/utils/sidebar-single-project-view";
+import { orderProjectSelectorRowProjects } from "@/utils/sidebar-project-selector-row";
 import equal from "fast-deep-equal";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { ProjectIconView } from "@/components/project-icon-view";
@@ -973,10 +973,10 @@ interface SidebarWorkspaceListProps {
   onToggleProjectCollapsed: (projectKey: string) => void;
   shortcutIndexByWorkspaceKey: Map<string, number>;
   groupMode: "project" | "status";
-  singleProjectViewEnabled?: boolean;
-  singleProjectViewProject?: SidebarProjectEntry | null;
-  onSingleProjectSelected?: (projectKey: string) => void;
-  onSingleProjectHover?: (projectName: string | null) => void;
+  projectSelectorRowEnabled?: boolean;
+  projectSelectorRowProject?: SidebarProjectEntry | null;
+  onProjectSelectorRowSelected?: (projectKey: string) => void;
+  onProjectSelectorRowHover?: (projectName: string | null) => void;
   isRefreshing?: boolean;
   onRefresh?: () => void;
   onWorkspacePress?: () => void;
@@ -5392,10 +5392,10 @@ export function SidebarWorkspaceList({
   onToggleProjectCollapsed,
   shortcutIndexByWorkspaceKey,
   groupMode,
-  singleProjectViewEnabled = false,
-  singleProjectViewProject = null,
-  onSingleProjectSelected,
-  onSingleProjectHover,
+  projectSelectorRowEnabled = false,
+  projectSelectorRowProject = null,
+  onProjectSelectorRowSelected,
+  onProjectSelectorRowHover,
   isRefreshing: _isRefreshing = false,
   onRefresh: _onRefresh,
   onWorkspacePress,
@@ -5404,11 +5404,11 @@ export function SidebarWorkspaceList({
   parentGestureRef,
 }: SidebarWorkspaceListProps) {
   const pathname = usePathname();
-  const selectedSingleProject =
-    singleProjectViewEnabled && projects.length > 0 ? singleProjectViewProject : null;
+  const selectedSelectorRowProject =
+    projectSelectorRowEnabled && projects.length > 0 ? projectSelectorRowProject : null;
   const visibleProjects = useMemo(
-    () => (selectedSingleProject ? [selectedSingleProject] : projects),
-    [projects, selectedSingleProject],
+    () => (selectedSelectorRowProject ? [selectedSelectorRowProject] : projects),
+    [projects, selectedSelectorRowProject],
   );
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const lastSelectedWorkspaceIdByProjectKey = useSidebarCollapsedSectionsStore(
@@ -5416,9 +5416,9 @@ export function SidebarWorkspaceList({
   );
   // Selecting a capsule mirrors clicking a collapsed project with auto-collapse
   // enabled: switch the visible project and activate its remembered workspace.
-  const handleSingleProjectSelected = useCallback(
+  const handleProjectSelectorRowSelected = useCallback(
     (projectKey: string) => {
-      onSingleProjectSelected?.(projectKey);
+      onProjectSelectorRowSelected?.(projectKey);
       const project = projects.find((entry) => entry.projectKey === projectKey);
       if (!project) {
         return;
@@ -5442,7 +5442,7 @@ export function SidebarWorkspaceList({
     [
       activeWorkspaceSelection,
       lastSelectedWorkspaceIdByProjectKey,
-      onSingleProjectSelected,
+      onProjectSelectorRowSelected,
       onWorkspacePress,
       projects,
     ],
@@ -5461,12 +5461,12 @@ export function SidebarWorkspaceList({
 
   return (
     <View style={styles.container}>
-      {selectedSingleProject ? (
+      {selectedSelectorRowProject ? (
         <SidebarProjectSelectorBar
           projects={projects}
-          selectedProjectKey={selectedSingleProject.projectKey}
-          onSelectProject={handleSingleProjectSelected}
-          onHoverProject={onSingleProjectHover}
+          selectedProjectKey={selectedSelectorRowProject.projectKey}
+          onSelectProject={handleProjectSelectorRowSelected}
+          onHoverProject={onProjectSelectorRowHover}
         />
       ) : null}
       <ProjectModeList
@@ -5475,7 +5475,7 @@ export function SidebarWorkspaceList({
         collapsedProjectKeys={collapsedProjectKeys}
         onToggleProjectCollapsed={onToggleProjectCollapsed}
         shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-        singleProjectView={selectedSingleProject !== null}
+        projectSelectorRowActive={selectedSelectorRowProject !== null}
         onWorkspacePress={onWorkspacePress}
         onAddProject={onAddProject}
         listFooterComponent={listFooterComponent}
@@ -5772,7 +5772,7 @@ function ProjectModeList({
   collapsedProjectKeys,
   onToggleProjectCollapsed,
   shortcutIndexByWorkspaceKey,
-  singleProjectView = false,
+  projectSelectorRowActive = false,
   onWorkspacePress,
   onAddProject,
   listFooterComponent,
@@ -5780,7 +5780,7 @@ function ProjectModeList({
   pathname,
 }: Omit<SidebarWorkspaceListProps, "groupMode" | "isRefreshing" | "onRefresh"> & {
   pathname: string;
-  singleProjectView?: boolean;
+  projectSelectorRowActive?: boolean;
 }) {
   const { t } = useTranslation();
   const [creatingWorkspaceIds, setCreatingWorkspaceIds] = useState<Set<string>>(() => new Set());
@@ -6100,8 +6100,8 @@ function ProjectModeList({
       return (
         <MemoProjectBlock
           project={item}
-          collapsed={!singleProjectView && collapsedProjectKeys.has(item.projectKey)}
-          hideProjectHeaderRow={singleProjectView}
+          collapsed={!projectSelectorRowActive && collapsedProjectKeys.has(item.projectKey)}
+          hideProjectHeaderRow={projectSelectorRowActive}
           displayName={item.projectName}
           iconDataUri={projectIconByProjectKey.get(item.projectKey) ?? null}
           serverId={serverId}
@@ -6144,7 +6144,7 @@ function ProjectModeList({
       serverId,
       shortcutIndexByWorkspaceKey,
       showShortcutBadges,
-      singleProjectView,
+      projectSelectorRowActive,
       creatingWorkspaceIds,
       workspaceKeysForAutoCollapse,
     ],
@@ -6293,13 +6293,13 @@ export function SidebarSelectedProjectHeaderActions({
   }
 
   return (
-    <View style={styles.singleProjectHeaderActions}>
+    <View style={styles.selectedProjectHeaderActions}>
       {rowModel?.trailingAction.kind === "new_workspace" ? (
         <NewWorktreeButton
           displayName={projectName}
           onPress={handleBeginWorkspaceSetup}
           showShortcutHint={false}
-          testID={`sidebar-single-project-new-workspace-${projectKey}`}
+          testID={`sidebar-selected-project-new-workspace-${projectKey}`}
         />
       ) : null}
       <ProjectKebabMenu
@@ -6346,7 +6346,7 @@ function SidebarProjectSelectorBar({
 
   const orderedProjects = useMemo(
     () =>
-      orderSingleProjectViewProjects({
+      orderProjectSelectorRowProjects({
         projects,
         selectedProjectKey: leadingProjectKey,
       }),
@@ -6429,7 +6429,7 @@ function SidebarProjectSelectorBar({
       style={styles.projectSelectorBar}
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
-      testID="sidebar-single-project-selector"
+      testID="sidebar-project-selector-row-bar"
     >
       <ScrollView
         ref={scrollRef}
@@ -6619,7 +6619,7 @@ function ProjectSelectorCapsule({
         accessibilityRole={platformIsWeb ? undefined : "button"}
         accessibilityLabel={accessibilityLabel}
         accessibilityState={accessibilityState}
-        testID={`sidebar-single-project-capsule-${project.projectKey}`}
+        testID={`sidebar-project-selector-capsule-${project.projectKey}`}
         onPress={handlePress}
         style={pressableStyle}
       >
@@ -6693,7 +6693,7 @@ const styles = StyleSheet.create((theme) => ({
   projectListContainer: {
     width: "100%",
   },
-  singleProjectHeaderActions: {
+  selectedProjectHeaderActions: {
     flexDirection: "row",
     alignItems: "center",
   },
