@@ -10,7 +10,14 @@ import {
 } from "react";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useIsFocused } from "@react-navigation/native";
-import { BackHandler, Keyboard, Pressable, Text, View } from "react-native";
+import {
+  BackHandler,
+  Keyboard,
+  Pressable,
+  Text,
+  View,
+  type PressableStateCallbackType,
+} from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, type Href } from "expo-router";
 import * as Clipboard from "expo-clipboard";
@@ -18,6 +25,8 @@ import { useTranslation } from "react-i18next";
 import { DiffStat } from "@/components/diff-stat";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import {
+  ArrowLeft,
+  ArrowRight,
   CopyX,
   ArrowLeftToLine,
   ArrowRightToLine,
@@ -59,6 +68,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+  useContextMenu,
+} from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   FloatingPanelPortalHost,
@@ -79,11 +94,13 @@ import { type ExplorerCheckoutContext } from "@/stores/explorer-checkout-context
 import {
   useSessionStore,
   useWorkspaceRestoreStatus,
+  type Agent,
   type WorkspaceDescriptor,
 } from "@/stores/session-store";
 import {
   buildWorkspaceTabPersistenceKey,
   collectAllTabs,
+  findPaneById,
   findMainPane,
   findTopLeftPaneId,
   getFocusedBrowserId,
@@ -95,8 +112,20 @@ import {
 import type { WorkspaceTab, WorkspaceTabTarget } from "@/stores/workspace-tabs-store";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
-import { useCreateFlowStore } from "@/stores/create-flow-store";
-import { useSidebarViewStore, type SidebarEmbeddedTabSortMode } from "@/stores/sidebar-view-store";
+import { useCreateFlowStore, type PendingCreateAttempt } from "@/stores/create-flow-store";
+import {
+  useSidebarViewStore,
+  type SidebarBadgeMode,
+  type SidebarEmbeddedTabSortMode,
+} from "@/stores/sidebar-view-store";
+import { WorkspaceNavigationHistoryTabRow } from "@/components/sidebar-workspace-list";
+import {
+  findWorkspaceNavigationHistoryIndex,
+  getWorkspaceNavigationHistoryItems,
+  useWorkspaceNavigationHistoryStore,
+  type WorkspaceNavigationHistoryEntry,
+  type WorkspaceNavigationHistoryScope,
+} from "@/stores/workspace-navigation-history-store";
 import {
   buildDeterministicWorkspaceTabId,
   normalizeWorkspaceTabTarget,
@@ -110,7 +139,11 @@ import {
   useHosts,
 } from "@/runtime/host-runtime";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
-import { shouldShowWorkspaceSetup, useWorkspaceSetupStore } from "@/stores/workspace-setup-store";
+import {
+  shouldShowWorkspaceSetup,
+  useWorkspaceSetupStore,
+  type WorkspaceSetupSnapshot,
+} from "@/stores/workspace-setup-store";
 import { useWorkspace } from "@/stores/session-store-hooks";
 import { useWorkspaceTerminalSessionRetention } from "@/terminal/hooks/use-workspace-terminal-session-retention";
 import type { CheckoutStatusPayload } from "@/git/use-status-query";
@@ -118,7 +151,12 @@ import { checkoutStatusQueryKey } from "@/git/query-keys";
 import { fetchCheckoutStatus } from "@/git/checkout-status-cache";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { useStableEvent } from "@/hooks/use-stable-event";
-import { createWorkspaceBrowser, useBrowserStore } from "@/stores/browser-store";
+import {
+  createWorkspaceBrowser,
+  useBrowserStore,
+  type BrowserRecord,
+} from "@/stores/browser-store";
+import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { useDraftStore, type DraftInput } from "@/stores/draft-store";
 import { getDesktopHost } from "@/desktop/host";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
@@ -257,6 +295,8 @@ function buildWorkspaceFileLocation(
 const ThemedEllipsis = withUnistyles(Ellipsis);
 const ThemedEllipsisVertical = withUnistyles(EllipsisVertical);
 const ThemedChevronDown = withUnistyles(ChevronDown);
+const ThemedArrowLeft = withUnistyles(ArrowLeft);
+const ThemedArrowRight = withUnistyles(ArrowRight);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedCopyPlus = withUnistyles(CopyPlus);
 const ThemedRotateCw = withUnistyles(RotateCw);
@@ -1854,6 +1894,137 @@ function shouldShowWorkspaceExplorerSidebar(input: {
   return input.isRouteFocused && shouldShowWorkspaceScreenHeader(input);
 }
 
+interface WorkspaceNavigationHistoryRowItem {
+  entry: WorkspaceNavigationHistoryEntry;
+  index: number;
+  tab: WorkspaceTabDescriptor;
+  statusSummary: SidebarTabStatusSummary;
+}
+
+function WorkspaceNavigationHistoryMenuContent({
+  items,
+  direction,
+  badgeMode,
+  onSelect,
+}: {
+  items: WorkspaceNavigationHistoryRowItem[];
+  direction: "back" | "forward";
+  badgeMode: SidebarBadgeMode;
+  onSelect: (item: WorkspaceNavigationHistoryRowItem) => void;
+}) {
+  const menu = useContextMenu();
+  const handleSelect = useCallback(
+    (item: WorkspaceNavigationHistoryRowItem) => {
+      onSelect(item);
+      menu.setOpen(false);
+    },
+    [menu, onSelect],
+  );
+
+  return (
+    <ContextMenuContent
+      align="start"
+      width={300}
+      testID={`workspace-navigation-history-${direction}-menu`}
+    >
+      {items.map((item) => (
+        <WorkspaceNavigationHistoryMenuItem
+          key={`${item.index}:${item.entry.workspaceId}:${item.entry.tabId}`}
+          item={item}
+          direction={direction}
+          badgeMode={badgeMode}
+          onSelect={handleSelect}
+        />
+      ))}
+    </ContextMenuContent>
+  );
+}
+
+function WorkspaceNavigationHistoryMenuItem({
+  item,
+  direction,
+  badgeMode,
+  onSelect,
+}: {
+  item: WorkspaceNavigationHistoryRowItem;
+  direction: "back" | "forward";
+  badgeMode: SidebarBadgeMode;
+  onSelect: (item: WorkspaceNavigationHistoryRowItem) => void;
+}) {
+  const handlePress = useCallback(() => {
+    onSelect(item);
+  }, [item, onSelect]);
+
+  return (
+    <WorkspaceNavigationHistoryTabRow
+      tab={item.tab}
+      serverId={item.entry.serverId}
+      workspaceId={item.entry.workspaceId}
+      badgeMode={badgeMode}
+      statusSummary={item.statusSummary}
+      onPress={handlePress}
+      testID={`workspace-navigation-history-${direction}-item-${item.index}`}
+    />
+  );
+}
+
+function WorkspaceNavigationHistoryButton({
+  direction,
+  disabled,
+  items,
+  badgeMode,
+  onPress,
+  onSelect,
+}: {
+  direction: "back" | "forward";
+  disabled: boolean;
+  items: WorkspaceNavigationHistoryRowItem[];
+  badgeMode: SidebarBadgeMode;
+  onPress: () => void;
+  onSelect: (item: WorkspaceNavigationHistoryRowItem) => void;
+}) {
+  const { t } = useTranslation();
+  const label =
+    direction === "back"
+      ? t("workspace.navigation.back", { defaultValue: "Back" })
+      : t("workspace.navigation.forward", { defaultValue: "Forward" });
+  const Icon = direction === "back" ? ThemedArrowLeft : ThemedArrowRight;
+  const buttonStyle = useCallback(
+    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.compactHeaderActionButton,
+      (hovered || pressed) && !disabled && styles.compactHeaderActionButtonHovered,
+      disabled && styles.headerActionButtonDisabled,
+    ],
+    [disabled],
+  );
+  const accessibilityState = useMemo(() => ({ disabled }), [disabled]);
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger
+        enabled={!disabled}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={accessibilityState}
+        onPress={onPress}
+        style={buttonStyle}
+        testID={`workspace-navigation-${direction}`}
+      >
+        <Icon size={16} uniProps={disabled ? mutedColorMapping : foregroundColorMapping} />
+      </ContextMenuTrigger>
+      {items.length > 0 ? (
+        <WorkspaceNavigationHistoryMenuContent
+          items={items}
+          direction={direction}
+          badgeMode={badgeMode}
+          onSelect={onSelect}
+        />
+      ) : null}
+    </ContextMenu>
+  );
+}
+
 function buildWorkspaceTerminalScopeKey(serverId: string, workspaceId: string): string | null {
   if (!serverId || !workspaceId) {
     return null;
@@ -1861,10 +2032,389 @@ function buildWorkspaceTerminalScopeKey(serverId: string, workspaceId: string): 
   return `${serverId}:${workspaceId}`;
 }
 
+function buildFocusedWorkspaceNavigationEntry(input: {
+  serverId: string;
+  workspaceId: string;
+  projectId: string | null;
+}): WorkspaceNavigationHistoryEntry | null {
+  if (!input.serverId || !input.workspaceId || !input.projectId) {
+    return null;
+  }
+  const workspaceKey = buildWorkspaceTabPersistenceKey({
+    serverId: input.serverId,
+    workspaceId: input.workspaceId,
+  });
+  if (!workspaceKey) {
+    return null;
+  }
+  const layout = useWorkspaceLayoutStore.getState().layoutByWorkspace[workspaceKey] ?? null;
+  const pane = layout?.focusedPaneId ? findPaneById(layout.root, layout.focusedPaneId) : null;
+  const tabId = pane?.focusedTabId ?? null;
+  if (!pane || !tabId || !pane.tabIds.includes(tabId)) {
+    return null;
+  }
+  return {
+    serverId: input.serverId,
+    workspaceId: input.workspaceId,
+    projectId: input.projectId,
+    paneId: pane.id,
+    tabId,
+    timestamp: Date.now(),
+  };
+}
+
+function isWorkspaceNavigationHistoryEntryValid(entry: WorkspaceNavigationHistoryEntry): boolean {
+  const workspaces = useSessionStore.getState().sessions[entry.serverId]?.workspaces;
+  const workspace = workspaces?.get(entry.workspaceId) ?? null;
+  const projectId = workspace?.project?.projectKey ?? workspace?.projectId ?? null;
+  if (!workspace || projectId !== entry.projectId) {
+    return false;
+  }
+  const workspaceKey = buildWorkspaceTabPersistenceKey({
+    serverId: entry.serverId,
+    workspaceId: entry.workspaceId,
+  });
+  if (!workspaceKey) {
+    return false;
+  }
+  const layout = useWorkspaceLayoutStore.getState().layoutByWorkspace[workspaceKey] ?? null;
+  if (!layout) {
+    return false;
+  }
+  const pane = findPaneById(layout.root, entry.paneId);
+  if (!pane?.tabIds.includes(entry.tabId)) {
+    return false;
+  }
+  return collectAllTabs(layout.root).some((tab) => tab.tabId === entry.tabId);
+}
+
+function buildWorkspaceNavigationHistoryScope(input: {
+  serverId: string;
+  projectId: string | null;
+  groupMode: WorkspaceNavigationHistoryScope["groupMode"];
+}): WorkspaceNavigationHistoryScope | null {
+  if (!input.serverId || !input.projectId) {
+    return null;
+  }
+  return {
+    serverId: input.serverId,
+    projectId: input.projectId,
+    groupMode: input.groupMode,
+  };
+}
+
+function buildWorkspaceNavigationHistoryRowItem(input: {
+  entry: WorkspaceNavigationHistoryEntry;
+  index: number;
+  workspaceAgents: ReadonlyMap<string, Agent> | null;
+  pendingByDraftId: Readonly<Record<string, PendingCreateAttempt>>;
+  workspaceSetupSnapshots: Readonly<Record<string, WorkspaceSetupSnapshot>>;
+  browsersById: Readonly<Record<string, BrowserRecord>>;
+  terminalsById: ReadonlyMap<string, SidebarTerminalStatusRecord>;
+  draftInputsByKey: Readonly<Record<string, DraftInput>>;
+  queuedMessageCountsByAgentId?: ReadonlyMap<string, number>;
+}): WorkspaceNavigationHistoryRowItem | null {
+  const workspaceKey = buildWorkspaceTabPersistenceKey({
+    serverId: input.entry.serverId,
+    workspaceId: input.entry.workspaceId,
+  });
+  if (!workspaceKey) {
+    return null;
+  }
+  const layout = useWorkspaceLayoutStore.getState().layoutByWorkspace[workspaceKey] ?? null;
+  if (!layout) {
+    return null;
+  }
+  const tab = collectAllTabs(layout.root).find(
+    (candidate) => candidate.tabId === input.entry.tabId,
+  );
+  if (!tab) {
+    return null;
+  }
+  return {
+    entry: input.entry,
+    index: input.index,
+    tab: {
+      key: tab.tabId,
+      tabId: tab.tabId,
+      kind: tab.target.kind,
+      target: tab.target,
+      createdAt: tab.createdAt,
+    },
+    statusSummary: summarizeSidebarTabs({
+      tabs: [tab],
+      serverId: input.entry.serverId,
+      workspaceId: input.entry.workspaceId,
+      agents: input.workspaceAgents,
+      pendingCreatesByDraftId: input.pendingByDraftId,
+      setupSnapshots: input.workspaceSetupSnapshots,
+      browsersById: input.browsersById,
+      terminalsById: input.terminalsById,
+      draftInputsByKey: input.draftInputsByKey,
+      queuedMessageCountsByAgentId: input.queuedMessageCountsByAgentId,
+    }),
+  };
+}
+
+function buildWorkspaceNavigationHistoryRows(input: {
+  entries: WorkspaceNavigationHistoryEntry[];
+  currentIndex: number;
+  direction: "back" | "forward";
+  scope: WorkspaceNavigationHistoryScope | null;
+  isValidEntry: (entry: WorkspaceNavigationHistoryEntry) => boolean;
+  workspaceAgents: ReadonlyMap<string, Agent> | null;
+  pendingByDraftId: Readonly<Record<string, PendingCreateAttempt>>;
+  workspaceSetupSnapshots: Readonly<Record<string, WorkspaceSetupSnapshot>>;
+  browsersById: Readonly<Record<string, BrowserRecord>>;
+  terminalsById: ReadonlyMap<string, SidebarTerminalStatusRecord>;
+  draftInputsByKey: Readonly<Record<string, DraftInput>>;
+  queuedMessageCountsByAgentId?: ReadonlyMap<string, number>;
+}): WorkspaceNavigationHistoryRowItem[] {
+  if (!input.scope) {
+    return [];
+  }
+  const rows: WorkspaceNavigationHistoryRowItem[] = [];
+  for (const item of getWorkspaceNavigationHistoryItems({
+    entries: input.entries,
+    currentIndex: input.currentIndex,
+    direction: input.direction,
+    scope: input.scope,
+    isValidEntry: input.isValidEntry,
+  })) {
+    const row = buildWorkspaceNavigationHistoryRowItem({ ...input, ...item });
+    if (row) {
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+
+function useWorkspaceNavigationHistoryControls(input: {
+  normalizedServerId: string;
+  workspace: WorkspaceDescriptor | null | undefined;
+  isRouteFocused: boolean;
+  isValidEntry: (entry: WorkspaceNavigationHistoryEntry) => boolean;
+  focusWorkspacePane: (workspaceKey: string, paneId: string) => void;
+  focusWorkspaceTab: (workspaceKey: string, tabId: string) => void;
+  workspaceAgents: ReadonlyMap<string, Agent> | null;
+  pendingByDraftId: Readonly<Record<string, PendingCreateAttempt>>;
+  workspaceSetupSnapshots: Readonly<Record<string, WorkspaceSetupSnapshot>>;
+  browsersById: Readonly<Record<string, BrowserRecord>>;
+  terminalsById: ReadonlyMap<string, SidebarTerminalStatusRecord>;
+  draftInputsByKey: Readonly<Record<string, DraftInput>>;
+  queuedMessageCountsByAgentId?: ReadonlyMap<string, number>;
+}) {
+  const {
+    normalizedServerId,
+    workspace,
+    isRouteFocused,
+    isValidEntry,
+    focusWorkspacePane,
+    focusWorkspaceTab,
+    workspaceAgents,
+    pendingByDraftId,
+    workspaceSetupSnapshots,
+    browsersById,
+    terminalsById,
+    draftInputsByKey,
+    queuedMessageCountsByAgentId,
+  } = input;
+  const entries = useWorkspaceNavigationHistoryStore((state) => state.entries);
+  const currentIndex = useWorkspaceNavigationHistoryStore((state) => state.currentIndex);
+  const setCurrentIndex = useWorkspaceNavigationHistoryStore((state) => state.setCurrentIndex);
+  const pruneInvalidEntries = useWorkspaceNavigationHistoryStore(
+    (state) => state.pruneInvalidEntries,
+  );
+  const groupMode = useSidebarViewStore((state) => state.getGroupMode(normalizedServerId));
+  const badgeMode = useSidebarViewStore((state) => state.getBadgeMode(normalizedServerId));
+  const projectId = workspace?.project?.projectKey ?? workspace?.projectId ?? null;
+  const scope = useMemo(
+    () =>
+      buildWorkspaceNavigationHistoryScope({
+        serverId: normalizedServerId,
+        projectId,
+        groupMode,
+      }),
+    [groupMode, normalizedServerId, projectId],
+  );
+  const backIndex = useMemo(
+    () =>
+      scope
+        ? findWorkspaceNavigationHistoryIndex({
+            entries,
+            currentIndex,
+            direction: "back",
+            scope,
+            isValidEntry,
+          })
+        : null,
+    [currentIndex, entries, isValidEntry, scope],
+  );
+  const forwardIndex = useMemo(
+    () =>
+      scope
+        ? findWorkspaceNavigationHistoryIndex({
+            entries,
+            currentIndex,
+            direction: "forward",
+            scope,
+            isValidEntry,
+          })
+        : null,
+    [currentIndex, entries, isValidEntry, scope],
+  );
+  const buildRows = useCallback(
+    (direction: "back" | "forward") =>
+      buildWorkspaceNavigationHistoryRows({
+        entries,
+        currentIndex,
+        direction,
+        scope,
+        isValidEntry,
+        workspaceAgents,
+        pendingByDraftId,
+        workspaceSetupSnapshots,
+        browsersById,
+        terminalsById,
+        draftInputsByKey,
+        queuedMessageCountsByAgentId,
+      }),
+    [
+      browsersById,
+      currentIndex,
+      draftInputsByKey,
+      entries,
+      isValidEntry,
+      pendingByDraftId,
+      queuedMessageCountsByAgentId,
+      scope,
+      terminalsById,
+      workspaceAgents,
+      workspaceSetupSnapshots,
+    ],
+  );
+  const backRows = useMemo(() => buildRows("back"), [buildRows]);
+  const forwardRows = useMemo(() => buildRows("forward"), [buildRows]);
+  const focusEntry = useCallback(
+    (entry: WorkspaceNavigationHistoryEntry, index: number) => {
+      if (!isValidEntry(entry)) {
+        return;
+      }
+      const workspaceKey = buildWorkspaceTabPersistenceKey({
+        serverId: entry.serverId,
+        workspaceId: entry.workspaceId,
+      });
+      if (!workspaceKey) {
+        return;
+      }
+      setCurrentIndex(index);
+      focusWorkspacePane(workspaceKey, entry.paneId);
+      focusWorkspaceTab(workspaceKey, entry.tabId);
+      navigateToWorkspace(entry.serverId, entry.workspaceId, {
+        openAttentionAgent: false,
+      });
+    },
+    [focusWorkspacePane, focusWorkspaceTab, isValidEntry, setCurrentIndex],
+  );
+  const focusIndex = useCallback(
+    (index: number | null) => {
+      const entry = index === null ? null : entries[index];
+      if (entry && index !== null) {
+        focusEntry(entry, index);
+      }
+    },
+    [entries, focusEntry],
+  );
+  const navigateBack = useCallback(() => {
+    focusIndex(backIndex);
+  }, [backIndex, focusIndex]);
+  const navigateForward = useCallback(() => {
+    focusIndex(forwardIndex);
+  }, [focusIndex, forwardIndex]);
+  const selectRow = useCallback(
+    (item: WorkspaceNavigationHistoryRowItem) => {
+      focusEntry(item.entry, item.index);
+    },
+    [focusEntry],
+  );
+
+  useEffect(() => {
+    if (entries.some((entry) => !isValidEntry(entry))) {
+      pruneInvalidEntries(isValidEntry);
+    }
+  }, [entries, isValidEntry, pruneInvalidEntries]);
+
+  useEffect(() => {
+    if (!isRouteFocused || !isWeb || typeof window === "undefined") {
+      return;
+    }
+
+    const handleMouseDown = (event: MouseEvent) => {
+      if (event.button === 3 && backIndex !== null) {
+        event.preventDefault();
+        navigateBack();
+        return;
+      }
+      if (event.button === 4 && forwardIndex !== null) {
+        event.preventDefault();
+        navigateForward();
+      }
+    };
+
+    window.addEventListener("mousedown", handleMouseDown, true);
+    return () => window.removeEventListener("mousedown", handleMouseDown, true);
+  }, [backIndex, forwardIndex, isRouteFocused, navigateBack, navigateForward]);
+
+  return {
+    badgeMode,
+    backDisabled: backIndex === null,
+    forwardDisabled: forwardIndex === null,
+    backRows,
+    forwardRows,
+    navigateBack,
+    navigateForward,
+    selectRow,
+  };
+}
+
+function useRecordFocusedWorkspaceNavigation(input: {
+  normalizedServerId: string;
+  normalizedWorkspaceId: string;
+  workspace: WorkspaceDescriptor | null | undefined;
+  recordEntry: (entry: WorkspaceNavigationHistoryEntry) => void;
+}) {
+  const { normalizedServerId, normalizedWorkspaceId, workspace, recordEntry } = input;
+  return useCallback(
+    function recordFocusedWorkspaceNavigation(override?: {
+      serverId?: string;
+      workspaceId?: string;
+      projectId?: string | null;
+    }) {
+      const entry = buildFocusedWorkspaceNavigationEntry({
+        serverId: override?.serverId ?? normalizedServerId,
+        workspaceId: override?.workspaceId ?? normalizedWorkspaceId,
+        projectId:
+          override?.projectId ?? workspace?.project?.projectKey ?? workspace?.projectId ?? null,
+      });
+      if (entry) {
+        recordEntry(entry);
+      }
+    },
+    [
+      normalizedServerId,
+      normalizedWorkspaceId,
+      recordEntry,
+      workspace?.project?.projectKey,
+      workspace?.projectId,
+    ],
+  );
+}
+
 interface WorkspaceTerminalTabActionsInput {
   persistenceKey: string | null;
   focusWorkspacePane: (workspaceKey: string, paneId: string) => void;
   openWorkspaceTabFocused: (workspaceKey: string, target: WorkspaceTabTarget) => string | null;
+  recordFocusedWorkspaceNavigation?: () => void;
   labels: {
     workspacePathUnavailable: string;
     terminalQueued: string;
@@ -1887,6 +2437,7 @@ function useWorkspaceTerminalTabActions({
   persistenceKey,
   focusWorkspacePane,
   openWorkspaceTabFocused,
+  recordFocusedWorkspaceNavigation,
   labels,
   toast,
 }: WorkspaceTerminalTabActionsInput): WorkspaceTerminalTabActions {
@@ -1899,17 +2450,20 @@ function useWorkspaceTerminalTabActions({
         focusWorkspacePane(persistenceKey, paneId);
       }
       openWorkspaceTabFocused(persistenceKey, { kind: "terminal", terminalId });
+      recordFocusedWorkspaceNavigation?.();
     },
-    [focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
+    [focusWorkspacePane, openWorkspaceTabFocused, persistenceKey, recordFocusedWorkspaceNavigation],
   );
   const handleScriptTerminalSelected = useCallback(
     (terminalId: string) => {
       if (!persistenceKey) {
         return;
       }
+      recordFocusedWorkspaceNavigation?.();
       openWorkspaceTabFocused(persistenceKey, { kind: "terminal", terminalId });
+      recordFocusedWorkspaceNavigation?.();
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [openWorkspaceTabFocused, persistenceKey, recordFocusedWorkspaceNavigation],
   );
   const handleWorkspacePathUnavailable = useCallback(() => {
     toast.error(labels.workspacePathUnavailable);
@@ -2081,6 +2635,21 @@ function WorkspaceScreenContent({
     (state) => state.openChildTabFocused,
   );
   const focusWorkspacePane = useWorkspaceLayoutStore((state) => state.focusPane);
+  const focusWorkspaceTab = useWorkspaceLayoutStore((state) => state.focusTab);
+  const recordNavigationHistoryEntry = useWorkspaceNavigationHistoryStore(
+    (state) => state.recordEntry,
+  );
+  const recordFocusedWorkspaceNavigation = useRecordFocusedWorkspaceNavigation({
+    normalizedServerId,
+    normalizedWorkspaceId,
+    workspace: workspaceDescriptor,
+    recordEntry: recordNavigationHistoryEntry,
+  });
+
+  const isNavigationHistoryEntryValid = useCallback(
+    (entry: WorkspaceNavigationHistoryEntry) => isWorkspaceNavigationHistoryEntryValid(entry),
+    [],
+  );
   const hasHydratedWorkspaces = useSessionStore(
     (state) => state.sessions[normalizedServerId]?.hasHydratedWorkspaces ?? false,
   );
@@ -2107,6 +2676,7 @@ function WorkspaceScreenContent({
     persistenceKey,
     focusWorkspacePane,
     openWorkspaceTabFocused,
+    recordFocusedWorkspaceNavigation,
     labels: {
       workspacePathUnavailable: t("workspace.header.toasts.workspacePathUnavailable"),
       terminalQueued: t("workspace.header.toasts.terminalQueued"),
@@ -2254,6 +2824,7 @@ function WorkspaceScreenContent({
   const workspaceSetupSnapshot = useWorkspaceSetupStore((state) =>
     persistenceKey ? (state.snapshots[persistenceKey] ?? null) : null,
   );
+  const workspaceSetupSnapshots = useWorkspaceSetupStore((state) => state.snapshots);
   const ensureWorkspaceSetupStatus = useWorkspaceSetupStore((state) => state.ensureSetupStatus);
   const workspaceAgents = useSessionStore(
     (state) => state.sessions[normalizedServerId]?.agents ?? null,
@@ -2291,7 +2862,6 @@ function WorkspaceScreenContent({
   const openWorkspaceTabInBackground = useWorkspaceLayoutStore(
     (state) => state.openTabInBackground,
   );
-  const focusWorkspaceTab = useWorkspaceLayoutStore((state) => state.focusTab);
   const restoreClosedWorkspaceTab = useWorkspaceLayoutStore((state) => state.restoreClosedTab);
   const restoreLastClosedWorkspaceTab = useWorkspaceLayoutStore(
     (state) => state.restoreLastClosedTab,
@@ -2398,6 +2968,21 @@ function WorkspaceScreenContent({
     uiTabs,
     workspaceAgents,
   ]);
+  const navigationHistoryControls = useWorkspaceNavigationHistoryControls({
+    normalizedServerId,
+    workspace: workspaceDescriptor,
+    isRouteFocused,
+    isValidEntry: isNavigationHistoryEntryValid,
+    focusWorkspacePane,
+    focusWorkspaceTab,
+    workspaceAgents,
+    pendingByDraftId,
+    workspaceSetupSnapshots,
+    browsersById,
+    terminalsById,
+    draftInputsByKey,
+    queuedMessageCountsByAgentId,
+  });
   const effectiveTabSortMode = getWorkspaceTabNavigationSortMode({
     tabSortingEnabled: !isMobile,
     tabSortMode,
@@ -2577,25 +3162,30 @@ function WorkspaceScreenContent({
   );
 
   const navigateToTabId = useCallback(
-    function navigateToTabId(tabId: string) {
+    function navigateToTabId(tabId: string, options?: { recordPrevious?: boolean }) {
       if (!tabId || !persistenceKey) {
         return;
       }
+      if (options?.recordPrevious !== false) {
+        recordFocusedWorkspaceNavigation();
+      }
       focusWorkspaceTab(persistenceKey, tabId);
+      recordFocusedWorkspaceNavigation();
     },
-    [focusWorkspaceTab, persistenceKey],
+    [focusWorkspaceTab, persistenceKey, recordFocusedWorkspaceNavigation],
   );
   const handleImportedAgent = useCallback(
     (agentId: string) => {
       if (!persistenceKey) {
         return;
       }
+      recordFocusedWorkspaceNavigation();
       const tabId = openWorkspaceTabFocused(persistenceKey, { kind: "agent", agentId });
       if (tabId) {
-        navigateToTabId(tabId);
+        navigateToTabId(tabId, { recordPrevious: false });
       }
     },
-    [navigateToTabId, openWorkspaceTabFocused, persistenceKey],
+    [navigateToTabId, openWorkspaceTabFocused, persistenceKey, recordFocusedWorkspaceNavigation],
   );
 
   const emptyWorkspaceSeedRef = useRef<string | null>(null);
@@ -2721,12 +3311,20 @@ function WorkspaceScreenContent({
       if (!location) {
         return;
       }
+      recordFocusedWorkspaceNavigation();
       const tabId = openWorkspaceTabFocused(persistenceKey, createWorkspaceFileTabTarget(location));
       if (tabId) {
-        navigateToTabId(tabId);
+        navigateToTabId(tabId, { recordPrevious: false });
       }
     },
-    [isMobile, navigateToTabId, openWorkspaceTabFocused, persistenceKey, showMobileAgent],
+    [
+      isMobile,
+      navigateToTabId,
+      openWorkspaceTabFocused,
+      persistenceKey,
+      recordFocusedWorkspaceNavigation,
+      showMobileAgent,
+    ],
   );
 
   const handleOpenFileFromChat = useCallback(
@@ -2742,11 +3340,12 @@ function WorkspaceScreenContent({
         return;
       }
       const target = createWorkspaceFileTabTarget(normalizedLocation);
+      recordFocusedWorkspaceNavigation();
       const tabId = options?.parentTabId
         ? openWorkspaceChildTabFocused(persistenceKey, target, options.parentTabId)
         : openWorkspaceTabFocused(persistenceKey, target);
       if (tabId) {
-        navigateToTabId(tabId);
+        navigateToTabId(tabId, { recordPrevious: false });
       }
     },
     [
@@ -2755,6 +3354,7 @@ function WorkspaceScreenContent({
       openWorkspaceChildTabFocused,
       openWorkspaceTabFocused,
       persistenceKey,
+      recordFocusedWorkspaceNavigation,
       showMobileAgent,
     ],
   );
@@ -2775,6 +3375,7 @@ function WorkspaceScreenContent({
       }
 
       const target: WorkspaceTabTarget = createWorkspaceFileTabTarget(location);
+      recordFocusedWorkspaceNavigation();
       const placement = resolveSideFileOpenPlacement({
         layout: workspaceLayout,
         sourcePaneId: input.sourcePaneId,
@@ -2794,7 +3395,7 @@ function WorkspaceScreenContent({
         ? openWorkspaceChildTabFocused(persistenceKey, target, input.parentTabId)
         : openWorkspaceTabFocused(persistenceKey, target);
       if (tabId) {
-        navigateToTabId(tabId);
+        navigateToTabId(tabId, { recordPrevious: false });
       }
     },
     [
@@ -2805,6 +3406,7 @@ function WorkspaceScreenContent({
       openWorkspaceChildTabFocused,
       openWorkspaceTabFocused,
       persistenceKey,
+      recordFocusedWorkspaceNavigation,
       splitWorkspacePaneEmpty,
       uiTabs,
       workspaceLayout,
@@ -2929,21 +3531,27 @@ function WorkspaceScreenContent({
 
   const handleCreateDraftTab = useCallback(
     (input?: { paneId?: string }) => {
+      recordFocusedWorkspaceNavigation();
       if (input?.paneId && persistenceKey) {
         focusWorkspacePane(persistenceKey, input.paneId);
       }
       openWorkspaceDraftTab();
+      recordFocusedWorkspaceNavigation();
     },
-    [focusWorkspacePane, openWorkspaceDraftTab, persistenceKey],
+    [focusWorkspacePane, openWorkspaceDraftTab, persistenceKey, recordFocusedWorkspaceNavigation],
   );
 
-  const handleCreateTerminal = useStableEvent(createTerminal);
+  const handleCreateTerminal = useStableEvent((input?: Parameters<typeof createTerminal>[0]) => {
+    recordFocusedWorkspaceNavigation();
+    createTerminal(input);
+  });
 
   const handleCreateTerminalWithProfile = useCallback(
     (profile: TerminalProfileInput) => {
+      recordFocusedWorkspaceNavigation();
       createTerminal({ profile });
     },
-    [createTerminal],
+    [createTerminal, recordFocusedWorkspaceNavigation],
   );
 
   const handleCreateBrowserTab = useCallback(
@@ -2951,13 +3559,15 @@ function WorkspaceScreenContent({
       if (!persistenceKey || !getIsElectron()) {
         return;
       }
+      recordFocusedWorkspaceNavigation();
       if (input?.paneId) {
         focusWorkspacePane(persistenceKey, input.paneId);
       }
       const { browserId } = createWorkspaceBrowser();
       openWorkspaceTabFocused(persistenceKey, { kind: "browser", browserId });
+      recordFocusedWorkspaceNavigation();
     },
-    [focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
+    [focusWorkspacePane, openWorkspaceTabFocused, persistenceKey, recordFocusedWorkspaceNavigation],
   );
 
   const handleRestoreClosedTab = useCallback(
@@ -2975,10 +3585,12 @@ function WorkspaceScreenContent({
       if (!persistenceKey || !getIsElectron()) {
         return;
       }
+      recordFocusedWorkspaceNavigation();
       const { browserId } = createWorkspaceBrowser({ initialUrl: url });
       openWorkspaceTabFocused(persistenceKey, { kind: "browser", browserId });
+      recordFocusedWorkspaceNavigation();
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [openWorkspaceTabFocused, persistenceKey, recordFocusedWorkspaceNavigation],
   );
 
   useDesktopBrowserNewTabRequests({
@@ -3016,6 +3628,7 @@ function WorkspaceScreenContent({
         return;
       }
 
+      recordFocusedWorkspaceNavigation();
       const paneId = splitWorkspacePaneEmpty(persistenceKey, {
         targetPaneId: headerSplitPaneId,
         position: placement,
@@ -3027,7 +3640,13 @@ function WorkspaceScreenContent({
       focusWorkspacePane(persistenceKey, paneId);
       createInPane(paneId);
     },
-    [focusWorkspacePane, headerSplitPaneId, persistenceKey, splitWorkspacePaneEmpty],
+    [
+      focusWorkspacePane,
+      headerSplitPaneId,
+      persistenceKey,
+      recordFocusedWorkspaceNavigation,
+      splitWorkspacePaneEmpty,
+    ],
   );
 
   const handleCreateDraftMainPaneSplit = useCallback(
@@ -3042,19 +3661,21 @@ function WorkspaceScreenContent({
   const handleCreateTerminalMainPaneSplit = useCallback(
     (placement: WorkspaceHeaderSplitPlacement) => {
       handleCreateMainPaneSplit(placement, (paneId) => {
+        recordFocusedWorkspaceNavigation();
         createTerminal({ paneId });
       });
     },
-    [createTerminal, handleCreateMainPaneSplit],
+    [createTerminal, handleCreateMainPaneSplit, recordFocusedWorkspaceNavigation],
   );
 
   const handleCreateTerminalProfileMainPaneSplit = useCallback(
     (placement: WorkspaceHeaderSplitPlacement, profile: TerminalProfileInput) => {
       handleCreateMainPaneSplit(placement, (paneId) => {
+        recordFocusedWorkspaceNavigation();
         createTerminal({ paneId, profile });
       });
     },
-    [createTerminal, handleCreateMainPaneSplit],
+    [createTerminal, handleCreateMainPaneSplit, recordFocusedWorkspaceNavigation],
   );
 
   const handleCreateBrowserMainPaneSplit = useCallback(
@@ -3233,8 +3854,15 @@ function WorkspaceScreenContent({
     if (!target) {
       return;
     }
+    recordFocusedWorkspaceNavigation();
     openWorkspaceTabFocused(persistenceKey, target);
-  }, [normalizedWorkspaceId, openWorkspaceTabFocused, persistenceKey]);
+    recordFocusedWorkspaceNavigation();
+  }, [
+    normalizedWorkspaceId,
+    openWorkspaceTabFocused,
+    persistenceKey,
+    recordFocusedWorkspaceNavigation,
+  ]);
 
   const handleBulkCloseTabs = useCallback(
     async (input: { tabsToClose: WorkspaceTabDescriptor[]; title: string; logLabel: string }) => {
@@ -3384,6 +4012,12 @@ function WorkspaceScreenContent({
           }
           return true;
         }
+        case "workspace.navigation.back":
+          navigationHistoryControls.navigateBack();
+          return true;
+        case "workspace.navigation.forward":
+          navigationHistoryControls.navigateForward();
+          return true;
         default:
           return false;
       }
@@ -3394,6 +4028,7 @@ function WorkspaceScreenContent({
       handleCreateDraftTab,
       handleCreateTerminal,
       navigateToTabId,
+      navigationHistoryControls,
       navigationTabIds,
       navigationTabs,
       persistenceKey,
@@ -3444,7 +4079,9 @@ function WorkspaceScreenContent({
         if (direction) {
           const adjacentPaneId = findAdjacentPane(workspaceLayout.root, focusedPane.id, direction);
           if (adjacentPaneId) {
+            recordFocusedWorkspaceNavigation();
             focusWorkspacePane(persistenceKey, adjacentPaneId);
+            recordFocusedWorkspaceNavigation();
           }
         }
         return true;
@@ -3456,8 +4093,10 @@ function WorkspaceScreenContent({
           const activePaneTabId = focusedPaneTabState.activeTabId;
           const adjacentPaneId = findAdjacentPane(workspaceLayout.root, focusedPane.id, direction);
           if (activePaneTabId && adjacentPaneId) {
+            recordFocusedWorkspaceNavigation();
             paneFocusSuppressedRef.current = true;
             moveWorkspaceTabToPane(persistenceKey, activePaneTabId, adjacentPaneId);
+            recordFocusedWorkspaceNavigation();
             requestAnimationFrame(() => {
               paneFocusSuppressedRef.current = false;
             });
@@ -3485,6 +4124,7 @@ function WorkspaceScreenContent({
       handleCreateDraftSplit,
       moveWorkspaceTabToPane,
       persistenceKey,
+      recordFocusedWorkspaceNavigation,
       focusedPaneTabState.activeTabId,
       focusedPaneTabState.pane,
       workspaceLayout,
@@ -3499,6 +4139,8 @@ function WorkspaceScreenContent({
       "workspace.tab.restore-last-closed",
       "workspace.tab.navigate-index",
       "workspace.tab.navigate-relative",
+      "workspace.navigation.back",
+      "workspace.navigation.forward",
       "workspace.terminal.new",
     ] as const,
     enabled: Boolean(isRouteFocused && normalizedServerId && normalizedWorkspaceId),
@@ -3685,7 +4327,9 @@ function WorkspaceScreenContent({
     if (!persistenceKey || paneFocusSuppressedRef.current) {
       return;
     }
+    recordFocusedWorkspaceNavigation();
     focusWorkspacePane(persistenceKey, paneId);
+    recordFocusedWorkspaceNavigation();
   });
 
   const handleSplitPane = useCallback(
@@ -3697,9 +4341,11 @@ function WorkspaceScreenContent({
       if (!persistenceKey) {
         return;
       }
+      recordFocusedWorkspaceNavigation();
       splitWorkspacePane(persistenceKey, input);
+      recordFocusedWorkspaceNavigation();
     },
-    [persistenceKey, splitWorkspacePane],
+    [persistenceKey, recordFocusedWorkspaceNavigation, splitWorkspacePane],
   );
 
   const handleMoveTabToPane = useCallback(
@@ -3707,9 +4353,11 @@ function WorkspaceScreenContent({
       if (!persistenceKey) {
         return;
       }
+      recordFocusedWorkspaceNavigation();
       moveWorkspaceTabToPane(persistenceKey, tabId, toPaneId);
+      recordFocusedWorkspaceNavigation();
     },
-    [moveWorkspaceTabToPane, persistenceKey],
+    [moveWorkspaceTabToPane, persistenceKey, recordFocusedWorkspaceNavigation],
   );
 
   const handleResizePaneSplit = useCallback(
@@ -4082,6 +4730,22 @@ function WorkspaceScreenContent({
           left={
             <>
               <SidebarMenuToggle />
+              <WorkspaceNavigationHistoryButton
+                direction="back"
+                disabled={navigationHistoryControls.backDisabled}
+                items={navigationHistoryControls.backRows}
+                badgeMode={navigationHistoryControls.badgeMode}
+                onPress={navigationHistoryControls.navigateBack}
+                onSelect={navigationHistoryControls.selectRow}
+              />
+              <WorkspaceNavigationHistoryButton
+                direction="forward"
+                disabled={navigationHistoryControls.forwardDisabled}
+                items={navigationHistoryControls.forwardRows}
+                badgeMode={navigationHistoryControls.badgeMode}
+                onPress={navigationHistoryControls.navigateForward}
+                onSelect={navigationHistoryControls.selectRow}
+              />
               <WorkspaceHeaderTitleBar
                 isLoading={isWorkspaceHeaderLoading}
                 title={workspaceHeaderTitle}
@@ -4345,6 +5009,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   compactHeaderActionButtonHovered: {
     backgroundColor: theme.colors.surface2,
+  },
+  headerActionButtonDisabled: {
+    opacity: theme.opacity[50],
   },
   compactHeaderMenuCluster: {
     flexDirection: "row",

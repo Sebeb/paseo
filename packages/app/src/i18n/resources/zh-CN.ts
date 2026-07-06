@@ -469,6 +469,10 @@ export const zhCN: TranslationResources = {
       hostDisconnected: "Host 未连接",
       unableToSubscribe: "无法订阅 Terminal",
     },
+    navigation: {
+      back: "Back",
+      forward: "Forward",
+    },
     tabs: {
       loading: "正在加载...",
       loadingAgentTitle: "正在加载 Agent 标题",
@@ -1669,6 +1673,8 @@ export const zhCN: TranslationResources = {
         closeCurrentTab: "关闭当前标签",
         jumpToWorkspace: "跳转到 workspace",
         jumpToTab: "跳转到标签",
+        historyBack: "Back",
+        historyForward: "Forward",
         previousWorkspace: "上一个 workspace",
         nextWorkspace: "下一个 workspace",
         previousTab: "上一个标签",

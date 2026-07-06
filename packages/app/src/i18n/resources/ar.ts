@@ -469,6 +469,10 @@ export const ar: TranslationResources = {
       hostDisconnected: "Host غير متصل",
       unableToSubscribe: "غير قادر على الاشتراك في المحطة",
     },
+    navigation: {
+      back: "Back",
+      forward: "Forward",
+    },
     tabs: {
       loading: "تحميل...",
       loadingAgentTitle: "جارٍ تحميل عنوان الوكيل",
@@ -1689,6 +1693,8 @@ export const ar: TranslationResources = {
         restoreLastClosedTab: "استعادة آخر علامة تبويب مغلقة",
         jumpToWorkspace: "انتقل إلى مساحة العمل",
         jumpToTab: "انتقل إلى علامة التبويب",
+        historyBack: "Back",
+        historyForward: "Forward",
         previousWorkspace: "مساحة العمل السابقة",
         nextWorkspace: "مساحة العمل التالية",
         previousTab: "علامة التبويب السابقة",

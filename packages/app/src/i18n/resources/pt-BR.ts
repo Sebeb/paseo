@@ -473,6 +473,10 @@ export const ptBR: TranslationResources = {
       hostDisconnected: "Host não está conectado",
       unableToSubscribe: "Não foi possível assinar o terminal",
     },
+    navigation: {
+      back: "Voltar",
+      forward: "Avançar",
+    },
     tabs: {
       loading: "Carregando...",
       loadingAgentTitle: "Carregando título do agente",
@@ -1716,6 +1720,8 @@ export const ptBR: TranslationResources = {
         restoreLastClosedTab: "Restaurar última aba fechada",
         jumpToWorkspace: "Ir para workspace",
         jumpToTab: "Ir para aba",
+        historyBack: "Voltar",
+        historyForward: "Avançar",
         previousWorkspace: "Workspace anterior",
         nextWorkspace: "Próximo workspace",
         previousTab: "Aba anterior",

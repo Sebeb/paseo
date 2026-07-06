@@ -28,6 +28,8 @@ export type KeyboardActionId =
   | "workspace.tab.restore.lastClosed"
   | "workspace.tab.navigate.index"
   | "workspace.tab.navigate.relative"
+  | "workspace.navigation.back"
+  | "workspace.navigation.forward"
   | "workspace.pane.split.right"
   | "workspace.pane.split.down"
   | "workspace.pane.focus.left"

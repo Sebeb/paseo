@@ -71,6 +71,12 @@ Closing a parent tab closes child tabs first, deepest child before direct child.
 
 Active subagents auto-open workspace tabs by default, just like root agents. For tab placement, a subagent created in the caller's current workspace opens in the parent's workspace even if its runtime cwd points at a subdirectory or same-branch duplicate descriptor. A subagent created in a distinct workspace (for example a different branch/worktree) opens there. Closing one of those tabs still follows the layout-only subagent policy above; archive and detach remain explicit actions from the subagents track.
 
+## Workspace navigation history
+
+Back/forward navigation is client-local layout state, not agent lifecycle state. The app records the user-visible workspace tab/pane selections the user visits and replays them by focusing the recorded pane/tab with `openAttentionAgent: false`. History entries are skipped when the workspace or tab no longer exists, so closing a tab or archiving a workspace does not revive it through history.
+
+The history stack is global per client but resolves differently depending on sidebar grouping: project grouping searches back/forward within the active project key, while status grouping searches across projects on the active host. This mirrors the sidebar mental model without changing archive behavior.
+
 ## Workspace activity
 
 Agent lifecycle status stays literal: a parent agent is `idle` when its own turn is idle, even if a child is running.
