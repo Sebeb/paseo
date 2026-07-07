@@ -173,6 +173,7 @@ import { type CheckoutGitAsyncActionId, useCheckoutGitActionsStore } from "@/git
 import { toWorktreeArchiveRisk } from "@/git/worktree-archive-warning";
 import { hasVisibleOrderChanged, mergeWithRemainder } from "@/utils/sidebar-reorder";
 import { decideLongPressMove } from "@/utils/sidebar-gesture-arbitration";
+import { shortenPath } from "@/utils/shorten-path";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { projectIconPlaceholderLabelFromDisplayName } from "@/utils/project-display-name";
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
@@ -1229,7 +1230,6 @@ interface SidebarWorkspaceListProps {
   projectSelectorRowEnabled?: boolean;
   projectSelectorRowProject?: SidebarProjectEntry | null;
   onProjectSelectorRowSelected?: (projectKey: string) => void;
-  onProjectSelectorRowHover?: (projectName: string | null) => void;
   isRefreshing?: boolean;
   onRefresh?: () => void;
   onWorkspacePress?: () => void;
@@ -6427,7 +6427,6 @@ export function SidebarWorkspaceList({
   projectSelectorRowEnabled = false,
   projectSelectorRowProject = null,
   onProjectSelectorRowSelected,
-  onProjectSelectorRowHover,
   isRefreshing: _isRefreshing = false,
   onRefresh: _onRefresh,
   onWorkspacePress,
@@ -6509,7 +6508,6 @@ export function SidebarWorkspaceList({
           selectedProjectKey={selectedSelectorRowProject.projectKey}
           groupMode={groupMode}
           onSelectProject={handleProjectSelectorRowSelected}
-          onHoverProject={onProjectSelectorRowHover}
           onEnterStatusMode={handleEnterStatusMode}
           onExitStatusMode={handleExitStatusMode}
         />
@@ -7500,7 +7498,6 @@ function SidebarProjectSelectorBar({
   selectedProjectKey,
   groupMode,
   onSelectProject,
-  onHoverProject,
   onEnterStatusMode,
   onExitStatusMode,
 }: {
@@ -7508,7 +7505,6 @@ function SidebarProjectSelectorBar({
   selectedProjectKey: string;
   groupMode: "project" | "status";
   onSelectProject?: (projectKey: string) => void;
-  onHoverProject?: (projectName: string | null) => void;
   onEnterStatusMode: () => void;
   onExitStatusMode: () => void;
 }) {
@@ -7572,9 +7568,8 @@ function SidebarProjectSelectorBar({
 
   const handlePointerLeave = useCallback(() => {
     pointerInsideRef.current = false;
-    onHoverProject?.(null);
     flushPendingLeadingProject();
-  }, [flushPendingLeadingProject, onHoverProject]);
+  }, [flushPendingLeadingProject]);
 
   const handleSelectProject = useCallback(
     (projectKey: string) => {
@@ -7638,7 +7633,6 @@ function SidebarProjectSelectorBar({
             groupMode={groupMode}
             reduceMotionEnabled={reduceMotionEnabled}
             onSelect={handleSelectProject}
-            onHoverProject={onHoverProject}
             onEnterStatusMode={onEnterStatusMode}
             onExitStatusMode={onExitStatusMode}
           />
@@ -7658,7 +7652,6 @@ function ProjectSelectorCapsule({
   groupMode,
   reduceMotionEnabled,
   onSelect,
-  onHoverProject,
   onEnterStatusMode,
   onExitStatusMode,
 }: {
@@ -7669,7 +7662,6 @@ function ProjectSelectorCapsule({
   groupMode: "project" | "status";
   reduceMotionEnabled: boolean;
   onSelect: (projectKey: string) => void;
-  onHoverProject?: (projectName: string | null) => void;
   onEnterStatusMode: () => void;
   onExitStatusMode: () => void;
 }) {
@@ -7765,16 +7757,10 @@ function ProjectSelectorCapsule({
     () => onSelect(project.projectKey),
     [onSelect, project.projectKey],
   );
-  const handlePointerEnter = useCallback(() => {
-    if (!selected) {
-      onHoverProject?.(project.projectName);
-    }
-  }, [onHoverProject, project.projectName, selected]);
-  const handlePointerLeave = useCallback(() => {
-    if (!selected) {
-      onHoverProject?.(null);
-    }
-  }, [onHoverProject, selected]);
+  const hoverCardContent = useMemo(
+    () => createElement(ProjectSelectorHoverCardContent, { project }),
+    [project],
+  );
   const capsuleColor = iconColor ?? deriveProjectIconColor(project.projectKey);
   const pressableStyle = useCallback(
     ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
@@ -7836,57 +7822,79 @@ function ProjectSelectorCapsule({
   ) : null;
 
   return (
-    <View
-      style={styles.projectSelectorCapsuleHoverTarget}
-      onPointerEnter={handlePointerEnter}
-      onPointerLeave={handlePointerLeave}
+    <InfoHoverCard
+      content={hoverCardContent}
+      accessibilityLabel={project.projectName}
+      testID={`sidebar-project-selector-hover-card-${project.projectKey}`}
     >
-      <ContextMenu>
-        <ContextMenuTrigger
-          enabledOnMobile={false}
-          accessibilityRole={platformIsWeb ? undefined : "button"}
-          accessibilityLabel={accessibilityLabel}
-          accessibilityState={accessibilityState}
-          testID={`sidebar-project-selector-capsule-${project.projectKey}`}
-          onPress={handlePress}
-          style={pressableStyle}
-        >
-          <Animated.View pointerEvents="none" style={selectedFillStyle} />
-          {glowStyle ? <Animated.View pointerEvents="none" style={glowStyle} /> : null}
-          <View style={styles.projectSelectorIconSlot}>
-            <ProjectIcon
-              iconDataUri={iconDataUri}
-              placeholderInitial={placeholderInitial}
-              projectKey={project.projectKey}
-            />
-          </View>
-          {statusBadgeToggle.enabled ? (
-            <StatusSummaryToggleButton
-              active={statusBadgeToggle.active}
-              testID={`sidebar-project-selector-status-toggle-${project.projectKey}`}
-              accessibilityLabel={
-                statusBadgeToggle.active
-                  ? "Show workspaces grouped by workspace"
-                  : "Show workspaces grouped by status"
-              }
-              hitSlop={PROJECT_SELECTOR_STATUS_TOGGLE_HIT_SLOP}
-              baseStyle={styles.projectSelectorStatusToggle}
-              onPress={handleStatusBadgesPress}
-            >
-              {statusBadges}
-            </StatusSummaryToggleButton>
-          ) : (
-            statusBadges
-          )}
-        </ContextMenuTrigger>
-        <ProjectContextMenuContent
-          projectKey={project.projectKey}
-          projectPath={project.iconWorkingDir}
-          onRemoveProject={handleRemoveProject}
-          removeProjectStatus={removeProjectStatus}
+      <View style={styles.projectSelectorCapsuleHoverTarget}>
+        <ContextMenu>
+          <ContextMenuTrigger
+            enabledOnMobile={false}
+            accessibilityRole={platformIsWeb ? undefined : "button"}
+            accessibilityLabel={accessibilityLabel}
+            accessibilityState={accessibilityState}
+            testID={`sidebar-project-selector-capsule-${project.projectKey}`}
+            onPress={handlePress}
+            style={pressableStyle}
+          >
+            <Animated.View pointerEvents="none" style={selectedFillStyle} />
+            {glowStyle ? <Animated.View pointerEvents="none" style={glowStyle} /> : null}
+            <View style={styles.projectSelectorIconSlot}>
+              <ProjectIcon
+                iconDataUri={iconDataUri}
+                placeholderInitial={placeholderInitial}
+                projectKey={project.projectKey}
+              />
+            </View>
+            {statusBadgeToggle.enabled ? (
+              <StatusSummaryToggleButton
+                active={statusBadgeToggle.active}
+                testID={`sidebar-project-selector-status-toggle-${project.projectKey}`}
+                accessibilityLabel={
+                  statusBadgeToggle.active
+                    ? "Show workspaces grouped by workspace"
+                    : "Show workspaces grouped by status"
+                }
+                hitSlop={PROJECT_SELECTOR_STATUS_TOGGLE_HIT_SLOP}
+                baseStyle={styles.projectSelectorStatusToggle}
+                onPress={handleStatusBadgesPress}
+              >
+                {statusBadges}
+              </StatusSummaryToggleButton>
+            ) : (
+              statusBadges
+            )}
+          </ContextMenuTrigger>
+          <ProjectContextMenuContent
+            projectKey={project.projectKey}
+            projectPath={project.iconWorkingDir}
+            onRemoveProject={handleRemoveProject}
+            removeProjectStatus={removeProjectStatus}
+          />
+        </ContextMenu>
+      </View>
+    </InfoHoverCard>
+  );
+}
+
+function ProjectSelectorHoverCardContent({ project }: { project: SidebarProjectEntry }) {
+  const pathDisplay = shortenPath(project.iconWorkingDir);
+  return (
+    <>
+      <View style={styles.embeddedTabHoverHeader}>
+        <Text style={styles.embeddedTabHoverTitle} numberOfLines={2}>
+          {project.projectName}
+        </Text>
+      </View>
+      {pathDisplay ? (
+        <SidebarHoverInfoRow
+          icon={ThemedFolder}
+          label={pathDisplay}
+          testID={`sidebar-project-selector-path-${project.projectKey}`}
         />
-      </ContextMenu>
-    </View>
+      ) : null}
+    </>
   );
 }
 

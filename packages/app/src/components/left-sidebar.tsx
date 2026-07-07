@@ -138,7 +138,6 @@ interface SidebarSharedProps {
   selectedSelectorRowProject: SidebarProjectEntry | null;
   headerProjectName: string | null;
   handleProjectSelectorRowSelect: (projectKey: string) => void;
-  handleProjectSelectorRowHover: (projectName: string | null) => void;
   isInitialLoad: boolean;
   isRevalidating: boolean;
   isManualRefresh: boolean;
@@ -347,9 +346,6 @@ export const LeftSidebar = memo(function LeftSidebar({
     (state) => state.setProjectSelectorRowProjectKey,
   );
   const projectSelectorRowEnabled = groupMode === "project" && projectSelectorRowSettingEnabled;
-  const [hoveredSelectorRowProjectName, setHoveredSelectorRowProjectName] = useState<string | null>(
-    null,
-  );
   const selectedSelectorRowProject = useMemo(
     () =>
       projectSelectorRowEnabled
@@ -411,7 +407,7 @@ export const LeftSidebar = memo(function LeftSidebar({
   ]);
 
   const headerProjectName = projectSelectorRowEnabled
-    ? (hoveredSelectorRowProjectName ?? selectedSelectorRowProject?.projectName ?? null)
+    ? (selectedSelectorRowProject?.projectName ?? null)
     : null;
   const handleProjectSelectorRowSelect = useCallback(
     (projectKey: string) => {
@@ -419,9 +415,6 @@ export const LeftSidebar = memo(function LeftSidebar({
     },
     [setProjectSelectorRowProjectKey],
   );
-  const handleProjectSelectorRowHover = useCallback((projectName: string | null) => {
-    setHoveredSelectorRowProjectName(projectName);
-  }, []);
 
   const [isManualRefresh, setIsManualRefresh] = useState(false);
 
@@ -513,7 +506,6 @@ export const LeftSidebar = memo(function LeftSidebar({
     selectedSelectorRowProject,
     headerProjectName,
     handleProjectSelectorRowSelect,
-    handleProjectSelectorRowHover,
     isInitialLoad,
     isRevalidating,
     isManualRefresh,
@@ -812,7 +804,6 @@ function MobileSidebar({
   selectedSelectorRowProject,
   headerProjectName,
   handleProjectSelectorRowSelect,
-  handleProjectSelectorRowHover,
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
@@ -1066,7 +1057,6 @@ function MobileSidebar({
                   projectSelectorRowEnabled={projectSelectorRowEnabled}
                   projectSelectorRowProject={selectedSelectorRowProject}
                   onProjectSelectorRowSelected={handleProjectSelectorRowSelect}
-                  onProjectSelectorRowHover={handleProjectSelectorRowHover}
                   isRefreshing={isManualRefresh && isRevalidating}
                   onRefresh={handleRefresh}
                   onWorkspacePress={handleWorkspacePress}
@@ -1115,7 +1105,6 @@ function DesktopSidebar({
   selectedSelectorRowProject,
   headerProjectName,
   handleProjectSelectorRowSelect,
-  handleProjectSelectorRowHover,
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
@@ -1312,7 +1301,6 @@ function DesktopSidebar({
                   projectSelectorRowEnabled={projectSelectorRowEnabled}
                   projectSelectorRowProject={selectedSelectorRowProject}
                   onProjectSelectorRowSelected={handleProjectSelectorRowSelect}
-                  onProjectSelectorRowHover={handleProjectSelectorRowHover}
                   isRefreshing={isManualRefresh && isRevalidating}
                   onRefresh={handleRefresh}
                   onAddProject={handleOpenProject}
