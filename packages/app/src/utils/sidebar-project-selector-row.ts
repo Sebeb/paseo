@@ -7,6 +7,33 @@ export interface SidebarProjectStatusCounts {
   failed: number;
 }
 
+export interface ProjectSelectorStatusBadgeToggleState {
+  enabled: boolean;
+  active: boolean;
+  nextGroupMode: "project" | "status" | null;
+}
+
+// The selected capsule's status badges double as a grouping toggle: clicking
+// them flips workspace grouping between "project" and "status". The cluster is
+// only interactive on the selected capsule and only when it has visible status
+// badges to click. Unselected capsules keep their badges purely informational.
+export function getProjectSelectorStatusBadgeToggleState(input: {
+  selected: boolean;
+  hasVisibleStatusBadges: boolean;
+  groupMode: "project" | "status";
+}): ProjectSelectorStatusBadgeToggleState {
+  const enabled = input.selected && input.hasVisibleStatusBadges;
+  if (!enabled) {
+    return { enabled: false, active: false, nextGroupMode: null };
+  }
+
+  return {
+    enabled: true,
+    active: input.groupMode === "status",
+    nextGroupMode: input.groupMode === "status" ? "project" : "status",
+  };
+}
+
 export function resolveProjectSelectorRowProject(input: {
   projects: readonly SidebarProjectEntry[];
   activeWorkspaceSelection: ActiveWorkspaceSelection | null;

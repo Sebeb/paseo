@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SidebarProjectEntry } from "@/hooks/sidebar-workspaces-view-model";
 import {
+  getProjectSelectorStatusBadgeToggleState,
   getProjectStatusCountsFromStatuses,
   orderProjectSelectorRowProjects,
   resolveProjectSelectorRowProject,
@@ -82,5 +83,63 @@ describe("project selector row helpers", () => {
     });
 
     expect(counts).toEqual({ attention: 1, needsInput: 1, failed: 1 });
+  });
+});
+
+describe("getProjectSelectorStatusBadgeToggleState", () => {
+  it("enables the selected capsule badge cluster to enter status mode", () => {
+    expect(
+      getProjectSelectorStatusBadgeToggleState({
+        selected: true,
+        hasVisibleStatusBadges: true,
+        groupMode: "project",
+      }),
+    ).toEqual({
+      enabled: true,
+      active: false,
+      nextGroupMode: "status",
+    });
+  });
+
+  it("toggles the selected capsule badge cluster back to project mode when already grouped by status", () => {
+    expect(
+      getProjectSelectorStatusBadgeToggleState({
+        selected: true,
+        hasVisibleStatusBadges: true,
+        groupMode: "status",
+      }),
+    ).toEqual({
+      enabled: true,
+      active: true,
+      nextGroupMode: "project",
+    });
+  });
+
+  it("keeps unselected capsule badges passive", () => {
+    expect(
+      getProjectSelectorStatusBadgeToggleState({
+        selected: false,
+        hasVisibleStatusBadges: true,
+        groupMode: "project",
+      }),
+    ).toEqual({
+      enabled: false,
+      active: false,
+      nextGroupMode: null,
+    });
+  });
+
+  it("keeps the selected capsule passive when it has no visible status badges", () => {
+    expect(
+      getProjectSelectorStatusBadgeToggleState({
+        selected: true,
+        hasVisibleStatusBadges: false,
+        groupMode: "project",
+      }),
+    ).toEqual({
+      enabled: false,
+      active: false,
+      nextGroupMode: null,
+    });
   });
 });

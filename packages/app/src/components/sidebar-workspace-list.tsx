@@ -10,11 +10,15 @@ import {
   type GestureResponderEvent,
   type PointerEvent as RNPointerEvent,
   type PressableStateCallbackType,
+  type StyleProp,
   type ViewStyle,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { deriveProjectIconColor } from "@/utils/project-icon-color";
-import { orderProjectSelectorRowProjects } from "@/utils/sidebar-project-selector-row";
+import {
+  getProjectSelectorStatusBadgeToggleState,
+  orderProjectSelectorRowProjects,
+} from "@/utils/sidebar-project-selector-row";
 import equal from "fast-deep-equal";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { ProjectIconView } from "@/components/project-icon-view";
@@ -310,6 +314,12 @@ function getPressClickCount(event: GestureResponderEvent): number | null {
 const WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS = [
   "draft",
 ] as const satisfies readonly SidebarEntryStatusKind[];
+const PROJECT_SELECTOR_STATUS_TOGGLE_HIT_SLOP = {
+  top: 8,
+  right: 8,
+  bottom: 8,
+  left: 8,
+} as const;
 const EMBEDDED_TAB_ROW_HEIGHT = 36;
 const EMBEDDED_TAB_PROJECT_LINE_ROW_HEIGHT = 46;
 const ThemedExternalLink = withUnistyles(ExternalLink);
@@ -2032,11 +2042,17 @@ function StatusSummaryToggleButton({
   testID,
   onPress,
   children,
+  accessibilityLabel,
+  hitSlop = 4,
+  baseStyle = styles.workspaceStatusSummaryToggle,
 }: {
   active: boolean;
   testID: string;
   onPress: (event: GestureResponderEvent) => void;
   children: ReactNode;
+  accessibilityLabel?: string;
+  hitSlop?: number | { top?: number; right?: number; bottom?: number; left?: number };
+  baseStyle?: StyleProp<ViewStyle>;
 }) {
   const handlePressIn = useCallback((event: GestureResponderEvent) => {
     event.stopPropagation();
@@ -2050,20 +2066,21 @@ function StatusSummaryToggleButton({
   );
   const style = useCallback(
     ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
-      styles.workspaceStatusSummaryToggle,
+      baseStyle,
       active && styles.workspaceStatusSummaryToggleActive,
       (hovered || pressed) && styles.workspaceStatusSummaryToggleHovered,
     ],
-    [active],
+    [active, baseStyle],
   );
 
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={
-        active ? "Show workspaces grouped by workspace" : "Show workspaces grouped by status"
+        accessibilityLabel ??
+        (active ? "Show workspaces grouped by workspace" : "Show workspaces grouped by status")
       }
-      hitSlop={4}
+      hitSlop={hitSlop}
       onPressIn={handlePressIn}
       onPress={handlePress}
       style={style}
@@ -6426,6 +6443,15 @@ export function SidebarWorkspaceList({
     [projects, selectedSelectorRowProject],
   );
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const setGroupMode = useSidebarViewStore((state) => state.setGroupMode);
+  const handleEnterStatusMode = useCallback(() => {
+    if (!serverId) return;
+    setGroupMode(serverId, "status");
+  }, [serverId, setGroupMode]);
+  const handleExitStatusMode = useCallback(() => {
+    if (!serverId) return;
+    setGroupMode(serverId, "project");
+  }, [serverId, setGroupMode]);
   const lastSelectedWorkspaceIdByProjectKey = useSidebarCollapsedSectionsStore(
     (state) => state.lastSelectedWorkspaceIdByProjectKey,
   );
@@ -6481,8 +6507,11 @@ export function SidebarWorkspaceList({
         <SidebarProjectSelectorBar
           projects={projects}
           selectedProjectKey={selectedSelectorRowProject.projectKey}
+          groupMode={groupMode}
           onSelectProject={handleProjectSelectorRowSelected}
           onHoverProject={onProjectSelectorRowHover}
+          onEnterStatusMode={handleEnterStatusMode}
+          onExitStatusMode={handleExitStatusMode}
         />
       ) : null}
       <ProjectModeList
@@ -7469,13 +7498,19 @@ export function SidebarSelectedProjectHeaderActions({
 function SidebarProjectSelectorBar({
   projects,
   selectedProjectKey,
+  groupMode,
   onSelectProject,
   onHoverProject,
+  onEnterStatusMode,
+  onExitStatusMode,
 }: {
   projects: SidebarProjectEntry[];
   selectedProjectKey: string;
+  groupMode: "project" | "status";
   onSelectProject?: (projectKey: string) => void;
   onHoverProject?: (projectName: string | null) => void;
+  onEnterStatusMode: () => void;
+  onExitStatusMode: () => void;
 }) {
   const scrollRef = useRef<ScrollView | null>(null);
   const [leadingProjectKey, setLeadingProjectKey] = useState(selectedProjectKey);
@@ -7600,9 +7635,12 @@ function SidebarProjectSelectorBar({
             iconDataUri={iconDataByProjectKey.get(project.projectKey) ?? null}
             iconColor={iconColorByProjectKey.get(project.projectKey) ?? null}
             selected={project.projectKey === selectedProjectKey}
+            groupMode={groupMode}
             reduceMotionEnabled={reduceMotionEnabled}
             onSelect={handleSelectProject}
             onHoverProject={onHoverProject}
+            onEnterStatusMode={onEnterStatusMode}
+            onExitStatusMode={onExitStatusMode}
           />
         ))}
       </ScrollView>
@@ -7617,17 +7655,23 @@ function ProjectSelectorCapsule({
   iconDataUri,
   iconColor,
   selected,
+  groupMode,
   reduceMotionEnabled,
   onSelect,
   onHoverProject,
+  onEnterStatusMode,
+  onExitStatusMode,
 }: {
   project: SidebarProjectEntry;
   iconDataUri: string | null;
   iconColor: string | null;
   selected: boolean;
+  groupMode: "project" | "status";
   reduceMotionEnabled: boolean;
   onSelect: (projectKey: string) => void;
   onHoverProject?: (projectName: string | null) => void;
+  onEnterStatusMode: () => void;
+  onExitStatusMode: () => void;
 }) {
   // Same status source and badge component as the project row's right-side
   // badges, so capsules and rows can never disagree.
@@ -7768,6 +7812,28 @@ function ProjectSelectorCapsule({
         : null,
     [glowKind, glowOpacity],
   );
+  // The selected capsule's badge cluster doubles as a grouping toggle. When the
+  // selected project has visible status badges, clicking them flips workspace
+  // grouping between "project" and "status".
+  const hasVisibleStatusBadges = visibleStatusKinds.length > 0;
+  const statusBadgeToggle = getProjectSelectorStatusBadgeToggleState({
+    selected,
+    hasVisibleStatusBadges,
+    groupMode,
+  });
+  const handleStatusBadgesPress = useCallback(() => {
+    if (statusBadgeToggle.nextGroupMode === "status") {
+      onEnterStatusMode();
+    } else if (statusBadgeToggle.nextGroupMode === "project") {
+      onExitStatusMode();
+    }
+  }, [onEnterStatusMode, onExitStatusMode, statusBadgeToggle.nextGroupMode]);
+  const statusBadges = hasVisibleStatusBadges ? (
+    <SidebarEntryStatusBadges
+      summary={statusSummary}
+      excludeKinds={WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS}
+    />
+  ) : null;
 
   return (
     <View
@@ -7794,12 +7860,24 @@ function ProjectSelectorCapsule({
               projectKey={project.projectKey}
             />
           </View>
-          {visibleStatusKinds.length > 0 ? (
-            <SidebarEntryStatusBadges
-              summary={statusSummary}
-              excludeKinds={WORKSPACE_PROJECT_STATUS_EXCLUDED_KINDS}
-            />
-          ) : null}
+          {statusBadgeToggle.enabled ? (
+            <StatusSummaryToggleButton
+              active={statusBadgeToggle.active}
+              testID={`sidebar-project-selector-status-toggle-${project.projectKey}`}
+              accessibilityLabel={
+                statusBadgeToggle.active
+                  ? "Show workspaces grouped by workspace"
+                  : "Show workspaces grouped by status"
+              }
+              hitSlop={PROJECT_SELECTOR_STATUS_TOGGLE_HIT_SLOP}
+              baseStyle={styles.projectSelectorStatusToggle}
+              onPress={handleStatusBadgesPress}
+            >
+              {statusBadges}
+            </StatusSummaryToggleButton>
+          ) : (
+            statusBadges
+          )}
         </ContextMenuTrigger>
         <ProjectContextMenuContent
           projectKey={project.projectKey}
@@ -7942,6 +8020,12 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.sm,
     overflow: "hidden",
     flexShrink: 0,
+  },
+  projectSelectorStatusToggle: {
+    paddingHorizontal: theme.spacing[1],
+    borderRadius: theme.borderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
   },
   projectSelectorFadeLeft: {
     position: "absolute",
