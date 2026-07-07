@@ -9,13 +9,25 @@ import {
 } from "react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Home, Plus, Settings } from "lucide-react-native";
-import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
-import { useCommandCenter } from "@/hooks/use-command-center";
-import type { AggregatedAgent } from "@/hooks/use-aggregated-agents";
-import { useHosts } from "@/runtime/host-runtime";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bot,
+  ChevronRight,
+  Clock3,
+  FileText,
+  Folder,
+  Globe,
+  Home,
+  Monitor,
+  Plus,
+  Save,
+  Settings,
+  Terminal,
+} from "lucide-react-native";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { useCommandCenter, type CommandCenterItem } from "@/hooks/use-command-center";
 import { formatTimeAgo } from "@/utils/time";
-import { shortenPath } from "@/utils/shorten-path";
 import { AgentStatusDot } from "@/components/agent-status-dot";
 import { Shortcut } from "@/components/ui/shortcut";
 import { isNative, isWeb } from "@/constants/platform";
@@ -30,13 +42,38 @@ import {
   BottomSheetTextInput,
 } from "@gorhom/bottom-sheet";
 
-function agentKey(agent: Pick<AggregatedAgent, "serverId" | "id">): string {
-  return `${agent.serverId}:${agent.id}`;
-}
-
 const ThemedBottomSheetTextInput = withUnistyles(BottomSheetTextInput, (theme) => ({
   placeholderTextColor: theme.colors.foregroundMuted,
 }));
+const ThemedTextInput = withUnistyles(TextInput, (theme) => ({
+  placeholderTextColor: theme.colors.foregroundMuted,
+}));
+const ThemedPlus = withUnistyles(Plus, (theme) => ({ color: theme.colors.foregroundMuted }));
+const ThemedSettings = withUnistyles(Settings, (theme) => ({
+  color: theme.colors.foregroundMuted,
+}));
+const ThemedHome = withUnistyles(Home, (theme) => ({ color: theme.colors.foregroundMuted }));
+const ThemedArrowLeft = withUnistyles(ArrowLeft, (theme) => ({
+  color: theme.colors.foregroundMuted,
+}));
+const ThemedArrowRight = withUnistyles(ArrowRight, (theme) => ({
+  color: theme.colors.foregroundMuted,
+}));
+const ThemedSave = withUnistyles(Save, (theme) => ({ color: theme.colors.foregroundMuted }));
+const ThemedFolder = withUnistyles(Folder, (theme) => ({ color: theme.colors.foregroundMuted }));
+const ThemedMonitor = withUnistyles(Monitor, (theme) => ({ color: theme.colors.foregroundMuted }));
+const ThemedTerminal = withUnistyles(Terminal, (theme) => ({
+  color: theme.colors.foregroundMuted,
+}));
+const ThemedGlobe = withUnistyles(Globe, (theme) => ({ color: theme.colors.foregroundMuted }));
+const ThemedFileText = withUnistyles(FileText, (theme) => ({
+  color: theme.colors.foregroundMuted,
+}));
+const ThemedBot = withUnistyles(Bot, (theme) => ({ color: theme.colors.foregroundMuted }));
+const ThemedChevronRight = withUnistyles(ChevronRight, (theme) => ({
+  color: theme.colors.foregroundMuted,
+}));
+const ThemedClock = withUnistyles(Clock3, (theme) => ({ color: theme.colors.foregroundMuted }));
 
 interface CommandCenterRowProps {
   active: boolean;
@@ -53,16 +90,12 @@ const CommandCenterRow = memo(function CommandCenterRow({
   registerRow,
   onLayout,
 }: CommandCenterRowProps) {
-  const { theme } = useUnistyles();
-
   const pressableStyle = useCallback(
     ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.row,
-      (Boolean(hovered) || pressed || active) && {
-        backgroundColor: theme.colors.surface1,
-      },
+      (Boolean(hovered) || pressed || active) && styles.rowActive,
     ],
-    [active, theme.colors.surface1],
+    [active],
   );
 
   return (
@@ -72,226 +105,198 @@ const CommandCenterRow = memo(function CommandCenterRow({
   );
 });
 
-interface CommandCenterRowContainerProps {
-  rowIndex: number;
-  active: boolean;
-  rowRefs: React.MutableRefObject<Map<number, View>>;
-  onPress: () => void;
-  onLayout?: (event: { nativeEvent: { layout: { y: number; height: number } } }) => void;
-  children: ReactNode;
+function rowKey(item: CommandCenterItem): string {
+  return item.id;
 }
 
-function CommandCenterRowContainer({
-  rowIndex,
-  active,
-  rowRefs,
-  onPress,
-  onLayout,
-  children,
-}: CommandCenterRowContainerProps) {
-  const registerRow = useCallback(
-    (el: View | null) => {
-      if (el) rowRefs.current.set(rowIndex, el);
-      else rowRefs.current.delete(rowIndex);
-    },
-    [rowRefs, rowIndex],
-  );
+function hasAlternateAction(item: CommandCenterItem): boolean {
   return (
-    <CommandCenterRow
-      active={active}
-      registerRow={registerRow}
-      onPress={onPress}
-      onLayout={onLayout}
-    >
-      {children}
-    </CommandCenterRow>
+    item.kind === "workspace" ||
+    item.kind === "project" ||
+    (item.kind === "action" && Boolean(item.historyDirection) && !item.disabled)
   );
 }
 
-interface CommandCenterActionRowProps {
-  item: Extract<ReturnType<typeof useCommandCenter>["items"][number], { kind: "action" }>;
-  rowIndex: number;
-  active: boolean;
-  rowRefs: React.MutableRefObject<Map<number, View>>;
-  onLayout?: (event: { nativeEvent: { layout: { y: number; height: number } } }) => void;
-  onSelect: (item: ReturnType<typeof useCommandCenter>["items"][number]) => void;
-}
-
-function CommandCenterActionRow({
-  item,
-  rowIndex,
-  active,
-  rowRefs,
-  onLayout,
-  onSelect,
-}: CommandCenterActionRowProps) {
-  const { theme } = useUnistyles();
-  const handlePress = useCallback(() => onSelect(item), [onSelect, item]);
-  const action = item.action;
-  let actionIcon: React.ReactNode = null;
-  if (action.icon === "plus") {
-    actionIcon = <Plus size={16} strokeWidth={2.4} color={theme.colors.foregroundMuted} />;
-  } else if (action.icon === "settings") {
-    actionIcon = <Settings size={16} strokeWidth={2.2} color={theme.colors.foregroundMuted} />;
-  } else if (action.icon === "home") {
-    actionIcon = <Home size={16} strokeWidth={2.2} color={theme.colors.foregroundMuted} />;
+function renderItemIcon(item: CommandCenterItem): ReactNode {
+  if (item.kind === "agent") {
+    return (
+      <AgentStatusDot
+        status={item.agent.status}
+        requiresAttention={item.agent.requiresAttention}
+        showInactive
+      />
+    );
   }
-  const titleStyle = useMemo(
-    () => [styles.title, { color: theme.colors.foreground }],
-    [theme.colors.foreground],
-  );
-  return (
-    <CommandCenterRowContainer
-      rowIndex={rowIndex}
-      active={active}
-      rowRefs={rowRefs}
-      onPress={handlePress}
-      onLayout={onLayout}
-    >
-      <View style={styles.rowContent}>
-        <View style={styles.rowMain}>
-          {actionIcon ? <View style={styles.iconSlot}>{actionIcon}</View> : null}
-          <View style={styles.textContent}>
-            <Text style={titleStyle} numberOfLines={1}>
-              {action.title}
-            </Text>
-          </View>
-        </View>
-        {action.shortcutKeys ? (
-          <Shortcut chord={action.shortcutKeys} style={styles.rowShortcut} />
-        ) : null}
-      </View>
-    </CommandCenterRowContainer>
-  );
+  if (item.kind === "window") {
+    if (item.windowKind === "terminal") return <ThemedTerminal size={16} strokeWidth={2.2} />;
+    if (item.windowKind === "browser") return <ThemedGlobe size={16} strokeWidth={2.2} />;
+    if (item.windowKind === "file") return <ThemedFileText size={16} strokeWidth={2.2} />;
+    return <ThemedMonitor size={16} strokeWidth={2.2} />;
+  }
+  if (item.kind === "workspace" || item.kind === "project") {
+    return <ThemedFolder size={16} strokeWidth={2.2} />;
+  }
+  if (item.kind === "history") {
+    return <ThemedMonitor size={16} strokeWidth={2.2} />;
+  }
+  if (item.kind === "show-all") {
+    return <ThemedChevronRight size={16} strokeWidth={2.2} />;
+  }
+  switch (item.icon) {
+    case "plus":
+      return <ThemedPlus size={16} strokeWidth={2.4} />;
+    case "settings":
+      return <ThemedSettings size={16} strokeWidth={2.2} />;
+    case "home":
+      return <ThemedHome size={16} strokeWidth={2.2} />;
+    case "arrow-left":
+      return <ThemedArrowLeft size={16} strokeWidth={2.2} />;
+    case "arrow-right":
+      return <ThemedArrowRight size={16} strokeWidth={2.2} />;
+    case "save":
+      return <ThemedSave size={16} strokeWidth={2.2} />;
+    default:
+      return <ThemedBot size={16} strokeWidth={2.2} />;
+  }
 }
 
-interface CommandCenterAgentRowProps {
-  item: Extract<ReturnType<typeof useCommandCenter>["items"][number], { kind: "agent" }>;
-  rowIndex: number;
+function updatedAtForItem(item: CommandCenterItem): number | null {
+  return typeof item.updatedAt === "number" && item.updatedAt > 0 ? item.updatedAt : null;
+}
+
+function detailForItem(item: CommandCenterItem): string | null {
+  if ("detail" in item && item.detail) {
+    return item.detail;
+  }
+  return null;
+}
+
+interface RowContentProps {
+  item: CommandCenterItem;
   active: boolean;
-  rowRefs: React.MutableRefObject<Map<number, View>>;
-  onLayout?: (event: { nativeEvent: { layout: { y: number; height: number } } }) => void;
-  onSelect: (item: ReturnType<typeof useCommandCenter>["items"][number]) => void;
-  children: ReactNode;
+  onAlternate: (item: CommandCenterItem) => void;
 }
 
-function CommandCenterAgentRow({
-  rowIndex,
-  active,
-  rowRefs,
-  onLayout,
-  onSelect,
-  item,
-  children,
-}: CommandCenterAgentRowProps) {
-  const handlePress = useCallback(() => onSelect(item), [onSelect, item]);
+function RowContent({ item, active, onAlternate }: RowContentProps) {
+  const detail = detailForItem(item);
+  const updatedAt = updatedAtForItem(item);
+  const canAlternate = hasAlternateAction(item);
+  const handleAlternatePress = useCallback(() => {
+    onAlternate(item);
+  }, [item, onAlternate]);
+
   return (
-    <CommandCenterRowContainer
-      rowIndex={rowIndex}
-      active={active}
-      rowRefs={rowRefs}
-      onPress={handlePress}
-      onLayout={onLayout}
+    <View
+      style={
+        item.kind === "action" && item.disabled ? styles.rowContentDisabled : styles.rowContent
+      }
     >
-      {children}
-    </CommandCenterRowContainer>
-  );
-}
-
-interface CommandCenterAgentRowContentProps {
-  agent: AggregatedAgent;
-  showHost: boolean;
-}
-
-function CommandCenterAgentRowContent({ agent, showHost }: CommandCenterAgentRowContentProps) {
-  const { theme } = useUnistyles();
-  const { t } = useTranslation();
-  const titleStyle = useMemo(
-    () => [styles.title, { color: theme.colors.foreground }],
-    [theme.colors.foreground],
-  );
-  const subtitleStyle = useMemo(
-    () => [styles.subtitle, { color: theme.colors.foregroundMuted }],
-    [theme.colors.foregroundMuted],
-  );
-  return (
-    <View style={styles.rowContent} testID={`command-center-agent-${agent.serverId}:${agent.id}`}>
       <View style={styles.rowMain}>
-        <View style={styles.iconSlot}>
-          <AgentStatusDot
-            status={agent.status}
-            requiresAttention={agent.requiresAttention}
-            showInactive
-          />
-        </View>
+        <View style={styles.iconSlot}>{renderItemIcon(item)}</View>
         <View style={styles.textContent}>
-          <Text style={titleStyle} numberOfLines={1}>
-            {agent.title || t("shell.commandCenter.newAgent")}
+          <Text style={styles.title} numberOfLines={1}>
+            {item.title}
           </Text>
-          <Text style={subtitleStyle} numberOfLines={1} testID="command-center-agent-subtitle">
-            {showHost ? `${agent.serverLabel} · ` : ""}
-            {shortenPath(agent.cwd)} · {formatTimeAgo(agent.lastActivityAt)}
-          </Text>
+          {detail || updatedAt ? (
+            <View style={styles.detailLine}>
+              {detail ? (
+                <Text style={styles.subtitle} numberOfLines={1}>
+                  {detail}
+                </Text>
+              ) : null}
+              {updatedAt ? (
+                <View style={styles.timeDetail}>
+                  <ThemedClock size={12} strokeWidth={2} />
+                  <Text style={styles.subtitle} numberOfLines={1}>
+                    {formatTimeAgo(new Date(updatedAt))}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       </View>
+      {item.kind === "action" && item.shortcutKeys ? (
+        <Shortcut chord={item.shortcutKeys} style={styles.rowShortcut} />
+      ) : null}
+      {canAlternate ? (
+        <Pressable
+          testID={`command-center-alt-${item.id}`}
+          onPress={handleAlternatePress}
+          style={active ? styles.arrowKey : styles.arrowBare}
+          hitSlop={8}
+        >
+          <Text style={active ? styles.arrowKeyText : styles.arrowBareText}>→</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
 
-interface AgentItemsSectionProps {
-  agentItems: Extract<ReturnType<typeof useCommandCenter>["items"][number], { kind: "agent" }>[];
-  actionItemsLength: number;
-  activeIndex: number;
-  rowRefs: React.MutableRefObject<Map<number, View>>;
+interface ResultRowProps {
+  item: CommandCenterItem;
+  rowIndex: number;
+  active: boolean;
+  registerRow: (rowIndex: number) => (el: View | null) => void;
   onRowLayout: (
     rowIndex: number,
   ) => (event: { nativeEvent: { layout: { y: number; height: number } } }) => void;
-  onSelect: (item: ReturnType<typeof useCommandCenter>["items"][number]) => void;
-  sectionDividerStyle: React.ComponentProps<typeof View>["style"];
-  sectionLabelStyle: React.ComponentProps<typeof Text>["style"];
-  showHost: boolean;
+  onSelect: (item: CommandCenterItem) => void;
+  onAlternate: (item: CommandCenterItem) => void;
 }
 
-function AgentItemsSection({
-  agentItems,
-  actionItemsLength,
-  activeIndex,
-  rowRefs,
+function ResultRow({
+  item,
+  rowIndex,
+  active,
+  registerRow,
   onRowLayout,
   onSelect,
-  sectionDividerStyle,
-  sectionLabelStyle,
-  showHost,
-}: AgentItemsSectionProps) {
-  const { t } = useTranslation();
-
+  onAlternate,
+}: ResultRowProps) {
+  const handlePress = useCallback(() => onSelect(item), [item, onSelect]);
   return (
-    <>
-      {actionItemsLength > 0 ? <View style={sectionDividerStyle} /> : null}
-      <Text style={sectionLabelStyle}>{t("shell.commandCenter.agents")}</Text>
-      {agentItems.map((item, index) => {
-        const rowIndex = actionItemsLength + index;
-        const agent = item.agent;
-        return (
-          <CommandCenterAgentRow
-            key={agentKey(agent)}
-            item={item}
-            rowIndex={rowIndex}
-            active={rowIndex === activeIndex}
-            rowRefs={rowRefs}
-            onLayout={onRowLayout(rowIndex)}
-            onSelect={onSelect}
-          >
-            <CommandCenterAgentRowContent agent={agent} showHost={showHost} />
-          </CommandCenterAgentRow>
-        );
-      })}
-    </>
+    <CommandCenterRow
+      active={active}
+      registerRow={registerRow(rowIndex)}
+      onPress={handlePress}
+      onLayout={onRowLayout(rowIndex)}
+    >
+      <RowContent item={item} active={active} onAlternate={onAlternate} />
+    </CommandCenterRow>
+  );
+}
+
+interface PillProps<Id extends string> {
+  id: Id;
+  label: string;
+  selected: boolean;
+  onSelect: (id: Id) => void;
+}
+
+function FilterPill<Id extends string>({ id, label, selected, onSelect }: PillProps<Id>) {
+  const handlePress = useCallback(() => onSelect(id), [id, onSelect]);
+  return (
+    <Pressable
+      style={selected ? styles.filterPillSelectedCombined : styles.filterPill}
+      onPress={handlePress}
+    >
+      <Text style={selected ? styles.filterPillTextSelectedCombined : styles.filterPillText}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function KeyHint({ label }: { label: string }) {
+  return (
+    <View style={styles.keyHint}>
+      <Text style={styles.keyHintText}>{label}</Text>
+    </View>
   );
 }
 
 export function CommandCenter() {
-  const { theme } = useUnistyles();
   const { t } = useTranslation();
   const {
     open,
@@ -299,24 +304,27 @@ export function CommandCenter() {
     query,
     setQuery,
     activeIndex,
-    items,
+    groups,
+    filterPills,
+    scopePills,
+    activeSubmenu,
+    placeholder,
     handleClose,
     handleSelectItem,
+    handleAlternateItem,
     handleKeyEvent,
+    setGroupFilter,
+    setScope,
   } = useCommandCenter();
 
   const isCompact = useIsCompactFormFactor();
   const showBottomSheet = isCompact && isNative;
-  // Host names only earn their space once results can span more than one host.
-  const showHost = useHosts().length > 1;
-
   const rowRefs = useRef<Map<number, View>>(new Map());
   const rowLayouts = useRef<Map<number, { y: number; height: number }>>(new Map());
   const resultsRef = useRef<ScrollView>(null);
   const nativeScrollY = useRef(0);
   const nativeViewHeight = useRef(0);
-  // BottomSheetTextInput wraps a different TextInput type (from react-native-gesture-handler).
-  // Use a loose ref to avoid the type mismatch — same pattern as AdaptiveTextInput.
+  // BottomSheetTextInput wraps a different TextInput type.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bottomSheetInputRef = useRef<any>(null);
 
@@ -326,7 +334,6 @@ export function CommandCenter() {
     onClose: handleClose,
   });
 
-  // Focus the bottom sheet input when the sheet opens on mobile
   useEffect(() => {
     if (showBottomSheet && open) {
       const id = setTimeout(() => bottomSheetInputRef.current?.focus(), 300);
@@ -341,10 +348,8 @@ export function CommandCenter() {
     [],
   );
 
-  // Scroll active row into view
   useEffect(() => {
     if (!open) return;
-
     if (isWeb) {
       const row = rowRefs.current.get(activeIndex);
       if (!row || typeof document === "undefined") return;
@@ -370,24 +375,18 @@ export function CommandCenter() {
 
       if (rowTop < visibleTop) {
         scrollNode.scrollTop = rowTop;
-        return;
-      }
-
-      if (rowBottom > visibleBottom) {
+      } else if (rowBottom > visibleBottom) {
         scrollNode.scrollTop = rowBottom - scrollNode.clientHeight;
       }
       return;
     }
 
-    // Native: use onLayout-measured positions
     const layout = rowLayouts.current.get(activeIndex);
     if (!layout || !resultsRef.current) return;
-
     const rowTop = layout.y;
     const rowBottom = rowTop + layout.height;
     const visibleTop = nativeScrollY.current;
     const visibleBottom = visibleTop + nativeViewHeight.current;
-
     if (rowTop < visibleTop) {
       resultsRef.current.scrollTo?.({ y: rowTop, animated: true });
     } else if (rowBottom > visibleBottom) {
@@ -408,35 +407,12 @@ export function CommandCenter() {
     [],
   );
 
-  const actionItems = useMemo(() => items.filter((item) => item.kind === "action"), [items]);
-  const agentItems = useMemo(() => items.filter((item) => item.kind === "agent"), [items]);
-
-  const panelStyle = useMemo(
-    () => [
-      styles.panel,
-      { borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 },
-    ],
-    [theme.colors.border, theme.colors.surface0],
-  );
-  const headerStyle = useMemo(
-    () => [styles.header, { borderBottomColor: theme.colors.border }],
-    [theme.colors.border],
-  );
-  const inputStyle = useMemo(
-    () => [styles.input, { color: theme.colors.foreground }],
-    [theme.colors.foreground],
-  );
-  const emptyTextStyle = useMemo(
-    () => [styles.emptyText, { color: theme.colors.foregroundMuted }],
-    [theme.colors.foregroundMuted],
-  );
-  const sectionLabelStyle = useMemo(
-    () => [styles.sectionLabel, { color: theme.colors.foregroundMuted }],
-    [theme.colors.foregroundMuted],
-  );
-  const sectionDividerStyle = useMemo(
-    () => [styles.sectionDivider, { backgroundColor: theme.colors.border }],
-    [theme.colors.border],
+  const registerRow = useCallback(
+    (rowIndex: number) => (el: View | null) => {
+      if (el) rowRefs.current.set(rowIndex, el);
+      else rowRefs.current.delete(rowIndex);
+    },
+    [],
   );
 
   const handleKeyPress = useCallback(
@@ -450,47 +426,133 @@ export function CommandCenter() {
     handleKeyEvent("Enter");
   }, [handleKeyEvent]);
 
+  const handleSelectScopePill = useCallback(
+    (mode: (typeof scopePills)[number]["id"]) => {
+      setScope({ mode });
+    },
+    [setScope],
+  );
+
+  const handleResultsScroll = useCallback(
+    (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+      nativeScrollY.current = event.nativeEvent.contentOffset.y;
+    },
+    [],
+  );
+
+  const handleResultsLayout = useCallback(
+    (event: { nativeEvent: { layout: { height: number } } }) => {
+      nativeViewHeight.current = event.nativeEvent.layout.height;
+    },
+    [],
+  );
+
   const snapPoints = useMemo(() => ["60%", "90%"], []);
 
+  let rowIndex = 0;
   const resultList =
-    items.length === 0 ? (
-      <Text style={emptyTextStyle}>{t("shell.commandCenter.noMatches")}</Text>
+    groups.length === 0 ? (
+      <Text style={styles.emptyText}>{t("shell.commandCenter.noMatches")}</Text>
     ) : (
-      <>
-        {actionItems.length > 0 ? (
-          <>
-            <Text style={sectionLabelStyle}>{t("shell.commandCenter.actions")}</Text>
-            {actionItems.map((item, index) => (
-              <CommandCenterActionRow
-                key={`action:${item.action.id}`}
+      groups.map((group, groupIndex) => (
+        <View key={group.group}>
+          {groupIndex > 0 ? <View style={styles.sectionDivider} /> : null}
+          <Text style={styles.sectionLabel}>{group.title}</Text>
+          {group.items.map((item) => {
+            const index = rowIndex++;
+            return (
+              <ResultRow
+                key={rowKey(item)}
                 item={item}
                 rowIndex={index}
                 active={index === activeIndex}
-                rowRefs={rowRefs}
-                onLayout={handleRowLayout(index)}
+                registerRow={registerRow}
+                onRowLayout={handleRowLayout}
                 onSelect={handleSelectItem}
+                onAlternate={handleAlternateItem}
               />
-            ))}
-          </>
-        ) : null}
-
-        {agentItems.length > 0 ? (
-          <AgentItemsSection
-            agentItems={agentItems}
-            actionItemsLength={actionItems.length}
-            activeIndex={activeIndex}
-            rowRefs={rowRefs}
-            onRowLayout={handleRowLayout}
-            onSelect={handleSelectItem}
-            sectionDividerStyle={sectionDividerStyle}
-            sectionLabelStyle={sectionLabelStyle}
-            showHost={showHost}
-          />
-        ) : null}
-      </>
+            );
+          })}
+        </View>
+      ))
     );
 
-  // Mobile: bottom sheet
+  const filters = activeSubmenu ? null : (
+    <View style={styles.filterBar}>
+      <KeyHint label="Tab" />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroller}>
+        <View style={styles.filterPills}>
+          {filterPills.map((pill) => (
+            <FilterPill
+              key={pill.id}
+              id={pill.id}
+              label={pill.label}
+              selected={pill.selected}
+              onSelect={setGroupFilter}
+            />
+          ))}
+        </View>
+      </ScrollView>
+      <View style={styles.scopePills}>
+        {scopePills.map((pill) => (
+          <FilterPill
+            key={pill.id}
+            id={pill.id}
+            label={pill.label}
+            selected={pill.selected}
+            onSelect={handleSelectScopePill}
+          />
+        ))}
+      </View>
+      <View style={styles.shiftTabHint}>
+        <KeyHint label="Shift" />
+        <KeyHint label="Tab" />
+      </View>
+    </View>
+  );
+
+  const inputContent = (
+    <View style={styles.inputRow}>
+      {activeSubmenu ? (
+        <View style={styles.submenuPill}>
+          {activeSubmenu.icon === "arrow-left" ? (
+            <ThemedArrowLeft size={13} strokeWidth={2.2} />
+          ) : (
+            <ThemedArrowRight size={13} strokeWidth={2.2} />
+          )}
+          <Text style={styles.submenuPillText}>{activeSubmenu.title}</Text>
+        </View>
+      ) : null}
+      {showBottomSheet ? (
+        <ThemedBottomSheetTextInput
+          testID="command-center-input"
+          ref={bottomSheetInputRef as unknown as React.Ref<never>}
+          value={query}
+          onChangeText={setQuery}
+          onKeyPress={handleKeyPress}
+          onSubmitEditing={handleSubmitEditing}
+          placeholder={placeholder}
+          style={styles.input}
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoFocus
+        />
+      ) : (
+        <ThemedTextInput
+          testID="command-center-input"
+          ref={inputRef}
+          value={query}
+          onChangeText={setQuery}
+          placeholder={placeholder}
+          style={styles.input}
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoFocus
+        />
+      )}
+    </View>
+  );
+
   if (showBottomSheet) {
     return (
       <IsolatedBottomSheetModal
@@ -506,20 +568,9 @@ export function CommandCenter() {
         keyboardBlurBehavior="restore"
         accessible={false}
       >
-        <View style={styles.bottomSheetHeader}>
-          <ThemedBottomSheetTextInput
-            testID="command-center-input"
-            ref={bottomSheetInputRef as unknown as React.Ref<never>}
-            value={query}
-            onChangeText={setQuery}
-            onKeyPress={handleKeyPress}
-            onSubmitEditing={handleSubmitEditing}
-            placeholder={t("shell.commandCenter.placeholder")}
-            style={inputStyle}
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoFocus
-          />
+        <View style={styles.header}>
+          {inputContent}
+          {filters}
         </View>
         <BottomSheetScrollView
           contentContainerStyle={styles.resultsContent}
@@ -534,34 +585,23 @@ export function CommandCenter() {
 
   if (!open) return null;
 
-  // Desktop web: centered overlay panel
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={handleClose}>
       <View style={styles.overlay}>
         <Pressable style={styles.backdrop} onPress={handleClose} />
-
-        <View testID="command-center-panel" style={panelStyle}>
-          <View style={headerStyle}>
-            <TextInput
-              testID="command-center-input"
-              ref={inputRef}
-              value={query}
-              onChangeText={setQuery}
-              placeholder={t("shell.commandCenter.placeholder")}
-              placeholderTextColor={theme.colors.foregroundMuted}
-              style={inputStyle}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoFocus
-            />
+        <View testID="command-center-panel" style={styles.panel}>
+          <View style={styles.header}>
+            {inputContent}
+            {filters}
           </View>
-
           <ScrollView
             ref={resultsRef}
             style={styles.results}
             contentContainerStyle={styles.resultsContent}
             keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
+            onScroll={handleResultsScroll}
+            onLayout={handleResultsLayout}
           >
             {resultList}
           </ScrollView>
@@ -572,12 +612,6 @@ export function CommandCenter() {
 }
 
 const styles = StyleSheet.create((theme) => ({
-  bottomSheetHeader: {
-    paddingHorizontal: theme.spacing[4],
-    paddingVertical: theme.spacing[3],
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
   overlay: {
     flex: 1,
     justifyContent: "flex-start",
@@ -589,24 +623,127 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   panel: {
-    width: 640,
+    width: 720,
     maxWidth: "92%",
-    maxHeight: "80%",
+    maxHeight: "82%",
     borderWidth: 1,
+    borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface0,
     overflow: "hidden",
     ...theme.shadow.lg,
   },
   header: {
     paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[3],
+    gap: theme.spacing[3],
     borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  inputRow: {
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
   },
   input: {
+    flex: 1,
+    minWidth: 0,
     fontSize: theme.fontSize.lg,
+    color: theme.colors.foreground,
     paddingVertical: theme.spacing[1],
     outlineStyle: "none",
   } as object,
+  submenuPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.surface1,
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: 4,
+    maxWidth: 180,
+  },
+  submenuPillText: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
+  filterBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  filterScroller: {
+    flexShrink: 1,
+  },
+  filterPills: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  scopePills: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    flexShrink: 1,
+  },
+  filterPill: {
+    minHeight: 26,
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.md,
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: 3,
+  },
+  filterPillSelected: {
+    backgroundColor: theme.colors.surface1,
+    borderColor: theme.colors.foregroundMuted,
+  },
+  filterPillSelectedCombined: {
+    minHeight: 26,
+    justifyContent: "center",
+    borderWidth: 1,
+    borderRadius: theme.borderRadius.md,
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: 3,
+    backgroundColor: theme.colors.surface1,
+    borderColor: theme.colors.foregroundMuted,
+  },
+  filterPillText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  filterPillTextSelected: {
+    color: theme.colors.foreground,
+  },
+  filterPillTextSelectedCombined: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.xs,
+  },
+  keyHint: {
+    minWidth: 28,
+    minHeight: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderBottomWidth: 2,
+    borderRadius: theme.borderRadius.sm,
+    paddingHorizontal: theme.spacing[1],
+    backgroundColor: theme.colors.surface1,
+  },
+  keyHintText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.medium,
+  },
+  shiftTabHint: {
+    gap: 2,
+    alignItems: "stretch",
+  },
   results: {
     flexGrow: 0,
   },
@@ -615,24 +752,38 @@ const styles = StyleSheet.create((theme) => ({
   },
   sectionLabel: {
     paddingHorizontal: theme.spacing[4],
-    paddingTop: 0,
     paddingBottom: theme.spacing[2],
     fontSize: theme.fontSize.xs,
+    color: theme.colors.foregroundMuted,
   },
   sectionDivider: {
     height: 1,
     marginTop: theme.spacing[2],
     marginBottom: theme.spacing[2],
+    backgroundColor: theme.colors.border,
   },
   row: {
     paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[2],
+  },
+  rowActive: {
+    backgroundColor: theme.colors.surface1,
   },
   rowContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: theme.spacing[3],
+  },
+  rowContentDisabled: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[3],
+    opacity: 0.48,
+  },
+  disabled: {
+    opacity: 0.48,
   },
   rowMain: {
     flex: 1,
@@ -642,32 +793,75 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[3],
   },
   iconSlot: {
-    width: 16,
-    height: 20,
+    width: 18,
+    height: 22,
     alignItems: "center",
     justifyContent: "center",
   },
   textContent: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
+    gap: 3,
   },
   rowShortcut: {
     marginLeft: theme.spacing[2],
     flexShrink: 0,
   },
   title: {
+    color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
     fontWeight: "400",
     lineHeight: 20,
   },
+  detailLine: {
+    minHeight: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    minWidth: 0,
+  },
   subtitle: {
+    flexShrink: 1,
+    color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
+    lineHeight: 18,
+  },
+  timeDetail: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    flexShrink: 0,
+  },
+  arrowBare: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  arrowBareText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.base,
+  },
+  arrowKey: {
+    minWidth: 28,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderBottomWidth: 2,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: theme.colors.surface2,
+  },
+  arrowKeyText: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.base,
     lineHeight: 18,
   },
   emptyText: {
     paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[4],
+    color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.base,
   },
 }));
